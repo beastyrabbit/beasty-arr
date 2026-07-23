@@ -1,0 +1,74 @@
+name: Quality and container
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+enable-openid-connect: true
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: personal
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+      - name: Enable pnpm
+        run: corepack enable
+      - name: Resolve pnpm store
+        id: pnpm-cache
+        run: echo "store-path=$(pnpm store path)" >> "$GITHUB_OUTPUT"
+      - name: Restore pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.store-path }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Run quality checks
+        run: pnpm check
+
+  container:
+    needs: quality
+    runs-on: personal
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+      - name: Install Docker CLI
+        run: |
+          set -euo pipefail
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates docker.io
+          docker --version
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+        with:
+          driver: remote
+          endpoint: tcp://buildkitd.forgejo-runners.svc.cluster.local:1234
+      - name: Log in to Forgejo Container Registry
+        if: github.event_name != 'pull_request'
+        uses: https://git.heerlab.com/beasty/forgejo-ci/actions/registry-login@main
+      - name: Extract image metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: git.heerlab.com/${{ github.repository }}
+          tags: |
+            type=raw,value=main,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha
+      - name: Build and push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

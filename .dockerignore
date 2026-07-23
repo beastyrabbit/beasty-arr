@@ -1,0 +1,6 @@
+.git
+.forgejo
+node_modules
+dist
+data
+.env

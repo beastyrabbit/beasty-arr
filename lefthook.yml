@@ -1,0 +1,11 @@
+pre-commit:
+  parallel: true
+  commands:
+    biome:
+      run: pnpm biome check .
+    gitleaks:
+      run: gitleaks git --staged --no-banner --redact
+pre-push:
+  commands:
+    test:
+      run: pnpm test
