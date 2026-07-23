@@ -1,4 +1,16 @@
-import { and, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, notInArray } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  gte,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  lte,
+  notInArray,
+  or,
+} from "drizzle-orm";
 import type { FastifyBaseLogger } from "fastify";
 import {
   type AiVerdictValue,
@@ -361,6 +373,8 @@ export class SyncService {
       awaitingImportSince: at,
     });
     // Credit the grab to the most recent open search attempt covering this item.
+    // The engine writes 'no_grab' right after command completion, so a grab that
+    // only shows up on the next history poll must still be able to flip it.
     const windowStart = this.now() - GRAB_ATTEMPT_WINDOW_MS;
     const candidates = this.db
       .select()
@@ -369,7 +383,7 @@ export class SyncService {
         and(
           eq(searchAttempts.source, source),
           gte(searchAttempts.createdAt, windowStart),
-          isNull(searchAttempts.result),
+          or(isNull(searchAttempts.result), eq(searchAttempts.result, "no_grab")),
         ),
       )
       .orderBy(desc(searchAttempts.createdAt))

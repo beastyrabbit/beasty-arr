@@ -2,17 +2,144 @@
 @import "@fontsource-variable/inter";
 @import "@fontsource-variable/jetbrains-mono";
 
+@theme {
+  --font-sans: "Inter Variable", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, monospace;
+
+  --color-bg: #0e0f13;
+  --color-surface: #15171d;
+  --color-raised: #1a1d24;
+  --color-line: #262a33;
+  --color-ink: #e6e8ee;
+  --color-muted: #8b93a5;
+  --color-faint: #5c6370;
+  --color-accent: #f0a63a;
+
+  /* state palette — one enum drives every badge/filter/ribbon segment */
+  --color-german: #34d399;
+  --color-nongerman: #fbbf24;
+  --color-missing: #fb7185;
+  --color-aipaused: #a78bfa;
+  --color-userpaused: #94a3b8;
+  --color-unreleased: #7dd3fc;
+  --color-exhausted: #f97316;
+  --color-blocked: #ef4444;
+  --color-searching: #22d3ee;
+
+  --radius-sm: 4px;
+  --radius: 6px;
+  --radius-md: 6px;
+  --radius-lg: 6px;
+  --radius-xl: 6px;
+}
+
 :root {
   color-scheme: dark;
 }
 
 body {
-  font-family: "Inter Variable", system-ui, sans-serif;
-  background: #0e0f13;
+  font-family: var(--font-sans);
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
 }
 
 code,
 pre,
 .font-mono {
-  font-family: "JetBrains Mono Variable", ui-monospace, monospace;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Micro-labels: 10-11px uppercase, tracked */
+.microlabel {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-muted);
+  font-weight: 600;
+}
+
+/* Single amber focus ring, no shadows anywhere */
+:focus-visible {
+  outline: 1px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-accent) 30%, transparent);
+}
+
+/* LED liveness dot pulse */
+@keyframes led-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+.led-pulse {
+  animation: led-pulse 2s ease-in-out infinite;
+}
+
+/* Transient searching overlay dot */
+@keyframes search-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.4;
+    transform: scale(0.75);
+  }
+}
+.search-pulse {
+  animation: search-pulse 1.2s ease-in-out infinite;
+}
+
+/* Skeleton shimmer */
+@keyframes skeleton {
+  0% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.6;
+  }
+  100% {
+    opacity: 0.35;
+  }
+}
+.skeleton {
+  animation: skeleton 1.4s ease-in-out infinite;
+  background: var(--color-raised);
+  border-radius: 4px;
+}
+
+/* Amber-striped dry-run banner */
+.dry-run-stripes {
+  background: repeating-linear-gradient(
+    -45deg,
+    color-mix(in srgb, var(--color-accent) 14%, transparent),
+    color-mix(in srgb, var(--color-accent) 14%, transparent) 8px,
+    transparent 8px,
+    transparent 16px
+  );
+}
+
+/* Thin scrollbars for the ops-tool look */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line) transparent;
+}
+
+/* cmdk resets */
+[cmdk-root] {
+  width: 100%;
+}
+[cmdk-item][data-selected="true"] {
+  background: var(--color-raised);
 }
