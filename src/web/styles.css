@@ -41,7 +41,8 @@ body {
   font-family: var(--font-sans);
   background: var(--color-bg);
   color: var(--color-ink);
-  font-size: 14px;
+  font-size: 15px;
+  line-height: 1.45;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -52,13 +53,36 @@ pre,
   font-variant-numeric: tabular-nums;
 }
 
-/* Micro-labels: 10-11px uppercase, tracked */
+/* Micro-labels stay compact, but remain readable on high-density desktop displays. */
 .microlabel {
-  font-size: 10px;
+  font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--color-muted);
   font-weight: 600;
+}
+
+/*
+ * The app began as a very dense ops console. Keep that character while lifting
+ * the fixed pixel type scale one step so it reads comfortably at 1440p+.
+ */
+.text-\[9px\] {
+  font-size: 10px;
+}
+.text-\[10px\] {
+  font-size: 11px;
+}
+.text-\[11px\] {
+  font-size: 12px;
+}
+.text-\[12px\] {
+  font-size: 13px;
+}
+.text-\[13px\] {
+  font-size: 14px;
+}
+.text-\[15px\] {
+  font-size: 16px;
 }
 
 /* Single amber focus ring, no shadows anywhere */

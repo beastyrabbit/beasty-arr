@@ -75,24 +75,24 @@ export function AppLayout() {
     <TooltipProvider>
       <div className="flex min-h-screen flex-col">
         {/* top bar */}
-        <header className="flex h-11 shrink-0 items-center gap-3 border-b border-line bg-surface px-3">
+        <header className="flex h-12 shrink-0 items-center gap-3.5 border-b border-line bg-surface px-4">
           <button
             type="button"
             onClick={toggleSidebar}
             className="cursor-pointer text-muted hover:text-ink"
             title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           >
-            {collapsed ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}
+            {collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
           </button>
-          <Link to="/" className="text-[13px] font-semibold tracking-tight text-ink">
+          <Link to="/" className="text-[15px] font-semibold tracking-tight text-ink">
             beasty<span className="text-accent">-arr</span>
           </Link>
           <button
             type="button"
             onClick={() => setPaletteOpen(true)}
-            className="ml-4 flex h-7 w-[220px] cursor-pointer items-center gap-2 rounded-[6px] border border-line bg-bg px-2 text-[12px] text-faint hover:border-accent/40"
+            className="ml-4 hidden h-8 w-[240px] cursor-pointer items-center gap-2.5 rounded-[6px] border border-line bg-bg px-2.5 text-[13px] text-faint hover:border-accent/40 md:flex"
           >
-            <Search size={12} />
+            <Search size={14} />
             <span className="flex-1 text-left">Search…</span>
             <kbd className="microlabel rounded border border-line px-1 py-px">Ctrl K</kbd>
           </button>
@@ -100,7 +100,7 @@ export function AppLayout() {
             {dryRun ? (
               <Link
                 to="/settings/danger"
-                className="flex h-5 items-center gap-1.5 rounded-full border border-accent/60 px-2 text-[10px] font-semibold tracking-[0.08em] text-accent uppercase"
+                className="flex h-6 items-center gap-1.5 rounded-full border border-accent/60 px-2.5 text-[11px] font-semibold tracking-[0.08em] text-accent uppercase"
               >
                 Dry run
               </Link>
@@ -117,9 +117,12 @@ export function AppLayout() {
           <button
             type="button"
             onClick={() => navigate({ to: "/settings/danger" })}
-            className="dry-run-stripes flex h-6 w-full shrink-0 cursor-pointer items-center justify-center border-b border-accent/40 text-[11px] font-medium text-accent"
+            className="dry-run-stripes flex h-7 w-full shrink-0 cursor-pointer items-center justify-center border-b border-accent/40 text-[12px] font-medium text-accent"
           >
-            DRY RUN — nothing is sent to Sonarr/Radarr/Prowlarr. Click to change.
+            <span className="hidden sm:inline">
+              DRY RUN — nothing is sent to Sonarr/Radarr/Prowlarr. Click to change.
+            </span>
+            <span className="sm:hidden">DRY RUN — no arr commands sent</span>
           </button>
         ) : null}
 
@@ -127,8 +130,8 @@ export function AppLayout() {
           {/* sidebar */}
           <nav
             className={cn(
-              "flex shrink-0 flex-col gap-0.5 border-r border-line bg-surface py-2",
-              collapsed ? "w-11 items-center px-1" : "w-44 px-2",
+              "flex w-12 shrink-0 flex-col items-center gap-1 border-r border-line bg-surface px-1.5 py-2.5",
+              !collapsed && "md:w-[200px] md:items-stretch md:px-2.5",
             )}
           >
             {NAV.map(({ to, label, icon: Icon, ...item }) => (
@@ -138,19 +141,19 @@ export function AppLayout() {
                 activeOptions={{ exact: "exact" in item && item.exact === true }}
                 activeProps={{ "data-active": "true" }}
                 className={cn(
-                  "flex h-8 items-center gap-2.5 rounded-[6px] px-2 text-[12px] font-medium text-muted hover:bg-raised hover:text-ink",
+                  "flex h-9 w-9 items-center justify-center gap-3 rounded-[6px] px-0 text-[13px] font-medium text-muted hover:bg-raised hover:text-ink",
                   "data-[active=true]:bg-raised data-[active=true]:text-accent",
-                  collapsed && "w-8 justify-center px-0",
+                  !collapsed && "md:w-auto md:justify-start md:px-2.5",
                 )}
                 title={label}
               >
-                <Icon size={15} className="shrink-0" />
-                {!collapsed && label}
+                <Icon size={17} className="shrink-0" />
+                {!collapsed ? <span className="hidden md:inline">{label}</span> : null}
               </Link>
             ))}
           </nav>
 
-          <main className="min-w-0 flex-1 overflow-x-hidden p-4">
+          <main className="min-w-0 flex-1 overflow-x-hidden p-4 sm:p-5">
             <Outlet />
           </main>
         </div>

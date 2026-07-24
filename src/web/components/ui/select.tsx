@@ -21,20 +21,20 @@ export function Select({
     <SelectPrimitive.Root value={value} onValueChange={onValueChange} disabled={disabled}>
       <SelectPrimitive.Trigger
         className={cn(
-          "flex h-7 min-w-[120px] items-center justify-between gap-2 rounded-[6px] border border-line bg-bg px-2 text-[12px] text-ink disabled:opacity-40",
+          "flex h-8 min-w-[132px] items-center justify-between gap-2 rounded-[6px] border border-line bg-bg px-2.5 text-[13px] text-ink disabled:opacity-40",
           className,
         )}
       >
         <SelectPrimitive.Value placeholder={placeholder} />
         <SelectPrimitive.Icon>
-          <ChevronDown size={12} className="text-muted" />
+          <ChevronDown size={14} className="text-muted" />
         </SelectPrimitive.Icon>
       </SelectPrimitive.Trigger>
       <SelectPrimitive.Portal>
         <SelectPrimitive.Content
           position="popper"
           sideOffset={4}
-          className="z-50 min-w-[var(--radix-select-trigger-width)] rounded-[6px] border border-line bg-surface p-1 text-[12px]"
+          className="z-50 min-w-[var(--radix-select-trigger-width)] rounded-[6px] border border-line bg-surface p-1 text-[13px]"
         >
           <SelectPrimitive.Viewport>
             {options.map((opt) => (
@@ -45,7 +45,7 @@ export function Select({
               >
                 <SelectPrimitive.ItemText>{opt.label}</SelectPrimitive.ItemText>
                 <SelectPrimitive.ItemIndicator>
-                  <Check size={12} className="text-accent" />
+                  <Check size={14} className="text-accent" />
                 </SelectPrimitive.ItemIndicator>
               </SelectPrimitive.Item>
             ))}

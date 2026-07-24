@@ -43,7 +43,7 @@ export function CommandPalette({
       onOpenChange={onOpenChange}
       label="Search library"
       shouldFilter={false}
-      className="fixed top-[15vh] left-1/2 z-50 w-[560px] max-w-[calc(100vw-32px)] -translate-x-1/2 rounded-[6px] border border-line bg-surface p-0"
+      className="fixed top-[15vh] left-1/2 z-50 w-[620px] max-w-[calc(100vw-32px)] -translate-x-1/2 rounded-[6px] border border-line bg-surface p-0"
     >
       <div
         className="fixed inset-0 -z-10 bg-black/60"
@@ -54,7 +54,7 @@ export function CommandPalette({
         value={q}
         onValueChange={setQ}
         placeholder="Search series & movies…"
-        className="h-10 w-full border-b border-line bg-transparent px-3 text-[13px] text-ink placeholder:text-faint outline-none"
+        className="h-11 w-full border-b border-line bg-transparent px-3.5 text-[14px] text-ink placeholder:text-faint outline-none"
       />
       <Command.List className="max-h-[320px] overflow-y-auto p-1">
         <Command.Empty className="py-6 text-center text-[12px] text-muted">
@@ -65,7 +65,7 @@ export function CommandPalette({
             key={`${item.source}:${item.id}`}
             value={`${item.source}:${item.id}`}
             onSelect={() => openDetail(item)}
-            className="flex h-9 cursor-pointer items-center gap-2 rounded-[4px] px-2"
+            className="flex h-10 cursor-pointer items-center gap-2.5 rounded-[4px] px-2.5"
           >
             <span className="microlabel w-12 shrink-0">{item.kind}</span>
             <span className="min-w-0 flex-1 truncate text-[13px] text-ink">

@@ -16,7 +16,7 @@ export function Panel({
   return (
     <section className={cn("rounded-[6px] border border-line bg-surface", className)}>
       {title !== undefined || actions !== undefined ? (
-        <header className="flex h-8 items-center justify-between border-b border-line px-3">
+        <header className="flex h-9 items-center justify-between border-b border-line px-3.5">
           <h2 className="microlabel">{title}</h2>
           {actions ? <div className="flex items-center gap-1.5">{actions}</div> : null}
         </header>
@@ -72,7 +72,7 @@ export function SkeletonRows({ rows = 6, cols = 5 }: { rows?: number; cols?: num
     <>
       {Array.from({ length: rows }, (_, r) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton
-        <tr key={r} className="h-8 border-b border-line">
+        <tr key={r} className="h-9 border-b border-line">
           {Array.from({ length: cols }, (_, c) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton
             <td key={c} className="px-2">
@@ -85,7 +85,7 @@ export function SkeletonRows({ rows = 6, cols = 5 }: { rows?: number; cols?: num
   );
 }
 
-/** Dense table shell: 32px rows, 8px cell padding, hairline borders. */
+/** Dense table shell: 36px rows, 10px cell padding, hairline borders. */
 export function DataTable({
   head,
   children,
@@ -97,9 +97,9 @@ export function DataTable({
 }) {
   return (
     <div className={cn("overflow-x-auto", className)}>
-      <table className="w-full border-collapse text-[13px]">
+      <table className="w-full border-collapse text-[14px]">
         <thead>
-          <tr className="h-8 border-b border-line text-left">{head}</tr>
+          <tr className="h-9 border-b border-line text-left">{head}</tr>
         </thead>
         <tbody>{children}</tbody>
       </table>
@@ -108,11 +108,11 @@ export function DataTable({
 }
 
 export function Th({ children, className }: { children?: ReactNode; className?: string }) {
-  return <th className={cn("microlabel px-2 font-semibold", className)}>{children}</th>;
+  return <th className={cn("microlabel px-2.5 font-semibold", className)}>{children}</th>;
 }
 
 export function Td({ children, className }: { children?: ReactNode; className?: string }) {
-  return <td className={cn("px-2 py-0", className)}>{children}</td>;
+  return <td className={cn("px-2.5 py-0", className)}>{children}</td>;
 }
 
 export function Pager({
@@ -128,7 +128,7 @@ export function Pager({
 }) {
   const pages = Math.max(1, Math.ceil(total / pageSize));
   return (
-    <div className="flex h-9 items-center justify-between px-3 text-[12px] text-muted">
+    <div className="flex h-10 items-center justify-between px-3.5 text-[13px] text-muted">
       <span className="font-mono">
         {total === 0 ? "0" : `${(page - 1) * pageSize + 1}–${Math.min(page * pageSize, total)}`} of{" "}
         {total}
