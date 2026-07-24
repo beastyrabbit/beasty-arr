@@ -1,4 +1,4 @@
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { eq, lt } from "drizzle-orm";
@@ -14,17 +14,34 @@ function sha256(value: string): Buffer {
 
 export class AuthService {
   private readonly apiKeyHash: Buffer;
+  private readonly webhookTokenValue: string;
+  private readonly webhookTokenHash: Buffer;
 
   constructor(
     private readonly db: Db,
     apiKey: string,
   ) {
     this.apiKeyHash = sha256(apiKey);
+    // Webhook-only capability token, derived so it never has to be stored.
+    // The arrs can only carry it in the URL query, where it may leak into
+    // logs/history — leaking it must not grant general API access.
+    this.webhookTokenValue = createHmac("sha256", apiKey).update("webhook-token").digest("hex");
+    this.webhookTokenHash = sha256(this.webhookTokenValue);
   }
 
   verifyApiKey(candidate: string | undefined): boolean {
     if (!candidate) return false;
     return timingSafeEqual(sha256(candidate), this.apiKeyHash);
+  }
+
+  /** Token for the arr Webhook connection URLs (?token=...). Webhook-only capability. */
+  webhookToken(): string {
+    return this.webhookTokenValue;
+  }
+
+  verifyWebhookToken(candidate: string | undefined): boolean {
+    if (!candidate) return false;
+    return timingSafeEqual(sha256(candidate), this.webhookTokenHash);
   }
 
   createSession(userAgent: string | undefined): { id: string; expiresAt: number } {

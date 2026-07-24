@@ -4,10 +4,11 @@ import type { AppContext } from "../../context.js";
 import { parse } from "./util.js";
 
 /**
- * Arr webhook accelerator. The global auth guard exempts /api/webhooks/*, so the
- * token is verified here against APP_API_KEY (Sonarr/Radarr can only put it in
- * the URL query). Any event that touches a series/movie enqueues a targeted
- * refresh; the engine is fully functional without these.
+ * Arr webhook accelerator. The global auth guard exempts /api/webhooks/*; the
+ * URL carries a derived webhook-only token (never APP_API_KEY — query strings
+ * end up in logs, and a leaked webhook URL must only allow posting webhook
+ * events). Any event that touches a series/movie enqueues a targeted refresh;
+ * the engine is fully functional without these.
  */
 const webhookBodySchema = z
   .object({
@@ -22,7 +23,7 @@ export function registerWebhookRoutes(app: FastifyInstance, ctx: AppContext): vo
     const p = parse(reply, z.object({ source: z.enum(["sonarr", "radarr"]) }), request.params);
     if (!p.ok) return;
     const token = (request.query as { token?: unknown }).token;
-    if (typeof token !== "string" || !ctx.auth.verifyApiKey(token)) {
+    if (typeof token !== "string" || !ctx.auth.verifyWebhookToken(token)) {
       return reply.code(401).send({ error: "invalid or missing token" });
     }
     const b = parse(reply, webhookBodySchema, request.body ?? {});

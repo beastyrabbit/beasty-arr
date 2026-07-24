@@ -67,10 +67,15 @@ function buildConnections(ctx: AppContext): Record<ConnectionKind, ConnectionInf
 }
 
 function configResponse(ctx: AppContext): ConfigResponse {
+  const webhookToken = ctx.auth.webhookToken();
   return {
     version: APP_VERSION,
     connections: buildConnections(ctx),
     settings: ctx.settings.get() satisfies AppSettingsDto,
+    webhookPaths: {
+      sonarr: `/api/webhooks/sonarr?token=${webhookToken}`,
+      radarr: `/api/webhooks/radarr?token=${webhookToken}`,
+    },
   };
 }
 

@@ -59,6 +59,16 @@ export async function buildApp(
         ],
         censor: "[redacted]",
       },
+      serializers: {
+        // Webhook URLs carry a ?token= query param — keep it out of the logs.
+        req(request: { method: string; url: string; ip?: string }) {
+          return {
+            method: request.method,
+            url: request.url.replace(/([?&]token=)[^&]*/g, "$1[redacted]"),
+            remoteAddress: request.ip,
+          };
+        },
+      },
       transport:
         env.NODE_ENV === "development"
           ? { target: "pino-pretty", options: { colorize: true } }

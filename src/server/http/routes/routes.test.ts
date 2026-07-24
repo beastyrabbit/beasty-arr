@@ -575,7 +575,16 @@ describe("webhooks", () => {
     ).toBe(401);
   });
 
-  it("enqueues a targeted refresh on a valid token", async () => {
+  it("rejects the app API key as webhook token (webhook token is a separate capability)", async () => {
+    const res = await b.app.inject({
+      method: "POST",
+      url: `/api/webhooks/sonarr?token=${KEY}`,
+      payload: { eventType: "Download", series: { id: 42 } },
+    });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("enqueues a targeted refresh on the derived webhook token", async () => {
     const refreshSeries = vi.fn().mockResolvedValue(undefined);
     b.ctx.services.sync = {
       targetedRefreshSeries: refreshSeries,
@@ -583,7 +592,7 @@ describe("webhooks", () => {
     } as never;
     const res = await b.app.inject({
       method: "POST",
-      url: `/api/webhooks/sonarr?token=${KEY}`,
+      url: `/api/webhooks/sonarr?token=${b.ctx.auth.webhookToken()}`,
       payload: { eventType: "Download", series: { id: 42 } },
     });
     expect(res.statusCode).toBe(204);

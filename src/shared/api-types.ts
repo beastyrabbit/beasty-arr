@@ -648,6 +648,11 @@ export type ConfigResponse = {
   version: string;
   connections: Record<ConnectionKind, ConnectionInfo>;
   settings: AppSettingsDto;
+  /**
+   * Ready-to-paste arr Webhook connection URL paths (webhook-only capability
+   * token — safe to appear in arr configs, useless for general API access).
+   */
+  webhookPaths?: { sonarr: string; radarr: string };
 };
 
 /** dryRun is NOT settable here — use POST /api/system/dry-run (typed confirm). */
