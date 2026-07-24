@@ -1,5 +1,6 @@
 import { and, eq, gt, inArray, isNull, ne, notInArray, sql } from "drizzle-orm";
 import type { FastifyBaseLogger } from "fastify";
+import type { AppEventPayloads } from "../../shared/api-types.js";
 import {
   type AiVerdictValue,
   type ArrSource,
@@ -442,11 +443,10 @@ export class HuntEngine {
     this.bus.emit("hunt.search.started", {
       label: cmd.label,
       source: cmd.source,
-      command: cmd.name,
+      commandName: cmd.name,
       attemptId,
-      trigger,
       dryRun: true,
-    });
+    } satisfies AppEventPayloads["hunt.search.started"]);
     this.bus.emit("hunt.search.result", {
       label: cmd.label,
       source: cmd.source,
@@ -476,11 +476,10 @@ export class HuntEngine {
       this.bus.emit("hunt.search.started", {
         label: cmd.label,
         source: cmd.source,
-        command: cmd.name,
+        commandName: cmd.name,
         attemptId,
-        trigger,
         dryRun: false,
-      });
+      } satisfies AppEventPayloads["hunt.search.started"]);
       this.logActivity("info", "hunt.search", `Dispatched ${cmd.name}: ${cmd.label} (${trigger})`, {
         attemptId,
         source: cmd.source,
@@ -981,12 +980,10 @@ export class HuntEngine {
         this.bus.emit("item.updated", {
           source: row.source,
           kind: row.targetKind,
-          targetId: row.targetId,
+          id: row.targetId,
           seriesId: row.seriesId,
           state: patch.state,
-          previousState: row.state,
-          reason: "ai_verdict",
-        });
+        } satisfies AppEventPayloads["item.updated"]);
       }
       applied += 1;
     }

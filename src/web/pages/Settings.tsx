@@ -572,7 +572,7 @@ function DangerTab({ settings }: { settings: AppSettingsDto }) {
           <Switch
             checked={settings.dryRun}
             onCheckedChange={(v) => {
-              if (v) setDryRun.mutate(true);
+              if (v) setDryRun.mutate({ enabled: true });
               else setConfirm("live");
             }}
           />
@@ -627,7 +627,7 @@ function DangerTab({ settings }: { settings: AppSettingsDto }) {
         confirmPhrase="live"
         busy={setDryRun.isPending}
         onConfirm={() => {
-          setDryRun.mutate(false);
+          setDryRun.mutate({ enabled: false, confirm: "live" });
           setConfirm(null);
         }}
       />

@@ -1,6 +1,6 @@
 # beasty-arr — Engineering Handoff
 
-Status as of commit `abcf656` (2026-07-24). ~28.7k LOC, 329 tests passing, `pnpm check`
+Status in the current worktree (2026-07-24). ~28.7k LOC, 326 tests passing, `pnpm check`
 (biome + typecheck + vitest + vite build) green. This document is the single source of truth for
 the next engineer/AI to finish the project. Read the full design plan alongside it:
 `/home/beasty/.claude/plans/we-are-building-a-federated-engelbart.md`.
@@ -23,8 +23,9 @@ Core product rules (do not violate):
 - "Done" = file exists AND has a German audio track.
 - **Dry-run defaults ON.** Nothing is sent to Sonarr/Radarr/Prowlarr and no paid AI calls happen
   until the user explicitly turns it off.
-- Security is first-class: Huntarr died from unauthenticated endpoints leaking every connected API
-  key. Auth is mandatory, keys are never returned by any endpoint.
+- The owner explicitly chose an open application with no user login or API-key guard. Every route is
+  reachable by clients that can reach the service. Connected arr keys are still never returned, and
+  webhook callbacks retain a dedicated capability token.
 
 ## 2. Stack & layout
 
@@ -41,8 +42,8 @@ src/server/
   context.ts        AppContext / AppServices types
   config/           env.ts (zod env), settings.ts (DB-backed tuning knobs), engine-flag.ts (pause)
   db/               schema.ts (all tables), index.ts (createDb, WAL). Migrations in /drizzle
-  auth/             service.ts (API key + sessions + webhook token), plugin.ts (global guard)
   events/           bus.ts (in-process EventBus feeding SSE + replay buffer)
+  webhooks/         token.ts (persistent callback-only capability token)
   scheduler/        index.ts (in-process job runner, single-flight + jitter)
   arr/              sonarr-client.ts, radarr-client.ts (ported from sonarr_fixer), http-util.ts
                     (retry/timeout), sonarr-format.ts, sample.ts
@@ -57,29 +58,29 @@ src/server/
                     events-map.ts, ai-port.ts
   http/routes/      one file per group; index.ts registers them; util.ts shared helpers
   stats/            maintenance.ts (daily stats snapshot + VACUUM INTO backup)
-src/web/            Full SPA. pages/: Login, Dashboard, Library, SeriesDetail, MovieDetail, Hunt,
+src/web/            Full SPA. pages/: Dashboard, Library, SeriesDetail, MovieDetail, Hunt,
                     Fixer, FixerHistory, Activity, Settings. lib/: api, events (SSE), queries.
 ```
 
 ## 3. What is DONE and working (verified live)
 
 Booted against the real Sonarr (`192.168.60.31:8989`) and Radarr (`192.168.60.32:7878`) in
-production mode + dry-run, logged in through the GUI, and confirmed end-to-end:
+production mode + dry-run, opened the GUI, and confirmed end-to-end:
 - **Full mirror sync works.** Pulled the real library into SQLite: ~67k Sonarr episodes, ~8.4k
   Radarr movies, states derived correctly (german / non_german / missing / unreleased / unmonitored).
 - **Hunt cycle works in dry-run.** First cycle selected upgrade candidates, correctly grouped ≥3
   same-season episodes into `SeasonSearch` (1 query), recorded `search_attempts` with `dry_run=1`,
   and sent nothing to Sonarr. Prioritisation favours recent releases (where German dubs lag).
-- **Auth works.** Health + login are the only unauthenticated routes; everything else 401s without a
-  key/session. Login → session cookie → authenticated GUI.
+- **Application login was removed by owner request.** The API and GUI are open in every environment;
+  there are no sessions, cookies, app API keys, or login routes.
 - **GUI renders and serves.** SPA served from `dist/web`, dashboard hero + state ribbon + budget
   panel + fixer/oracle summaries all render with live data. SSE endpoint connects.
 - **Every route group implemented** (status, dashboard, library, items, hunt, budget, logs, ai,
   fixer, config, webhooks, diagnostics) with zod validation, 503 degradation, dry-run translation.
-- **Security fix applied**: webhooks use an HMAC-derived webhook-only token (not APP_API_KEY), and
-  the request logger redacts `?token=`.
+- **Webhook isolation remains**: callbacks use a persisted webhook-only token, and the request logger
+  redacts `?token=`.
 
-Build/test: `pnpm check` green (biome, dual tsconfig typecheck, 329 vitest tests, vite build).
+Build/test: `pnpm check` green (biome, dual tsconfig typecheck, 326 vitest tests, vite build).
 
 ## 4. CRITICAL context about the review that produced Section 5
 
@@ -97,40 +98,32 @@ hand-verified the load-bearing ones myself (see §5B). Treat §5 as the real bac
   worked via the `name === "german"` fallback and false-matched Arabic files. A full reconcile
   recomputes `has_german`, so stored data self-heals. **The running dev server still has old data
   until the next full sync — trigger `POST /api/system/resync` or restart after pulling.**
+- **SSE contract drift and the live-mode safety gate are fixed in the current worktree.**
+  `hunt.search.started` now emits `commandName`, every `item.updated` path emits `id`, and disabling
+  dry-run requires `confirm: "live"` at the server boundary. The GUI sends the typed confirmation.
+  Regression coverage exercises dry-run and live search events, item updates, and missing/invalid/
+  valid confirmation requests.
 
 ### 5B. Confirmed real, NOT yet fixed — verifiers died, I re-verified by hand
 These were in the tool's "rejected" bucket ONLY because their skeptic agents crashed on usage
 limits. I confirmed each against the code/live instance:
 
-1. **[HIGH] SSE `hunt.search.started` payload key mismatch.** Engine emits `command: cmd.name`
-   (`hunt/engine.ts:445,479`) but the contract (`api-types.ts:699`) and GUI
-   (`Dashboard.tsx:33,137`) read `commandName`. Dashboard "now hunting" + live feed render
-   `undefined`. Fix: rename the emitted key to `commandName` (and check `hunt.search.result`).
-2. **[HIGH] SSE `item.updated` payload key mismatch.** Engine/sync emit `targetId`
-   (`engine.ts:984`, `sync/service.ts:367,469`) but contract (`api-types.ts:713`) + GUI
-   (`queries.ts:123`) expect `id`. Live cache patches silently no-op → library/detail pages don't
-   update live. Fix: emit `id` (keep `seriesId`), or change contract+GUI consistently.
-3. **[HIGH] Dry-run "type live" confirmation not enforced server-side.** `hunt.ts:331`:
-   `if (enabled === false && confirm !== undefined && confirm !== "live")`. Omitting `confirm`
-   entirely bypasses it — a direct API call can disable dry-run (start real searches + AI spend)
-   with no confirmation. GUI enforces it client-side only. Fix: require `confirm === "live"` when
-   `enabled === false`.
-4. **[HIGH] `languageCutoffNotMet` may not exist on Sonarr v4 episodefile.** `state.ts:115` computes
+1. **[HIGH] `languageCutoffNotMet` may not exist on Sonarr v4 episodefile.** `state.ts:115` computes
    `profile_blocked` for episodes from `languageCutoffNotMet === false`. If the field is absent, it's
    always `null` → the episode branch of profile_blocked is unreachable. **Must verify against a real
    Sonarr v4 `GET /api/v3/episodefile` response** (the field is documented for `/wanted/cutoff`
    records but not necessarily episodefile). Low blast radius (profile_blocked is a warning state),
    but decide and document.
-5. **[HIGH] `FixerService.apply` re-validates without the known-episode-ids set.** The resolver
+2. **[HIGH] `FixerService.apply` re-validates without the known-episode-ids set.** The resolver
    accumulates `knownEpisodeIds` from the AI's lookups to allow AI episode-id overrides, but
    `apply()` re-validates without them (`fixer/service.ts:~578`), permanently blocking exactly those
    override imports. Compare with `sonarr_fixer/src/main/services/sonarr-client.ts` `applyImportProposal`
    which re-fetches `getKnownEpisodeIds`. Fix: re-derive/persist the known ids and pass them to the
    apply-time validation.
-6. **[HIGH] Fixer "Stop all" cancels bulk runs, not running analyses.** GUI "Stop all"
+3. **[HIGH] Fixer "Stop all" cancels bulk runs, not running analyses.** GUI "Stop all"
    (`Fixer.tsx:95`) calls bulk/cancel, but individual `analyze()` runs (the ones the GUI actually
    starts) can't be mass-stopped. Wire "Stop all" to `fixer.cancelAll()`.
-7. **[MEDIUM] Dry-run does not gate fixer AI analyses.** `analyze()` runs the Codex resolver with no
+4. **[MEDIUM] Dry-run does not gate fixer AI analyses.** `analyze()` runs the Codex resolver with no
    `dryRun` guard (only `apply()` checks it). Debatable (analysis is read-only re: the arrs) but it
    **spends real Codex tokens** while the GUI implies dry-run makes no AI calls. Decide: either gate
    analyze in dry-run, or fix the GUI copy. The oracle (`oracle-service.ts`) already skips its batch
@@ -209,13 +202,6 @@ limits. I confirmed each against the code/live instance:
     until restart, while `engineStatus()` advertises the new cadence. Fix: recompute the delay from
     settings inside the scheduler callback.
 
-**Security:**
-14. **[MEDIUM] `trustProxy: true` lets X-Forwarded-For spoofing defeat the login rate limit.**
-    `app.ts:49` blanket-trusts proxies, so `req.ip` (the only bucket key for the 10/min login limiter)
-    is attacker-controlled → unlimited brute-force against a ≥16-char `APP_API_KEY`. Fix: scope
-    `trustProxy` to the known proxy subnet, or key the rate limiter on `req.socket.remoteAddress`.
-    Consider a minimum-entropy floor on `APP_API_KEY`.
-
 ### 5D. Findings the review genuinely refuted (do NOT act on these)
 The following were examined by ≥2 surviving skeptics and refuted — listed so you don't re-chase them:
 hour-rollover organic misclassification; dispatch-failure hot-loop; force-swallowed-while-in-flight;
@@ -236,18 +222,14 @@ low-confidence refutes.)
   `helmrelease.yaml` (bjw-s app-template 5.0.1, copy qa-council's hardened securityContext,
   ClusterIP `10.96.0.118:9898`, longhorn 2Gi PVC at `/data`), `infisical-sync.yaml` (copy
   `apps/media/umlautadaptarr/infisical-sync.yaml`, template `SONARR_API_KEY`/`RADARR_API_KEY`/
-  `PROWLARR_API_KEY`/`APP_API_KEY`), `kustomization.yaml` + entry in `apps/media/kustomization.yaml`.
-- Pangolin blueprint entry in `config/blueprints/media.yaml`: `beasty-arr.heerlab.com`, ssl, SSO role
-  `BeastyOnly`, target `10.96.0.118:9898`, healthcheck `/api/health`. **Verify SSE passes through
+  `PROWLARR_API_KEY`), `kustomization.yaml` + entry in `apps/media/kustomization.yaml`.
+- Pangolin blueprint entry in `config/blueprints/media.yaml`: `beasty-arr.heerlab.com`, ssl, no
+  application login or SSO, target `10.96.0.118:9898`, healthcheck `/api/health`. **Verify SSE passes through
   Pangolin unbuffered** (the events endpoint already sets `x-accel-buffering: no`).
 - Homepage tile in `apps/homepage/config/services.yaml` (copy the Clonarr customapi tile):
-  `url: http://10.96.0.118:9898/api/status`, header `X-Api-Key: {{HOMEPAGE_VAR_BEASTY_ARR_KEY}}`,
-  mappings germanPct/missingGerman/huntsToday/budgetUsedPct.
+  `url: http://10.96.0.118:9898/api/status`, with no auth header; mappings
+  germanPct/missingGerman/huntsToday/budgetUsedPct.
 - `docs/ip-registry.md` row for `.118` and the app list in kub-homelab CLAUDE.md.
-- **One manual step (blocking):** add `HOMEPAGE_VAR_BEASTY_ARR_KEY` (random) to Infisical project
-  `71562e7f-98e6-45f1-a031-ca8713b3f0dd`, env `prod`, path `/kubernetes/homepage/homepage-secrets`.
-  This value becomes both `APP_API_KEY` and the homepage widget key. (I confirmed the SONARR/RADARR/
-  PROWLARR keys already exist at that path; BEASTY_ARR does not.)
 
 **Codex auth in the pod (design decided, not exercised).** `ai/providers.ts` persists Pi credentials
 at `$DATA_DIR/pi/auth.json` on the PVC; first-run seeding is via the web device-login flow
@@ -265,14 +247,15 @@ dry-run off and do one manually-forced live search on a known item as acceptance
 
 ```
 pnpm install
-cp .env.example .env    # fill SONARR_URL/KEY, RADARR_URL/KEY, PROWLARR_URL/KEY, APP_API_KEY (>=16)
+cp .env.example .env    # optional; loaded automatically when present
+pnpm dev                # starts API + Vite through Portless and prints the local URL
 pnpm build              # required for production static serving; SPA lands in dist/web
-NODE_ENV=production PORT=9898 pnpm start   # or: pnpm dev for tsx watch + vite proxy
+NODE_ENV=production PORT=9898 pnpm start
 pnpm check              # biome + typecheck + vitest + build (the CI gate)
 ```
-There is a working local `.env` (gitignored) pointing at the real Sonarr/Radarr LB IPs with keys
-pulled from Infisical. Prowlarr is ClusterIP-only (not reachable from the workstation) so the budget
-manager reports "unknown"/no indexers in local runs — that's expected off-cluster, not a bug.
+This worktree currently has no local `.env`. Without one, development starts with loopback auth
+bypass and no arr clients. Prowlarr is ClusterIP-only (not reachable from the workstation), so the
+budget manager reports "unknown"/no indexers in local runs — that's expected off-cluster, not a bug.
 
 Notes for the next engineer:
 - Server ESM imports MUST end in `.js` (NodeNext). Tests are colocated `*.test.ts`, node env, never
@@ -283,11 +266,11 @@ Notes for the next engineer:
 
 ## 8. Suggested order of work for the finisher
 
-1. Fix the §5B contract-drift bugs first (1–3, 6) — they're small, verified, and make the GUI/live
-   updates actually correct. Fix the §5B dry-run confirm (3) since it's a safety gate.
+1. Fix the remaining §5B implementation HIGHs first: preserve known episode ids through fixer
+   apply-time validation and make "Stop all" cancel analyses.
 2. Fix the §5C budget HIGHs (1, 2) and engine-state HIGHs (6, 7, 8) — these are the ones that can
    damage indexers or destroy state once dry-run is off. Do NOT flip dry-run off in production until
    these land.
-3. Verify §5B item 4 (`languageCutoffNotMet`) against a real Sonarr v4 response.
+3. Verify §5B item 1 (`languageCutoffNotMet`) against a real Sonarr v4 response.
 4. Work the remaining §5C mediums/lows.
 5. Then M6 deployment, then the Codex device-login verification, then the dry-run soak + go-live.

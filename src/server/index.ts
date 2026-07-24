@@ -1,5 +1,9 @@
+import { existsSync } from "node:fs";
+import { loadEnvFile } from "node:process";
 import { buildApp } from "./app.js";
 import { schema } from "./db/index.js";
+
+if (existsSync(".env")) loadEnvFile(".env");
 
 const { app, ctx } = await buildApp();
 

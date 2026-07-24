@@ -67,7 +67,7 @@ function buildConnections(ctx: AppContext): Record<ConnectionKind, ConnectionInf
 }
 
 function configResponse(ctx: AppContext): ConfigResponse {
-  const webhookToken = ctx.auth.webhookToken();
+  const webhookToken = ctx.webhookToken.token();
   return {
     version: APP_VERSION,
     connections: buildConnections(ctx),

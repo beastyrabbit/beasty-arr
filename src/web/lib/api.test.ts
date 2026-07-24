@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ApiError, api, buildQueryString, configureApi } from "./api.js";
+import { api, buildQueryString, configureApi } from "./api.js";
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -9,7 +9,7 @@ function jsonResponse(status: number, body: unknown): Response {
 }
 
 afterEach(() => {
-  configureApi({ onUnauthorized: null, fetchFn: (...args) => fetch(...args) });
+  configureApi({ fetchFn: (...args) => fetch(...args) });
 });
 
 describe("api client", () => {
@@ -18,24 +18,12 @@ describe("api client", () => {
     await expect(api.get<{ ok: boolean }>("/api/status")).resolves.toEqual({ ok: true });
   });
 
-  it("fires onUnauthorized and throws ApiError(401) on 401", async () => {
-    const onUnauthorized = vi.fn();
-    configureApi({
-      onUnauthorized,
-      fetchFn: vi.fn(async () => jsonResponse(401, { error: "unauthorized" })),
+  it("surfaces unauthorized responses like any other server error", async () => {
+    configureApi({ fetchFn: vi.fn(async () => jsonResponse(401, { error: "unauthorized" })) });
+    await expect(api.get("/api/dashboard/summary")).rejects.toMatchObject({
+      status: 401,
+      message: "unauthorized",
     });
-    await expect(api.get("/api/dashboard/summary")).rejects.toMatchObject({ status: 401 });
-    expect(onUnauthorized).toHaveBeenCalledTimes(1);
-  });
-
-  it("does NOT fire onUnauthorized for a failed login itself", async () => {
-    const onUnauthorized = vi.fn();
-    configureApi({
-      onUnauthorized,
-      fetchFn: vi.fn(async () => jsonResponse(401, { error: "invalid key" })),
-    });
-    await expect(api.post("/api/auth/login", { apiKey: "nope" })).rejects.toBeInstanceOf(ApiError);
-    expect(onUnauthorized).not.toHaveBeenCalled();
   });
 
   it("surfaces the server error message on non-2xx", async () => {

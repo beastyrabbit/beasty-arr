@@ -15,14 +15,12 @@ import {
   series,
 } from "../../db/schema.js";
 
-const KEY = "test-key-0123456789abcdef";
-
 type Built = { app: FastifyInstance; ctx: AppContext; dir: string };
 
 async function makeApp(env: Record<string, string> = {}): Promise<Built> {
   const dir = mkdtempSync(path.join(tmpdir(), "beasty-routes-"));
   const built = await buildApp({
-    env: { NODE_ENV: "test", APP_API_KEY: KEY, LOG_LEVEL: "error", ...env },
+    env: { NODE_ENV: "test", LOG_LEVEL: "error", ...env },
     dataDir: dir,
     serveStatic: false,
   });
@@ -34,18 +32,14 @@ async function closeApp(b: Built): Promise<void> {
   rmSync(b.dir, { recursive: true, force: true });
 }
 
-function get(
-  app: FastifyInstance,
-  url: string,
-  headers: Record<string, string> = { "x-api-key": KEY },
-) {
-  return app.inject({ method: "GET", url, headers });
+function get(app: FastifyInstance, url: string) {
+  return app.inject({ method: "GET", url });
 }
 function post(app: FastifyInstance, url: string, payload?: unknown) {
-  return app.inject({ method: "POST", url, headers: { "x-api-key": KEY }, payload });
+  return app.inject({ method: "POST", url, payload });
 }
 function put(app: FastifyInstance, url: string, payload?: unknown) {
-  return app.inject({ method: "PUT", url, headers: { "x-api-key": KEY }, payload });
+  return app.inject({ method: "PUT", url, payload });
 }
 
 const now = Date.now();
@@ -138,16 +132,16 @@ function seedLibrary(ctx: AppContext): void {
     .run();
 }
 
-// ============ auth gating ============
+// ============ open API ============
 
-describe("auth gating", () => {
+describe("open API", () => {
   let b: Built;
   beforeAll(async () => {
     b = await makeApp();
   });
   afterAll(() => closeApp(b));
 
-  it("rejects API access without a key", async () => {
+  it("allows API access without credentials", async () => {
     for (const url of [
       "/api/status",
       "/api/dashboard/summary",
@@ -155,13 +149,8 @@ describe("auth gating", () => {
       "/api/hunt/status",
     ]) {
       const res = await b.app.inject({ method: "GET", url });
-      expect(res.statusCode, url).toBe(401);
+      expect(res.statusCode, url).toBe(200);
     }
-  });
-
-  it("accepts the app key", async () => {
-    const res = await get(b.app, "/api/status");
-    expect(res.statusCode).toBe(200);
   });
 });
 
@@ -317,9 +306,15 @@ describe("hunt + engine", () => {
   });
 
   it("toggles dry-run and requires the confirm phrase to go live", async () => {
+    const missing = await post(b.app, "/api/system/dry-run", { enabled: false });
+    expect(missing.statusCode).toBe(400);
+    expect(b.ctx.settings.get().dryRun).toBe(true);
+
     const bad = await post(b.app, "/api/system/dry-run", { enabled: false, confirm: "nope" });
     expect(bad.statusCode).toBe(400);
-    const off = await post(b.app, "/api/system/dry-run", { enabled: false });
+    expect(b.ctx.settings.get().dryRun).toBe(true);
+
+    const off = await post(b.app, "/api/system/dry-run", { enabled: false, confirm: "live" });
     expect(off.json()).toEqual({ dryRun: false });
     expect(b.ctx.settings.get().dryRun).toBe(false);
     await post(b.app, "/api/system/dry-run", { enabled: true });
@@ -332,6 +327,26 @@ describe("hunt + engine", () => {
     const item = res.json().items.find((i: { targetId: number }) => i.targetId === 21);
     expect(item).toBeDefined();
     expect(item.reason).toBe("forced");
+  });
+});
+
+describe("development dry-run safety", () => {
+  let b: Built;
+  beforeAll(async () => {
+    b = await makeApp({ NODE_ENV: "development" });
+  });
+  afterAll(() => closeApp(b));
+
+  it("refuses to disable dry-run even with the live confirmation phrase", async () => {
+    const res = await post(b.app, "/api/system/dry-run", {
+      enabled: false,
+      confirm: "live",
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toEqual({
+      error: "live mode is disabled in local development; run a production deployment to enable it",
+    });
+    expect(b.ctx.settings.get().dryRun).toBe(true);
   });
 });
 
@@ -530,7 +545,6 @@ describe("config", () => {
     const res = await get(b.app, "/api/config");
     expect(res.statusCode).toBe(200);
     expect(res.payload).not.toContain("super-secret-sonarr-key-xyz");
-    expect(res.payload).not.toContain(KEY);
     const body = res.json();
     expect(body.connections.sonarr.keyPresent).toBe(true);
     expect(body.connections.sonarr.url).toBe("http://sonarr.test:8989");
@@ -575,16 +589,7 @@ describe("webhooks", () => {
     ).toBe(401);
   });
 
-  it("rejects the app API key as webhook token (webhook token is a separate capability)", async () => {
-    const res = await b.app.inject({
-      method: "POST",
-      url: `/api/webhooks/sonarr?token=${KEY}`,
-      payload: { eventType: "Download", series: { id: 42 } },
-    });
-    expect(res.statusCode).toBe(401);
-  });
-
-  it("enqueues a targeted refresh on the derived webhook token", async () => {
+  it("enqueues a targeted refresh on the dedicated webhook token", async () => {
     const refreshSeries = vi.fn().mockResolvedValue(undefined);
     b.ctx.services.sync = {
       targetedRefreshSeries: refreshSeries,
@@ -592,7 +597,7 @@ describe("webhooks", () => {
     } as never;
     const res = await b.app.inject({
       method: "POST",
-      url: `/api/webhooks/sonarr?token=${b.ctx.auth.webhookToken()}`,
+      url: `/api/webhooks/sonarr?token=${b.ctx.webhookToken.token()}`,
       payload: { eventType: "Download", series: { id: 42 } },
     });
     expect(res.statusCode).toBe(204);

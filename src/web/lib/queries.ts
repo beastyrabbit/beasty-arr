@@ -7,7 +7,6 @@ import type {
   AiStatusResponse,
   AttemptsQuery,
   AttemptsResponse,
-  AuthMeResponse,
   BudgetLedgerQuery,
   BudgetLedgerResponse,
   BudgetResponse,
@@ -19,6 +18,7 @@ import type {
   ConfigUpdateRequest,
   CycleResponse,
   DashboardSummary,
+  DryRunToggleRequest,
   DryRunToggleResponse,
   EngineActionResponse,
   FixerAnalysisDto,
@@ -39,7 +39,6 @@ import type {
   HuntStatusResponse,
   ItemSubjectKind,
   LibraryQuery,
-  LoginResponse,
   MovieDetail,
   MovieListResponse,
   OkResponse,
@@ -69,7 +68,6 @@ import { sse } from "./events.js";
 // ============ query keys ============
 
 export const keys = {
-  me: ["auth", "me"] as const,
   dashboard: ["dashboard", "summary"] as const,
   wins: ["dashboard", "wins"] as const,
   stats: (days: number) => ["stats", "history", days] as const,
@@ -193,31 +191,6 @@ export function toastMaybeDryRun(result: unknown, liveMessage: string): void {
   } else {
     toast.success(liveMessage);
   }
-}
-
-// ============ auth ============
-
-export function useMe() {
-  return useQuery({
-    queryKey: keys.me,
-    queryFn: () => api.get<AuthMeResponse>("/api/auth/me"),
-    retry: false,
-    staleTime: 60_000,
-  });
-}
-
-export function useLogin() {
-  return useMutation({
-    mutationFn: (apiKey: string) => api.post<LoginResponse>("/api/auth/login", { apiKey }),
-  });
-}
-
-export function useLogout() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: () => api.post<OkResponse>("/api/auth/logout"),
-    onSuccess: () => qc.clear(),
-  });
 }
 
 // ============ dashboard ============
@@ -471,8 +444,8 @@ export function useEngineAction() {
 export function useSetDryRun() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (enabled: boolean) =>
-      api.post<DryRunToggleResponse>("/api/system/dry-run", { enabled }),
+    mutationFn: (request: DryRunToggleRequest) =>
+      api.post<DryRunToggleResponse>("/api/system/dry-run", request),
     onSuccess: (r) => {
       toast.success(r.dryRun ? "Dry-run enabled" : "LIVE MODE — commands will reach the arrs");
       qc.invalidateQueries();

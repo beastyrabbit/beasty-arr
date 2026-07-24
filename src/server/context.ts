@@ -3,7 +3,6 @@ import type { OracleService } from "./ai/oracle-service.js";
 import type { PiRunner } from "./ai/providers.js";
 import type { RadarrClient } from "./arr/radarr-client.js";
 import type { SonarrClient } from "./arr/sonarr-client.js";
-import type { AuthService } from "./auth/service.js";
 import type { BudgetManager } from "./budget/manager.js";
 import type { Env } from "./config/env.js";
 import type { SettingsService } from "./config/settings.js";
@@ -15,6 +14,7 @@ import type { HuntEngine } from "./hunt/engine.js";
 import type { ProwlarrClient } from "./prowlarr/client.js";
 import type { Scheduler } from "./scheduler/index.js";
 import type { SyncService } from "./sync/service.js";
+import type { WebhookTokenService } from "./webhooks/token.js";
 
 /**
  * Composition root shared by all routes and services.
@@ -40,7 +40,7 @@ export type AppContext = {
   db: Db;
   sqlite: SqliteHandle;
   settings: SettingsService;
-  auth: AuthService;
+  webhookToken: WebhookTokenService;
   bus: EventBus;
   scheduler: Scheduler;
   services: AppServices;

@@ -3,7 +3,7 @@ import { RouterProvider } from "@tanstack/react-router";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { Toaster } from "sonner";
-import { ApiError, configureApi } from "./lib/api.js";
+import { ApiError } from "./lib/api.js";
 import { wireSseToQueryClient } from "./lib/queries.js";
 import { router } from "./router.js";
 import "./styles.css";
@@ -17,14 +17,6 @@ const queryClient = new QueryClient({
         return failureCount < 2;
       },
     },
-  },
-});
-
-configureApi({
-  onUnauthorized: () => {
-    if (window.location.pathname !== "/login") {
-      router.navigate({ to: "/login" });
-    }
   },
 });
 

@@ -1,4 +1,4 @@
 {
   "name": "beasty-arr",
-  "script": "dev"
+  "script": "dev:app"
 }

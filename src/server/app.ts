@@ -1,7 +1,5 @@
 import path from "node:path";
-import fastifyCookie from "@fastify/cookie";
 import fastifyHelmet from "@fastify/helmet";
-import fastifyRateLimit from "@fastify/rate-limit";
 import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyInstance } from "fastify";
 import { createCodexLoginService, seedOpenAICodexAuthFromCodex } from "./ai/codex-auth.js";
@@ -10,8 +8,6 @@ import { OracleService } from "./ai/oracle-service.js";
 import { createPiRunner, getAuthStorage } from "./ai/providers.js";
 import { RadarrClient } from "./arr/radarr-client.js";
 import { SonarrClient } from "./arr/sonarr-client.js";
-import { registerAuthGuard } from "./auth/plugin.js";
-import { AuthService, generateDevApiKey, loadOrCreateSessionSecret } from "./auth/service.js";
 import { BudgetManager } from "./budget/manager.js";
 import { isEnginePaused } from "./config/engine-flag.js";
 import { type Env, loadEnv } from "./config/env.js";
@@ -28,6 +24,7 @@ import { Scheduler } from "./scheduler/index.js";
 import { backupDatabase, snapshotDailyStats } from "./stats/maintenance.js";
 import { radarrSyncPort, sonarrSyncPort } from "./sync/adapters.js";
 import { SyncService } from "./sync/service.js";
+import { WebhookTokenService } from "./webhooks/token.js";
 
 export type BuildAppOptions = {
   env?: Partial<Env>;
@@ -83,13 +80,12 @@ export async function buildApp(
       : (opts.migrationsFolder ?? path.resolve(process.cwd(), "drizzle"));
   const { db, sqlite } = createDb(dataDir, { migrationsFolder });
 
-  let apiKey = env.APP_API_KEY;
-  if (!apiKey) {
-    apiKey = generateDevApiKey();
-    app.log.warn(`APP_API_KEY not set — generated dev key: ${apiKey}`);
-  }
-
   const settings = new SettingsService(db);
+  // Local development uses real arr credentials for read-only syncs and realistic hunt planning.
+  // Persisted settings must never turn that into real commands on a later `pnpm dev`.
+  if (env.NODE_ENV === "development" && !settings.get().dryRun) {
+    settings.update({ dryRun: true });
+  }
   const bus = new EventBus();
 
   const sonarr =
@@ -138,7 +134,7 @@ export async function buildApp(
     db,
     sqlite,
     settings,
-    auth: new AuthService(db, apiKey),
+    webhookToken: new WebhookTokenService(dataDir),
     bus,
     scheduler: new Scheduler(app.log),
     services: {
@@ -202,10 +198,7 @@ export async function buildApp(
   await app.register(fastifyHelmet, {
     contentSecurityPolicy: false, // SPA serves its own assets; no external origins used
   });
-  await app.register(fastifyCookie, { secret: loadOrCreateSessionSecret(dataDir) });
-  await app.register(fastifyRateLimit, { global: false });
 
-  registerAuthGuard(app, ctx.auth);
   await registerRoutes(app, ctx);
 
   if (opts.serveStatic ?? env.NODE_ENV === "production") {

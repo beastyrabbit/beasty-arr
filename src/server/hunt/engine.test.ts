@@ -357,7 +357,7 @@ describe("dub-lag and specials gating", () => {
 
 describe("runCycle — dry-run", () => {
   it("records attempts without sending commands or recording budget spend", async () => {
-    const { db, engine, sonarr, budget } = makeHarness();
+    const { db, engine, sonarr, budget, bus } = makeHarness();
     seedSeries(db, { id: 1 });
     seedEpisode(db, { id: 11, seriesId: 1 });
 
@@ -378,6 +378,11 @@ describe("runCycle — dry-run", () => {
     // dry-run must not touch hunt state
     const rows = db.select().from(huntState).all();
     expect(rows[0]).toMatchObject({ tier: 0, searchCount: 0, lastSearchAt: null });
+    expect(
+      bus.since(0).find((event) => event.type === "hunt.search.started")?.payload,
+    ).toMatchObject({
+      commandName: "EpisodeSearch",
+    });
   });
 
   it("clears manual priorities in dry-run so the queue keeps moving", async () => {
@@ -402,6 +407,9 @@ describe("runCycle — live dispatch", () => {
     await low.engine.runCycle();
 
     expect(low.sonarr.sent).toEqual([{ name: "SeasonSearch", seriesId: 1, seasonNumber: 1 }]);
+    expect(
+      low.bus.since(0).find((event) => event.type === "hunt.search.started")?.payload,
+    ).toMatchObject({ commandName: "SeasonSearch" });
     expect(low.budget.estimateCalls).toEqual([{ kind: "tv", searchOps: 1, anime: false }]);
     expect(low.budget.recorded).toHaveLength(1);
     expect(low.sync.seriesRefreshes).toEqual([1]);

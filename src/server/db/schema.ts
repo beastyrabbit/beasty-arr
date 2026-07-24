@@ -308,14 +308,6 @@ export const manualRequests = sqliteTable("manual_requests", {
   completedAt: integer("completed_at"),
 });
 
-export const sessions = sqliteTable("sessions", {
-  id: text("id").primaryKey(),
-  createdAt: integer("created_at").notNull(),
-  lastSeenAt: integer("last_seen_at").notNull(),
-  expiresAt: integer("expires_at").notNull(),
-  userAgent: text("user_agent"),
-});
-
 export const settings = sqliteTable("settings", {
   key: text("key").primaryKey(),
   value: text("value", { mode: "json" }).notNull(),

@@ -5,7 +5,8 @@
   "main": "dist/server/server/index.js",
   "scripts": {
     "test": "vitest run",
-    "dev": "concurrently -k -n api,web \"API_PORT=3001 tsx watch src/server/index.ts\" \"vite --host 0.0.0.0\"",
+    "dev": "portless",
+    "dev:app": "infisical run --env=dev --path=/ -- concurrently -k -n prowlarr,api,web \"kubectl port-forward --address 127.0.0.1 -n media service/prowlarr 19696:9696\" \"API_PORT=3001 tsx watch src/server/index.ts\" \"vite --host 0.0.0.0\"",
     "build": "tsc -p tsconfig.server.json && vite build",
     "start": "node dist/server/server/index.js",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.server.json --noEmit",
@@ -20,9 +21,7 @@
   "dependencies": {
     "@earendil-works/pi-ai": "^0.80.7",
     "@earendil-works/pi-coding-agent": "^0.80.7",
-    "@fastify/cookie": "^11.0.2",
     "@fastify/helmet": "^13.0.2",
-    "@fastify/rate-limit": "^10.3.0",
     "@fastify/static": "^10.1.0",
     "@fontsource-variable/inter": "^5.2.8",
     "@fontsource-variable/jetbrains-mono": "^5.2.8",

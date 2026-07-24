@@ -328,7 +328,13 @@ export function registerHuntRoutes(app: FastifyInstance, ctx: AppContext): void 
       request.body,
     );
     if (!b.ok) return;
-    if (b.data.enabled === false && b.data.confirm !== undefined && b.data.confirm !== "live") {
+    if (ctx.env.NODE_ENV === "development" && b.data.enabled === false) {
+      return reply.code(409).send({
+        error:
+          "live mode is disabled in local development; run a production deployment to enable it",
+      });
+    }
+    if (b.data.enabled === false && b.data.confirm !== "live") {
       return reply.code(400).send({ error: 'type "live" to confirm going live' });
     }
     ctx.settings.update({ dryRun: b.data.enabled });

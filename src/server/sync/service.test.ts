@@ -331,7 +331,8 @@ describe("fullReconcile", () => {
     expect(row?.manualPriority).toBe(2);
     expect(row?.userPaused).toBe(true);
     const updated = h.events.find((e) => e.type === "item.updated");
-    expect(updated?.payload).toMatchObject({ targetId: 103, state: "german" });
+    expect(updated?.payload).toMatchObject({ id: 103, state: "german" });
+    expect(updated?.payload).not.toHaveProperty("targetId");
   });
 
   it("prunes deleted series/movies including their hunt_state rows", async () => {
@@ -474,9 +475,8 @@ describe("incrementalSync", () => {
     expect(h.db.select().from(episodes).where(eq(episodes.id, 101)).get()?.hasGerman).toBe(false);
     const updated = h.events.find((e) => e.type === "item.updated");
     expect(updated?.payload).toMatchObject({
-      targetId: 101,
+      id: 101,
       state: "missing",
-      previousState: "german",
     });
   });
 

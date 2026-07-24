@@ -14,8 +14,6 @@ const envSchema = z.object({
   PROWLARR_URL: z.url().optional(),
   PROWLARR_API_KEY: z.string().min(1).optional(),
 
-  APP_API_KEY: z.string().min(16).optional(),
-
   AIBOX_URL: z.url().optional(),
   SEARXNG_URL: z.url().optional(),
   PI_INFERENCE_TIMEOUT_MS: z.coerce.number().int().positive().default(900_000),
@@ -28,12 +26,5 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
   if (!parsed.success) {
     throw new Error(`Invalid environment: ${parsed.error.message}`);
   }
-  const env = parsed.data;
-  if (env.NODE_ENV === "production" && !env.APP_API_KEY) {
-    // Huntarr died by shipping unauthenticated. We refuse to.
-    throw new Error(
-      "APP_API_KEY is required in production. Set it (>=16 chars) — there is no way to disable auth.",
-    );
-  }
-  return env;
+  return parsed.data;
 }

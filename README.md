@@ -19,18 +19,22 @@ beasty-arr is that something:
 
 ## Security
 
-Auth is mandatory: the server refuses to start in production without `APP_API_KEY`, every route
-except `/api/health` and login is auth-gated, and stored arr keys are never returned by any
-endpoint. (Huntarr died of exactly this; we don't.)
+The application intentionally has no user login or API-key guard; every API route is reachable by
+clients that can reach the service. Connected arr keys are still never returned by any endpoint,
+and webhook callbacks use a dedicated capability token. Put the deployment behind a trusted network
+or an external access-control layer if exposure requirements change.
 
 ## Development
 
 ```sh
-pnpm install
-cp .env.example .env   # fill in arr URLs + keys
-portless beasty-arr    # -> http://beasty-arr.localhost:1355  (or: pnpm dev)
-pnpm check             # biome + typecheck + vitest + build
+pnpm dev
 ```
+
+That single command starts API + Vite through Portless and injects the dev connection settings from
+the `beasty-arr` Infisical project. It also opens a local Kubernetes port-forward so the budget
+controller can read Prowlarr. Open the `.localhost` URL printed by Portless. Local development is
+hard-locked to dry-run: it performs real library reads and hunt planning, but refuses to send commands
+or mutations to Sonarr or Radarr. Use `pnpm check` for the full local quality suite.
 
 Runs on Node 24, Fastify 5, SQLite (Drizzle), React 19 + Vite. Deployed to the homelab cluster via
 Forgejo Actions → `git.heerlab.com/beasty/beasty-arr` → Flux (see kub-homelab `apps/media/beasty-arr`).

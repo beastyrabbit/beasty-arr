@@ -1,4 +1,4 @@
-/** Typed fetch wrapper: JSON in/out, cookie auth, 401 → login redirect hook. */
+/** Typed fetch wrapper: JSON in/out with normalized server/network errors. */
 
 export class ApiError extends Error {
   constructor(
@@ -12,12 +12,10 @@ export class ApiError extends Error {
 }
 
 type ApiConfig = {
-  onUnauthorized: (() => void) | null;
   fetchFn: typeof fetch;
 };
 
 const config: ApiConfig = {
-  onUnauthorized: null,
   fetchFn: (...args) => fetch(...args),
 };
 
@@ -61,11 +59,6 @@ async function request<T>(
     });
   } catch (err) {
     throw new ApiError(0, err instanceof Error ? err.message : "network error");
-  }
-
-  if (res.status === 401 && path !== "/api/auth/login") {
-    config.onUnauthorized?.();
-    throw new ApiError(401, "unauthorized");
   }
 
   let parsed: unknown = null;

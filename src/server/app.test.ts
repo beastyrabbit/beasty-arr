@@ -10,9 +10,10 @@ let built: Awaited<ReturnType<typeof buildApp>>;
 beforeAll(async () => {
   testDir = mkdtempSync(path.join(tmpdir(), "beasty-arr-test-"));
   built = await buildApp({
-    env: { NODE_ENV: "test", APP_API_KEY: "test-key-0123456789abcdef", LOG_LEVEL: "error" },
+    env: { NODE_ENV: "production", LOG_LEVEL: "error" },
     dataDir: testDir,
     serveStatic: false,
+    registerJobs: false,
   });
 });
 
@@ -22,55 +23,51 @@ afterAll(async () => {
 });
 
 describe("app skeleton", () => {
-  it("serves unauthenticated health with no extra fields", async () => {
+  it("serves health with no extra fields", async () => {
     const res = await built.app.inject({ method: "GET", url: "/api/health" });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ status: "ok" });
   });
 
-  it("rejects unauthenticated API access", async () => {
-    const res = await built.app.inject({ method: "GET", url: "/api/auth/me" });
-    expect(res.statusCode).toBe(401);
-  });
-
-  it("accepts the app API key header", async () => {
+  it("serves the API without credentials, including to remote peers", async () => {
     const res = await built.app.inject({
       method: "GET",
-      url: "/api/auth/me",
-      headers: { "x-api-key": "test-key-0123456789abcdef" },
+      url: "/api/dashboard/summary",
+      remoteAddress: "192.168.1.50",
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ via: "api-key" });
   });
 
-  it("logs in with the key and gets a session cookie", async () => {
-    const login = await built.app.inject({
-      method: "POST",
-      url: "/api/auth/login",
-      payload: { apiKey: "test-key-0123456789abcdef" },
-    });
-    expect(login.statusCode).toBe(200);
-    const cookie = login.cookies.find((c) => c.name === "beasty_session");
-    expect(cookie).toBeDefined();
-    const me = await built.app.inject({
-      method: "GET",
-      url: "/api/auth/me",
-      cookies: { beasty_session: cookie?.value ?? "" },
-    });
-    expect(me.statusCode).toBe(200);
-    expect(me.json()).toEqual({ via: "session" });
-  });
-
-  it("rejects a wrong login and rate-limits", async () => {
-    const bad = await built.app.inject({
-      method: "POST",
-      url: "/api/auth/login",
-      payload: { apiKey: "wrong" },
-    });
-    expect(bad.statusCode).toBe(401);
+  it("does not expose application login routes", async () => {
+    const res = await built.app.inject({ method: "POST", url: "/api/auth/login", payload: {} });
+    expect(res.statusCode).toBe(404);
   });
 
   it("has dry-run enabled by default", () => {
     expect(built.ctx.settings.get().dryRun).toBe(true);
+  });
+});
+
+describe("development safety", () => {
+  it("restores dry-run when a development process opens a database saved in live mode", async () => {
+    const dataDir = mkdtempSync(path.join(tmpdir(), "beasty-arr-dev-safety-"));
+    const production = await buildApp({
+      env: { NODE_ENV: "production", LOG_LEVEL: "error" },
+      dataDir,
+      serveStatic: false,
+      registerJobs: false,
+    });
+    production.ctx.settings.update({ dryRun: false });
+    await production.app.close();
+
+    const development = await buildApp({
+      env: { NODE_ENV: "development", LOG_LEVEL: "error" },
+      dataDir,
+      serveStatic: false,
+      registerJobs: false,
+    });
+    expect(development.ctx.settings.get().dryRun).toBe(true);
+    await development.app.close();
+    rmSync(dataDir, { recursive: true, force: true });
   });
 });

@@ -12,6 +12,7 @@ import {
   or,
 } from "drizzle-orm";
 import type { FastifyBaseLogger } from "fastify";
+import type { AppEventPayloads } from "../../shared/api-types.js";
 import {
   type AiVerdictValue,
   type ArrSource,
@@ -367,11 +368,10 @@ export class SyncService {
     this.bus.emit("item.updated", {
       source,
       kind: targetKind,
-      targetId,
+      id: targetId,
       seriesId: existing.seriesId,
       state: existing.state,
-      awaitingImportSince: at,
-    });
+    } satisfies AppEventPayloads["item.updated"]);
     // Credit the grab to the most recent open search attempt covering this item.
     // The engine writes 'no_grab' right after command completion, so a grab that
     // only shows up on the next history poll must still be able to flip it.
@@ -469,11 +469,10 @@ export class SyncService {
       this.bus.emit("item.updated", {
         source: row.source,
         kind: row.targetKind,
-        targetId: row.targetId,
+        id: row.targetId,
         seriesId: row.seriesId,
         state: row.state,
-        reason: "awaiting_import_timeout",
-      });
+      } satisfies AppEventPayloads["item.updated"]);
       this.db
         .insert(activityLog)
         .values({
@@ -660,11 +659,10 @@ export class SyncService {
     this.bus.emit("item.updated", {
       source,
       kind: targetKind,
-      targetId,
+      id: targetId,
       seriesId,
       state: next,
-      previousState: existing.state,
-    });
+    } satisfies AppEventPayloads["item.updated"]);
     if (next === "german") {
       this.bus.emit("hunt.win", {
         source,

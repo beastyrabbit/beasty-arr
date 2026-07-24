@@ -40,12 +40,6 @@ export function isDryRunResult(value: unknown): value is DryRunResult {
   );
 }
 
-// ============ auth ============
-
-export type LoginRequest = { apiKey: string };
-export type LoginResponse = OkResponse;
-export type AuthMeResponse = { via: "apiKey" | "session" | null };
-
 // ============ status (homepage widget) ============
 
 export type AiStatusValue = "configured" | "unauthenticated" | "error" | "off";
@@ -431,7 +425,9 @@ export type HuntPausedResponse = { userPaused: PausedItem[]; aiDormant: AiDorman
 export type EngineActionResponse = { ok: true; engine: EngineState };
 export type CycleResponse = MaybeDryRun<{ ok: true; started: boolean }>;
 
-export type DryRunToggleRequest = { enabled: boolean };
+export type DryRunToggleRequest =
+  | { enabled: true; confirm?: never }
+  | { enabled: false; confirm: "live" };
 export type DryRunToggleResponse = { dryRun: boolean };
 
 // ============ attempts / activity / verdicts ============

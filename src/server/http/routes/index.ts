@@ -1,7 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import type { AppContext } from "../../context.js";
 import { registerAiRoutes } from "./ai.js";
-import { registerAuthRoutes } from "./auth.js";
 import { registerBudgetRoutes } from "./budget.js";
 import { registerConfigRoutes } from "./config.js";
 import { registerDiagnosticsRoutes } from "./diagnostics.js";
@@ -17,7 +16,6 @@ import { registerWebhookRoutes } from "./webhooks.js";
 
 export async function registerRoutes(app: FastifyInstance, ctx: AppContext): Promise<void> {
   registerHealthRoutes(app);
-  await registerAuthRoutes(app, ctx);
   registerEventRoutes(app, ctx);
   registerStatusRoutes(app, ctx);
   registerLibraryRoutes(app, ctx);

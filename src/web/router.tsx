@@ -8,18 +8,11 @@ import { FixerPage } from "./pages/Fixer.js";
 import { FixerHistoryPage } from "./pages/FixerHistory.js";
 import { HuntPage } from "./pages/Hunt.js";
 import { LibraryPage } from "./pages/Library.js";
-import { LoginPage } from "./pages/Login.js";
 import { MovieDetailPage } from "./pages/MovieDetail.js";
 import { SeriesDetailPage } from "./pages/SeriesDetail.js";
 import { SettingsPage } from "./pages/Settings.js";
 
 const rootRoute = createRootRoute({ component: Outlet });
-
-const loginRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/login",
-  component: LoginPage,
-});
 
 const appRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -115,7 +108,6 @@ const settingsDangerRoute = createRoute({
 });
 
 const routeTree = rootRoute.addChildren([
-  loginRoute,
   appRoute.addChildren([
     dashboardRoute,
     librarySeriesRoute,
