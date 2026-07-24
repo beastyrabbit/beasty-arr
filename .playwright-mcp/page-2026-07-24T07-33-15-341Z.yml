@@ -1,0 +1,123 @@
+- generic [ref=f1e2]:
+  - generic [ref=f1e9]:
+    - banner [ref=f1e10]:
+      - button "Collapse sidebar" [ref=f1e11] [cursor=pointer]
+      - link "beasty-arr" [ref=f1e15] [cursor=pointer]:
+        - /url: /
+      - button "Search… Ctrl K" [ref=f1e16] [cursor=pointer]:
+        - generic [ref=f1e20]: Search…
+        - generic [ref=f1e21]: Ctrl K
+      - generic [ref=f1e22]:
+        - link "Dry run" [ref=f1e23] [cursor=pointer]:
+          - /url: /settings/danger
+        - 'generic "events: reconnecting" [ref=f1e24]':
+          - generic "reconnecting" [ref=f1e25]
+          - generic [ref=f1e26]: events
+    - button "DRY RUN — nothing is sent to Sonarr/Radarr/Prowlarr. Click to change." [ref=f1e27] [cursor=pointer]
+    - generic [ref=f1e28]:
+      - navigation [ref=f1e29]:
+        - link "Dashboard" [ref=f1e30] [cursor=pointer]:
+          - /url: /
+        - link "Library" [ref=f1e36] [cursor=pointer]:
+          - /url: /library/series
+        - link "Hunt" [ref=f1e39] [cursor=pointer]:
+          - /url: /hunt
+        - link "Fixer" [ref=f1e42] [cursor=pointer]:
+          - /url: /fixer
+        - link "Activity" [ref=f1e45] [cursor=pointer]:
+          - /url: /activity/searches
+        - link "Settings" [ref=f1e48] [cursor=pointer]:
+          - /url: /settings/connections
+      - main [ref=f1e52]:
+        - generic [ref=f1e53]:
+          - generic [ref=f1e55]:
+            - generic [ref=f1e56]:
+              - img "51.4%" [ref=f1e57]
+              - generic [ref=f1e60]:
+                - generic [ref=f1e61]: Germanized
+                - generic [ref=f1e62]: 51.4%
+                - generic [ref=f1e63]:
+                  - generic [ref=f1e64]: incl. AI-paused 51.4%
+                  - generic [ref=f1e65]: Δ week —
+            - generic [ref=f1e66]:
+              - img "state breakdown" [ref=f1e67]:
+                - 'generic "GERMAN: 38463" [ref=f1e68] [cursor=pointer]'
+                - 'generic "OTHER AUDIO: 20862" [ref=f1e69] [cursor=pointer]'
+                - 'generic "MISSING: 15475" [ref=f1e70] [cursor=pointer]'
+                - 'generic "UNRELEASED: 2684" [ref=f1e71] [cursor=pointer]'
+                - 'generic "UNMONITORED: 11062" [ref=f1e72] [cursor=pointer]'
+              - generic [ref=f1e73]:
+                - button "GERMAN 38463" [ref=f1e74]:
+                  - generic [ref=f1e76]: GERMAN
+                  - generic [ref=f1e77]: "38463"
+                - button "OTHER AUDIO 20862" [ref=f1e78]:
+                  - generic [ref=f1e80]: OTHER AUDIO
+                  - generic [ref=f1e81]: "20862"
+                - button "MISSING 15475" [ref=f1e82]:
+                  - generic [ref=f1e84]: MISSING
+                  - generic [ref=f1e85]: "15475"
+                - button "UNRELEASED 2684" [ref=f1e86]:
+                  - generic [ref=f1e88]: UNRELEASED
+                  - generic [ref=f1e89]: "2684"
+                - button "UNMONITORED 11062" [ref=f1e90]:
+                  - generic [ref=f1e92]: UNMONITORED
+                  - generic [ref=f1e93]: "11062"
+            - generic [ref=f1e94]:
+              - generic [ref=f1e95]: 30d trend
+              - generic [ref=f1e97]: hunts today 9
+          - generic [ref=f1e98]:
+            - generic [ref=f1e99]:
+              - heading "Hunt activity" [level=2] [ref=f1e101]
+              - generic [ref=f1e102]:
+                - generic [ref=f1e103]:
+                  - generic "off" [ref=f1e104]
+                  - text: Idle — next tick in 9m
+                - list [ref=f1e105]:
+                  - listitem [ref=f1e106]: Waiting for live events…
+            - generic [ref=f1e107]:
+              - heading "Recent wins" [level=2] [ref=f1e109]
+              - paragraph [ref=f1e112]: No wins yet. The hunt is on.
+            - generic [ref=f1e113]:
+              - generic [ref=f1e114]:
+                - generic [ref=f1e115]:
+                  - heading "Fixer" [level=2] [ref=f1e116]
+                  - button "Open fixer" [ref=f1e118] [cursor=pointer]
+                - generic [ref=f1e121]:
+                  - generic [ref=f1e122]:
+                    - generic [ref=f1e123]: "0"
+                    - generic [ref=f1e124]: stuck
+                  - generic [ref=f1e125]:
+                    - generic [ref=f1e126]: "0"
+                    - generic [ref=f1e127]: analyzing
+                  - generic [ref=f1e128]:
+                    - generic [ref=f1e129]: "0"
+                    - generic [ref=f1e130]: proposals
+                  - generic [ref=f1e131]:
+                    - generic [ref=f1e132]: "0"
+                    - generic [ref=f1e133]: errors
+              - generic [ref=f1e134]:
+                - heading "Dub oracle" [level=2] [ref=f1e136]
+                - generic [ref=f1e137]:
+                  - generic [ref=f1e138]:
+                    - generic "reconnecting" [ref=f1e139]
+                    - generic [ref=f1e140]: unauthenticated
+                    - generic [ref=f1e141]: 0/20 today
+                  - generic [ref=f1e142]:
+                    - generic [ref=f1e143]:
+                      - generic [ref=f1e144]: "0"
+                      - generic [ref=f1e145]: exists
+                    - generic [ref=f1e146]:
+                      - generic [ref=f1e147]: "0"
+                      - generic [ref=f1e148]: announced
+                    - generic [ref=f1e149]:
+                      - generic [ref=f1e150]: "0"
+                      - generic [ref=f1e151]: unlikely
+                    - generic [ref=f1e152]:
+                      - generic [ref=f1e153]: "0"
+                      - generic [ref=f1e154]: unknown
+          - generic [ref=f1e155]:
+            - generic [ref=f1e156]:
+              - heading "Indexer budgets" [level=2] [ref=f1e157]
+              - button "Budget ledger" [ref=f1e159] [cursor=pointer]
+            - paragraph [ref=f1e164]: No indexers synced from Prowlarr yet.
+  - region "Notifications alt+T"

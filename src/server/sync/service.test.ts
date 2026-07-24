@@ -37,7 +37,7 @@ const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
 const T0 = Date.UTC(2026, 5, 1, 12, 0, 0);
 
-const GERMAN = { id: 26, name: "German" };
+const GERMAN = { id: 4, name: "German" };
 const ENGLISH = { id: 1, name: "English" };
 
 function iso(ms: number): string {

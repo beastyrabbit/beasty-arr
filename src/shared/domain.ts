@@ -27,8 +27,9 @@ export type AiVerdictValue = (typeof AI_VERDICTS)[number];
 export const SEARCH_TRIGGERS = ["scheduled", "forced", "retry"] as const;
 export type SearchTrigger = (typeof SEARCH_TRIGGERS)[number];
 
-/** Sonarr/Radarr language ids we care about. */
-export const LANGUAGE_ID_GERMAN = 26;
+// Sonarr/Radarr language ids (verified against a live Sonarr v4 /api/v3/language:
+// German=4, English=1; id 26 is Arabic — do NOT use it for German).
+export const LANGUAGE_ID_GERMAN = 4;
 export const LANGUAGE_ID_ENGLISH = 1;
 
 export type FileLanguage = { id: number; name: string };

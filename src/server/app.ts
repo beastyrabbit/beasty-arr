@@ -209,8 +209,10 @@ export async function buildApp(
   await registerRoutes(app, ctx);
 
   if (opts.serveStatic ?? env.NODE_ENV === "production") {
+    // Vite writes the SPA to dist/web; cwd is the repo root in dev and /app in
+    // the container (same reasoning as the drizzle folder above).
     await app.register(fastifyStatic, {
-      root: path.resolve(import.meta.dirname, "../..", "web"),
+      root: path.resolve(process.cwd(), "dist/web"),
       wildcard: false,
     });
     app.setNotFoundHandler((request, reply) => {

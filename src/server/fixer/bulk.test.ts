@@ -99,7 +99,7 @@ function makeCandidate(id: string, episodeIds: number[]): ManualImportCandidate 
     episodeLabels: ["S01E01"],
     quality: { quality: { id: 1, name: "HDTV-720p" } },
     qualityLabel: "HDTV-720p",
-    languages: [{ id: 26, name: "German" }],
+    languages: [{ id: 4, name: "German" }],
     languageLabels: ["German"],
     rejections: [],
     isLikelySample: false,

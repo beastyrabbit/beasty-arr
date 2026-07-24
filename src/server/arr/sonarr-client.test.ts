@@ -402,7 +402,7 @@ describe("SonarrClient", () => {
 
   it("loads episode files for a series", async () => {
     const fetchMock = vi.fn(async () =>
-      jsonResponse([{ id: 7, seriesId: 12, languages: [{ id: 26, name: "German" }] }]),
+      jsonResponse([{ id: 7, seriesId: 12, languages: [{ id: 4, name: "German" }] }]),
     );
 
     const files = await client(fetchMock).getEpisodeFiles(12);
