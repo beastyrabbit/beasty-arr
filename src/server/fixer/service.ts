@@ -16,6 +16,7 @@ import type { Db } from "../db/index.js";
 import { fixerAnalyses } from "../db/schema.js";
 import type { EventBus } from "../events/bus.js";
 import type { FixerAnalysisEvent, FixerPiRunner } from "./ai-port.js";
+import { toResolverEvent } from "./events-map.js";
 import {
   type FixerHistoryAction,
   type FixerHistoryPage,
@@ -417,11 +418,13 @@ export class FixerService {
         .set({ events: [...events] })
         .where(eq(fixerAnalyses.id, analysisId))
         .run();
+      // SSE payload uses the GUI-facing ResolverEvent shape (api-types contract);
+      // the persisted rows keep the richer internal FixerAnalysisEvent.
       this.bus.emit("fixer.analysis.progress", {
         analysisId,
         service,
         queueItemId: queueItem.id,
-        event,
+        event: toResolverEvent(event),
       });
     };
     const step = (

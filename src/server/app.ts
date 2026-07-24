@@ -13,6 +13,7 @@ import { SonarrClient } from "./arr/sonarr-client.js";
 import { registerAuthGuard } from "./auth/plugin.js";
 import { AuthService, generateDevApiKey, loadOrCreateSessionSecret } from "./auth/service.js";
 import { BudgetManager } from "./budget/manager.js";
+import { isEnginePaused } from "./config/engine-flag.js";
 import { type Env, loadEnv } from "./config/env.js";
 import { SettingsService } from "./config/settings.js";
 import type { AppContext } from "./context.js";
@@ -157,6 +158,7 @@ export async function buildApp(
       run: async (signal) => {
         // Incremental sync first so the cycle selects against fresh state.
         await sync.incrementalSync(signal);
+        if (isEnginePaused(db)) return; // user paused hunting; sync stays live
         await engine.runCycle(signal);
       },
     });
