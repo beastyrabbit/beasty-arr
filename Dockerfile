@@ -4,7 +4,8 @@ ENV PATH=$PNPM_HOME:$PATH
 RUN corepack enable
 WORKDIR /app
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --frozen-lockfile --ignore-scripts \
+  && CI=true pnpm rebuild better-sqlite3 esbuild protobufjs @google/genai
 COPY . .
 RUN pnpm build \
   && pnpm prune --prod --ignore-scripts
