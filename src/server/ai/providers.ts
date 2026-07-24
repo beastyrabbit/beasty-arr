@@ -23,6 +23,7 @@ export type ProviderId = "codex" | "aibox";
 export type AiSettingsSnapshot = {
   aiProvider: ProviderId | "off";
   aiModel: string;
+  aiThinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 };
 export type AiSettingsPort = { get(): AiSettingsSnapshot };
 
@@ -353,7 +354,7 @@ async function runPiSessionAttempt(
     agentDir,
     modelRuntime: runtime,
     model,
-    thinkingLevel: model.reasoning ? "high" : "off",
+    thinkingLevel: model.reasoning ? (deps.settings.get().aiThinkingLevel ?? "high") : "off",
     tools: request.tools.map((tool) => tool.name),
     customTools: request.tools,
     sessionManager: SessionManager.inMemory(process.cwd()),

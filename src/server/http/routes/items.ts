@@ -69,27 +69,34 @@ export function registerItemRoutes(app: FastifyInstance, ctx: AppContext): void 
     const engine = ctx.services.engine;
     const withAiRecheck = b.data.withAiRecheck;
     let queuedTargets = 0;
+    let requestId = 0;
     if (kind === "series" && b.data.scope?.episodeIds?.length) {
       for (const episodeId of b.data.scope.episodeIds) {
-        queuedTargets += engine.forceSubject({
+        const result = engine.forceSubject({
           source,
           kind: "episode",
           id: episodeId,
           withAiRecheck,
-        }).queuedTargets;
+        });
+        queuedTargets += result.queuedTargets;
+        if (requestId === 0) requestId = result.requestId;
       }
     } else {
       const engineKind: SubjectKind =
         kind === "series" && b.data.scope?.seasonNumber != null ? "season" : (kind as SubjectKind);
-      queuedTargets += engine.forceSubject({
+      const result = engine.forceSubject({
         source,
         kind: engineKind,
         id,
         seasonNumber: b.data.scope?.seasonNumber,
         withAiRecheck,
-      }).queuedTargets;
+      });
+      queuedTargets += result.queuedTargets;
+      requestId = result.requestId;
     }
     if (queuedTargets === 0) return notFound(reply, "no huntable targets for this subject");
+    // Human force means now: do not wait for the next periodic tick.
+    void ctx.scheduler.trigger("hunt.cycle");
 
     if (ctx.settings.get().dryRun) {
       const response: ForceResponse = dryRunResult(
@@ -97,7 +104,7 @@ export function registerItemRoutes(app: FastifyInstance, ctx: AppContext): void 
       );
       return response;
     }
-    const response: ForceResponse = { queuePosition: 1 };
+    const response: ForceResponse = { queuePosition: 1, requestId };
     return response;
   });
 

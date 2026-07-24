@@ -82,8 +82,27 @@ export function CommandPalette({
                 className="cursor-pointer rounded p-1 text-muted hover:bg-bg hover:text-accent"
                 onClick={(e) => {
                   e.stopPropagation();
-                  force.mutate({ ref: refFor(item) });
-                  onOpenChange(false);
+                  force.mutate(
+                    { ref: refFor(item) },
+                    {
+                      onSuccess: () => {
+                        onOpenChange(false);
+                        if (item.kind === "series") {
+                          navigate({
+                            to: "/library/series/$seriesId",
+                            params: { seriesId: String(item.id) },
+                            search: { live: true },
+                          });
+                        } else {
+                          navigate({
+                            to: "/library/movies/$movieId",
+                            params: { movieId: String(item.id) },
+                            search: { live: true },
+                          });
+                        }
+                      },
+                    },
+                  );
                 }}
               >
                 <Zap size={13} />

@@ -12,6 +12,8 @@ export const settingsSchema = z.object({
   missingToUpgradeRatio: z.string().default("1:2"),
   huntSpecials: z.boolean().default(false),
   dubLagDaysDefault: z.number().int().min(0).default(7),
+  releasingSeasonRetryDays: z.number().int().min(1).max(180).default(14),
+  movieRetryDays: z.number().int().min(1).max(365).default(30),
   acceptedOriginalLanguages: z.array(z.string()).default([]),
 
   // Budget controller
@@ -25,10 +27,14 @@ export const settingsSchema = z.object({
   // AI / oracle
   aiProvider: z.enum(["codex", "aibox", "off"]).default("codex"),
   aiModel: z.string().default("gpt-5.5"),
+  aiThinkingLevel: z
+    .enum(["off", "minimal", "low", "medium", "high", "xhigh", "max"])
+    .default("high"),
   aiMaxChecksPerDay: z.number().int().min(0).max(500).default(20),
   aiPauseConfidence: z.number().min(0).max(1).default(0.7),
-  aiMinSearchesBeforeCheck: z.number().int().min(0).default(4),
-  aiMinAgeMonths: z.number().int().min(0).default(12),
+  aiMinSearchesBeforeCheck: z.number().int().min(1).max(20).default(1),
+  aiExistsRetryDays: z.number().int().min(1).max(365).default(30),
+  aiUnlikelyRetryDays: z.number().int().min(30).max(730).default(365),
 
   // Fixer
   fixerAutoImportConfidence: z.number().min(0).max(1).default(0.8),

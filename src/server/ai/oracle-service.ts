@@ -64,33 +64,13 @@ export type OracleServiceOptions = {
   lookupFn?: DnsLookupFn;
 };
 
-function monthsAgo(now: number, months: number): number {
-  const date = new Date(now);
-  date.setUTCMonth(date.getUTCMonth() - months);
-  return date.getTime();
-}
-
-function movieReleaseAt(movie: {
-  digitalRelease: number | null;
-  physicalRelease: number | null;
-  year: number | null;
-}): number | null {
-  if (movie.digitalRelease != null && movie.physicalRelease != null) {
-    return Math.min(movie.digitalRelease, movie.physicalRelease);
-  }
-  // No release dates mirrored: assume released at the end of its year.
-  return (
-    movie.digitalRelease ??
-    movie.physicalRelease ??
-    (movie.year != null ? Date.UTC(movie.year, 11, 31) : null)
-  );
-}
-
 export class OracleService {
   /** Set by the orchestrator to huntEngine.applyVerdict at wire time. */
   onVerdict?: (row: AiVerdictRow) => void;
 
   private readonly now: () => number;
+  private readonly automaticChecksInFlight = new Set<string>();
+  private automaticCheckChain: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly db: Db,
@@ -145,23 +125,32 @@ export class OracleService {
 
   /**
    * Trigger policy (exported for tests): subjects (series/movies, grouped)
-   * with no valid verdict AND either an exhausted hunt item or
-   * (max searchCount >= aiMinSearchesBeforeCheck AND released more than
-   * aiMinAgeMonths ago). German-original and original_ok/ignore subjects are
-   * never checked.
+   * with no valid verdict AND either an exhausted hunt item or enough failed
+   * searches. German-original and original_ok/ignore subjects are never
+   * checked. A season with any known German file is also excluded: that file
+   * is stronger evidence than an AI lookup that the season dub exists.
    */
   selectSubjects(): OracleSubject[] {
     const settings = this.settings.get();
     const now = this.now();
-    const ageCutoff = monthsAgo(now, settings.aiMinAgeMonths);
     const overrides = this.subjectOverrides();
-    const validVerdicts = this.validVerdictKeys(now);
+    const validVerdicts = this.validVerdictScopes(now);
+    const germanSeasons = new Set(
+      this.db
+        .selectDistinct({
+          seriesId: episodes.seriesId,
+          seasonNumber: episodes.seasonNumber,
+        })
+        .from(episodes)
+        .where(eq(episodes.hasGerman, true))
+        .all()
+        .map((row) => `${row.seriesId}:${row.seasonNumber}`),
+    );
 
     type Agg = {
       subject: OracleCheckSubject;
       exhausted: boolean;
       maxSearchCount: number;
-      oldestReleaseAt: number | null;
       seasons: Set<number>;
     };
     const aggregates = new Map<string, Agg>();
@@ -169,7 +158,6 @@ export class OracleService {
     const addRow = (
       subject: OracleCheckSubject,
       row: { state: string; searchCount: number },
-      releaseAt: number | null,
       season: number | null,
     ) => {
       let agg = aggregates.get(subject.subjectKey);
@@ -178,17 +166,12 @@ export class OracleService {
           subject,
           exhausted: false,
           maxSearchCount: 0,
-          oldestReleaseAt: null,
           seasons: new Set(),
         };
         aggregates.set(subject.subjectKey, agg);
       }
       if (row.state === "exhausted") agg.exhausted = true;
       agg.maxSearchCount = Math.max(agg.maxSearchCount, row.searchCount);
-      if (releaseAt != null) {
-        agg.oldestReleaseAt =
-          agg.oldestReleaseAt == null ? releaseAt : Math.min(agg.oldestReleaseAt, releaseAt);
-      }
       if (season != null) agg.seasons.add(season);
     };
 
@@ -217,6 +200,19 @@ export class OracleService {
       )
       .all();
     for (const row of seriesRows) {
+      const subjectKey = `sonarr:${row.seriesId}`;
+      if (
+        validVerdicts.subjects.has(subjectKey) ||
+        (row.seasonNumber != null && validVerdicts.seasons.has(`${subjectKey}:${row.seasonNumber}`))
+      ) {
+        continue;
+      }
+      if (row.seasonNumber != null && germanSeasons.has(`${row.seriesId}:${row.seasonNumber}`)) {
+        continue;
+      }
+      if (row.state !== "exhausted" && row.searchCount < settings.aiMinSearchesBeforeCheck) {
+        continue;
+      }
       addRow(
         {
           subjectKey: `sonarr:${row.seriesId}`,
@@ -232,7 +228,6 @@ export class OracleService {
           },
         },
         row,
-        row.airDateUtc,
         row.seasonNumber,
       );
     }
@@ -261,6 +256,10 @@ export class OracleService {
       )
       .all();
     for (const row of movieRows) {
+      if (validVerdicts.subjects.has(`radarr:${row.movieId}`)) continue;
+      if (row.state !== "exhausted" && row.searchCount < settings.aiMinSearchesBeforeCheck) {
+        continue;
+      }
       addRow(
         {
           subjectKey: `radarr:${row.movieId}`,
@@ -276,7 +275,6 @@ export class OracleService {
           },
         },
         row,
-        movieReleaseAt(row),
         null,
       );
     }
@@ -284,18 +282,12 @@ export class OracleService {
     const selected: OracleSubject[] = [];
     for (const agg of aggregates.values()) {
       const { subject } = agg;
-      if (validVerdicts.has(subject.subjectKey)) continue;
       const lang = subject.originalLanguage?.trim().toLowerCase();
       if (lang && GERMAN_ORIGINAL.has(lang)) continue;
       const override = overrides.get(
         `${subject.source}:${subject.subjectKind}:${subject.subjectId}`,
       );
       if (override === "original_ok" || override === "ignore") continue;
-      const aged =
-        agg.maxSearchCount >= settings.aiMinSearchesBeforeCheck &&
-        agg.oldestReleaseAt != null &&
-        agg.oldestReleaseAt <= ageCutoff;
-      if (!agg.exhausted && !aged) continue;
       selected.push({
         ...subject,
         seasons: agg.seasons.size ? [...agg.seasons].sort((a, b) => a - b) : undefined,
@@ -310,6 +302,66 @@ export class OracleService {
         a.title.localeCompare(b.title),
     );
     return selected;
+  }
+
+  /**
+   * Immediate automatic check after a completed search found no grab. It uses
+   * the same eligibility rules and daily budget as the nightly batch. Dry-run
+   * never spends AI tokens; explicit human rechecks use recheckSubject instead.
+   */
+  async checkAfterFailedSearch(subjectKeys: string[]): Promise<OracleBatchResult> {
+    const task = this.automaticCheckChain.then(() =>
+      this.runAutomaticChecksAfterFailure(subjectKeys),
+    );
+    this.automaticCheckChain = task.then(
+      () => undefined,
+      () => undefined,
+    );
+    return await task;
+  }
+
+  private async runAutomaticChecksAfterFailure(subjectKeys: string[]): Promise<OracleBatchResult> {
+    const settings = this.settings.get();
+    if (settings.aiProvider === "off") {
+      return { selected: 0, checked: 0, failed: 0, skippedReason: "provider_off" };
+    }
+    if (settings.dryRun) {
+      return { selected: 0, checked: 0, failed: 0, skippedReason: "dry_run" };
+    }
+    let remaining = settings.aiMaxChecksPerDay - this.countCheckedToday();
+    if (remaining <= 0) {
+      return { selected: 0, checked: 0, failed: 0, skippedReason: "daily_cap" };
+    }
+    const requested = new Set(subjectKeys);
+    const subjects = this.selectSubjects().filter(
+      (subject) =>
+        requested.has(subject.subjectKey) && !this.automaticChecksInFlight.has(subject.subjectKey),
+    );
+    let checked = 0;
+    let failed = 0;
+    for (const subject of subjects) {
+      if (remaining <= 0) break;
+      remaining -= 1;
+      this.automaticChecksInFlight.add(subject.subjectKey);
+      try {
+        await this.runCheck(subject);
+        checked += 1;
+      } catch (error) {
+        failed += 1;
+        const message = error instanceof Error ? error.message : String(error);
+        this.log.warn(
+          { subjectKey: subject.subjectKey, err: message },
+          "automatic dub oracle check failed",
+        );
+        this.logActivity("warn", `Dub oracle check failed: ${subject.title}`, {
+          subjectKey: subject.subjectKey,
+          error: message,
+        });
+      } finally {
+        this.automaticChecksInFlight.delete(subject.subjectKey);
+      }
+    }
+    return { selected: subjects.length, checked, failed };
   }
 
   /**
@@ -394,6 +446,19 @@ export class OracleService {
 
     const final = finalizeDubVerdict(session.getVerdict(), session.fetchSucceeded());
     const now = this.now();
+    const perSeason =
+      subject.subjectKind === "series" && subject.seasons?.length
+        ? subject.seasons.map((season) => {
+            const reported = final.perSeason?.find((entry) => entry.season === season);
+            return reported ?? { season, verdict: final.verdict };
+          })
+        : final.perSeason;
+    const recheckDays =
+      final.verdict === "unlikely"
+        ? settings.aiUnlikelyRetryDays
+        : final.verdict === "exists"
+          ? settings.aiExistsRetryDays
+          : final.recheckAfterDays;
     const inserted = this.db
       .insert(aiVerdicts)
       .values({
@@ -405,14 +470,14 @@ export class OracleService {
         verdict: final.verdict,
         confidence: final.confidence,
         germanTitle: final.germanTitle,
-        perSeason: final.perSeason,
+        perSeason,
         evidence: final.evidence,
         expectedAvailability: final.expectedAvailability,
         provider: result.provider,
         model: result.model,
         promptVersion: PROMPT_VERSION,
         checkedAt: now,
-        recheckAfter: now + final.recheckAfterDays * DAY_MS,
+        recheckAfter: now + recheckDays * DAY_MS,
         supersededBy: null,
       })
       .returning()
@@ -443,6 +508,7 @@ export class OracleService {
     );
     this.bus.emit("ai.check.completed", {
       subjectKey: subject.subjectKey,
+      title: subject.title,
       verdictId: inserted.id,
       verdict: final.verdict,
       confidence: final.confidence,
@@ -511,14 +577,33 @@ export class OracleService {
     );
   }
 
-  /** Subject keys with an active (non-superseded, not yet due) verdict. */
-  private validVerdictKeys(now: number): Set<string> {
+  /**
+   * Active verdict coverage. Modern series verdicts cover their explicit
+   * seasons; movies and legacy series verdicts without per-season detail cover
+   * the complete subject.
+   */
+  private validVerdictScopes(now: number): { subjects: Set<string>; seasons: Set<string> } {
     const rows = this.db
-      .select({ subjectKey: aiVerdicts.subjectKey, recheckAfter: aiVerdicts.recheckAfter })
+      .select({
+        subjectKey: aiVerdicts.subjectKey,
+        subjectKind: aiVerdicts.subjectKind,
+        perSeason: aiVerdicts.perSeason,
+        recheckAfter: aiVerdicts.recheckAfter,
+      })
       .from(aiVerdicts)
       .where(isNull(aiVerdicts.supersededBy))
       .all();
-    return new Set(rows.filter((row) => row.recheckAfter > now).map((row) => row.subjectKey));
+    const subjects = new Set<string>();
+    const seasons = new Set<string>();
+    for (const row of rows) {
+      if (row.recheckAfter <= now) continue;
+      if (row.subjectKind === "series" && row.perSeason?.length) {
+        for (const entry of row.perSeason) seasons.add(`${row.subjectKey}:${entry.season}`);
+      } else {
+        subjects.add(row.subjectKey);
+      }
+    }
+    return { subjects, seasons };
   }
 
   private logActivity(level: "info" | "warn", message: string, data: Record<string, unknown>) {

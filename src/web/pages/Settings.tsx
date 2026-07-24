@@ -2,6 +2,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { Check, Loader2, X } from "lucide-react";
 import { useState } from "react";
 import type {
+  AiThinkingLevel,
   AppSettingsDto,
   ConnectionKind,
   TestConnectionResponse,
@@ -173,6 +174,26 @@ function ConnectionsTab({
 
 // ============ hunt + budget ============
 
+function SettingRow({
+  label,
+  description,
+  children,
+}: {
+  label: string;
+  description: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="grid gap-3 border-b border-line px-4 py-4 last:border-b-0 md:grid-cols-[minmax(0,1fr)_260px] md:items-center">
+      <div>
+        <div className="text-[14px] font-medium text-ink">{label}</div>
+        <p className="mt-1 max-w-[620px] text-[13px] leading-5 text-muted">{description}</p>
+      </div>
+      <div className="w-full md:justify-self-end">{children}</div>
+    </div>
+  );
+}
+
 function HuntTab({ settings }: { settings: AppSettingsDto }) {
   const update = useUpdateConfig();
   const budget = useBudget();
@@ -182,6 +203,8 @@ function HuntTab({ settings }: { settings: AppSettingsDto }) {
     queueGateThreshold: settings.queueGateThreshold,
     missingToUpgradeRatio: settings.missingToUpgradeRatio,
     dubLagDaysDefault: settings.dubLagDaysDefault,
+    releasingSeasonRetryDays: settings.releasingSeasonRetryDays,
+    movieRetryDays: settings.movieRetryDays,
     huntSpecials: settings.huntSpecials,
     budgetSafetyPct: settings.budgetSafetyPct,
     budgetHorizonHours: settings.budgetHorizonHours,
@@ -198,10 +221,13 @@ function HuntTab({ settings }: { settings: AppSettingsDto }) {
     };
 
   return (
-    <div className="flex flex-col gap-3">
-      <Panel title="Hunt engine">
-        <div className="grid grid-cols-2 gap-3 p-3 md:grid-cols-3">
-          <Field label="Tick (minutes)">
+    <div className="flex flex-col gap-4">
+      <Panel title="Hunt cadence">
+        <SettingRow
+          label="Engine tick"
+          description="How often beasty-arr refreshes state and considers the next scheduled hunt. Forced checks run immediately and do not wait for this timer."
+        >
+          <Field label="Minutes">
             <Input
               type="number"
               value={form.huntTickMinutes}
@@ -209,7 +235,12 @@ function HuntTab({ settings }: { settings: AppSettingsDto }) {
               className="font-mono"
             />
           </Field>
-          <Field label="Max commands / cycle" hint="hard safety valve">
+        </SettingRow>
+        <SettingRow
+          label="Commands per cycle"
+          description="Hard ceiling for commands sent during one tick. A lower value makes hunting gentler even when the queue and indexer budget are empty."
+        >
+          <Field label="Maximum">
             <Input
               type="number"
               value={form.maxCommandsPerCycle}
@@ -217,7 +248,12 @@ function HuntTab({ settings }: { settings: AppSettingsDto }) {
               className="font-mono"
             />
           </Field>
-          <Field label="Queue gate" hint="skip cycle when arr queue exceeds">
+        </SettingRow>
+        <SettingRow
+          label="Download queue gate"
+          description="Scheduled hunting pauses when the combined arr queue is above this size. Human-forced checks still run."
+        >
+          <Field label="Queued items">
             <Input
               type="number"
               value={form.queueGateThreshold}
@@ -225,14 +261,39 @@ function HuntTab({ settings }: { settings: AppSettingsDto }) {
               className="font-mono"
             />
           </Field>
-          <Field label="Missing : upgrade ratio">
+        </SettingRow>
+        <SettingRow
+          label="Missing versus upgrade mix"
+          description="Controls how candidates are interleaved. For example, 1:2 means one missing-file search followed by two German-audio upgrades."
+        >
+          <Field label="Missing : upgrade">
             <Input
               value={form.missingToUpgradeRatio}
               onChange={(e) => setForm((f) => ({ ...f, missingToUpgradeRatio: e.target.value }))}
               className="font-mono"
             />
           </Field>
-          <Field label="Dub lag (days)" hint="wait after non-German import">
+        </SettingRow>
+        <SettingRow
+          label="Season zero"
+          description="Include specials in scheduled hunts. Specials stay excluded by default because their release and language metadata is often unreliable."
+        >
+          <div className="flex min-h-9 items-center gap-3 text-[13px] text-ink">
+            <Switch
+              checked={form.huntSpecials}
+              onCheckedChange={(v) => setForm((f) => ({ ...f, huntSpecials: v }))}
+            />
+            Hunt specials (S00)
+          </div>
+        </SettingRow>
+      </Panel>
+
+      <Panel title="Retry policy">
+        <SettingRow
+          label="Initial TV dub lag"
+          description="After Sonarr imports a non-German episode, wait this long before the first active upgrade search. RSS can still import a German release during the wait."
+        >
+          <Field label="Days">
             <Input
               type="number"
               value={form.dubLagDaysDefault}
@@ -240,19 +301,41 @@ function HuntTab({ settings }: { settings: AppSettingsDto }) {
               className="font-mono"
             />
           </Field>
-          <span className="flex items-center gap-2 self-end pb-1.5 text-[12px] text-muted">
-            <Switch
-              checked={form.huntSpecials}
-              onCheckedChange={(v) => setForm((f) => ({ ...f, huntSpecials: v }))}
+        </SettingRow>
+        <SettingRow
+          label="Still-releasing season delay"
+          description="Minimum delay after an unsuccessful search in an active season. This is intentionally longer because RSS is more likely to find each newly released German episode."
+        >
+          <Field label="Days">
+            <Input
+              type="number"
+              value={form.releasingSeasonRetryDays}
+              onChange={num("releasingSeasonRetryDays")}
+              className="font-mono"
             />
-            Hunt specials (S00)
-          </span>
-        </div>
+          </Field>
+        </SettingRow>
+        <SettingRow
+          label="Movie retry floor"
+          description="A movie is never actively searched again sooner than this after a failed hunt or a non-German import. The default is one month."
+        >
+          <Field label="Days">
+            <Input
+              type="number"
+              value={form.movieRetryDays}
+              onChange={num("movieRetryDays")}
+              className="font-mono"
+            />
+          </Field>
+        </SettingRow>
       </Panel>
 
       <Panel title="Budget controller">
-        <div className="grid grid-cols-2 gap-3 p-3 md:grid-cols-3">
-          <Field label="Safety %" hint="forecast-error buffer (0–0.9)">
+        <SettingRow
+          label="Safety reserve"
+          description="Keeps this fraction of every indexer's daily limit unused to absorb forecast error and searches triggered outside beasty-arr."
+        >
+          <Field label="Fraction (0–0.9)">
             <Input
               type="number"
               step="0.01"
@@ -261,7 +344,12 @@ function HuntTab({ settings }: { settings: AppSettingsDto }) {
               className="font-mono"
             />
           </Field>
-          <Field label="Forecast horizon (h)">
+        </SettingRow>
+        <SettingRow
+          label="Organic-usage forecast"
+          description="How many hours of recent non-hunt indexer activity are projected before deciding what budget is safe to spend."
+        >
+          <Field label="Hours">
             <Input
               type="number"
               value={form.budgetHorizonHours}
@@ -269,7 +357,12 @@ function HuntTab({ settings }: { settings: AppSettingsDto }) {
               className="font-mono"
             />
           </Field>
-          <Field label="Trickle min (queries/h)">
+        </SettingRow>
+        <SettingRow
+          label="Minimum trickle"
+          description="Small hourly allowance used when spare budget exists, preventing hunting from stopping entirely because the long-range forecast is conservative."
+        >
+          <Field label="Queries / hour">
             <Input
               type="number"
               step="0.5"
@@ -278,7 +371,12 @@ function HuntTab({ settings }: { settings: AppSettingsDto }) {
               className="font-mono"
             />
           </Field>
-          <Field label="Pacing horizon (h)">
+        </SettingRow>
+        <SettingRow
+          label="Pacing horizon"
+          description="Spreads currently available budget across this many hours instead of spending all of it in the next cycle."
+        >
+          <Field label="Hours">
             <Input
               type="number"
               value={form.budgetPacingHorizonHours}
@@ -286,7 +384,12 @@ function HuntTab({ settings }: { settings: AppSettingsDto }) {
               className="font-mono"
             />
           </Field>
-          <Field label="Burst divisor" hint="burstMax = cap / divisor">
+        </SettingRow>
+        <SettingRow
+          label="Burst limit"
+          description="Maximum short burst equals the indexer cap divided by this number. Larger divisors produce smaller, safer bursts."
+        >
+          <Field label="Cap divisor">
             <Input
               type="number"
               value={form.budgetBurstMaxDivisor}
@@ -294,11 +397,13 @@ function HuntTab({ settings }: { settings: AppSettingsDto }) {
               className="font-mono"
             />
           </Field>
-        </div>
+        </SettingRow>
 
         {/* live preview vs current indexer data */}
-        <div className="border-t border-line p-3">
-          <div className="microlabel mb-2">Live preview (current usage, these knobs)</div>
+        <div className="border-t border-line p-4">
+          <div className="mb-3 text-[13px] font-medium text-ink">
+            Live preview with current indexer usage
+          </div>
           {budget.data && budget.data.indexers.length > 0 ? (
             <div className="space-y-2">
               {budget.data.indexers
@@ -349,7 +454,7 @@ function HuntTab({ settings }: { settings: AppSettingsDto }) {
 
       <div>
         <Button variant="primary" disabled={update.isPending} onClick={() => update.mutate(form)}>
-          Save hunt & budget settings
+          Save hunt settings
         </Button>
       </div>
     </div>
@@ -365,10 +470,12 @@ function AiTab({ settings }: { settings: AppSettingsDto }) {
   const [form, setForm] = useState({
     aiProvider: settings.aiProvider,
     aiModel: settings.aiModel,
+    aiThinkingLevel: settings.aiThinkingLevel,
     aiMaxChecksPerDay: settings.aiMaxChecksPerDay,
     aiPauseConfidence: settings.aiPauseConfidence,
     aiMinSearchesBeforeCheck: settings.aiMinSearchesBeforeCheck,
-    aiMinAgeMonths: settings.aiMinAgeMonths,
+    aiExistsRetryDays: settings.aiExistsRetryDays,
+    aiUnlikelyRetryDays: settings.aiUnlikelyRetryDays,
   });
   const [loginOpen, setLoginOpen] = useState(false);
 
@@ -377,9 +484,12 @@ function AiTab({ settings }: { settings: AppSettingsDto }) {
   ];
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-4">
       <Panel title="Dub oracle">
-        <div className="grid grid-cols-2 gap-3 p-3 md:grid-cols-3">
+        <SettingRow
+          label="Provider"
+          description="The oracle is asked only after the configured number of failed searches, unless a human explicitly requests an AI re-check."
+        >
           <Field label="Provider">
             <Select
               value={form.aiProvider}
@@ -393,6 +503,11 @@ function AiTab({ settings }: { settings: AppSettingsDto }) {
               ]}
             />
           </Field>
+        </SettingRow>
+        <SettingRow
+          label="Model"
+          description="Model used to research German dub availability and cite evidence. This does not change the model used by other applications."
+        >
           <Field label="Model">
             <Select
               value={form.aiModel}
@@ -400,6 +515,36 @@ function AiTab({ settings }: { settings: AppSettingsDto }) {
               options={modelOptions}
             />
           </Field>
+        </SettingRow>
+        <SettingRow
+          label="Thinking level"
+          description="How much reasoning effort the model may use for each dub check. Higher levels are slower and can use more tokens, but help with obscure or conflicting release information."
+        >
+          <Field label="Reasoning effort">
+            <Select
+              value={form.aiThinkingLevel}
+              onValueChange={(value) =>
+                setForm((current) => ({
+                  ...current,
+                  aiThinkingLevel: value as AiThinkingLevel,
+                }))
+              }
+              options={[
+                { value: "off", label: "Off" },
+                { value: "minimal", label: "Minimal" },
+                { value: "low", label: "Low" },
+                { value: "medium", label: "Medium" },
+                { value: "high", label: "High" },
+                { value: "xhigh", label: "Extra high" },
+                { value: "max", label: "Maximum" },
+              ]}
+            />
+          </Field>
+        </SettingRow>
+        <SettingRow
+          label="Daily AI limit"
+          description="Maximum automatic oracle checks per UTC day. A human-forced AI check intentionally overrides this cap."
+        >
           <Field label="Checks / day">
             <Input
               type="number"
@@ -413,6 +558,11 @@ function AiTab({ settings }: { settings: AppSettingsDto }) {
               className="font-mono"
             />
           </Field>
+        </SettingRow>
+        <SettingRow
+          label="Minimum confidence"
+          description="An “unlikely” result only puts an item on long hold when confidence meets this threshold. Lower-confidence answers stay in the normal retry flow."
+        >
           <Field label="Pause confidence" hint="min confidence to ai-pause">
             <Input
               type="number"
@@ -427,7 +577,12 @@ function AiTab({ settings }: { settings: AppSettingsDto }) {
               className="font-mono"
             />
           </Field>
-          <Field label="Min searches first">
+        </SettingRow>
+        <SettingRow
+          label="Failed searches before AI"
+          description="How many unsuccessful active searches must be recorded before the oracle is asked. A season with any German episode skips AI because the dub is already proven to exist."
+        >
+          <Field label="Searches">
             <Input
               type="number"
               value={form.aiMinSearchesBeforeCheck}
@@ -440,19 +595,45 @@ function AiTab({ settings }: { settings: AppSettingsDto }) {
               className="font-mono"
             />
           </Field>
-          <Field label="Min age (months)">
+        </SettingRow>
+        <SettingRow
+          label="Dub exists retry"
+          description="When AI confirms a German dub exists but the search found nothing, hunting sleeps for this many days before trying again."
+        >
+          <Field label="Days">
             <Input
               type="number"
-              value={form.aiMinAgeMonths}
+              value={form.aiExistsRetryDays}
               onChange={(e) =>
-                setForm((f) => ({ ...f, aiMinAgeMonths: Number.parseInt(e.target.value, 10) || 0 }))
+                setForm((f) => ({
+                  ...f,
+                  aiExistsRetryDays: Number.parseInt(e.target.value, 10) || 0,
+                }))
               }
               className="font-mono"
             />
           </Field>
-        </div>
-        <div className="flex items-center gap-3 border-t border-line p-3">
-          <span className="text-[12px] text-muted">
+        </SettingRow>
+        <SettingRow
+          label="No dub hold"
+          description="When AI confidently finds no German dub, the item is put on hold for this many days. The default is twelve months, after which it may be checked again."
+        >
+          <Field label="Days">
+            <Input
+              type="number"
+              value={form.aiUnlikelyRetryDays}
+              onChange={(e) =>
+                setForm((f) => ({
+                  ...f,
+                  aiUnlikelyRetryDays: Number.parseInt(e.target.value, 10) || 0,
+                }))
+              }
+              className="font-mono"
+            />
+          </Field>
+        </SettingRow>
+        <div className="flex flex-wrap items-center gap-3 border-t border-line p-4">
+          <span className="text-[13px] text-muted">
             Status:{" "}
             <span
               className={cn(
@@ -473,7 +654,7 @@ function AiTab({ settings }: { settings: AppSettingsDto }) {
           <Button variant="outline" size="sm" onClick={() => setLoginOpen(true)}>
             Codex device login
           </Button>
-          <span className="ml-auto font-mono text-[11px] text-faint">
+          <span className="ml-auto font-mono text-[12px] text-faint">
             {aiStatus.data
               ? `${aiStatus.data.checksToday}/${aiStatus.data.capPerDay} checks today`
               : ""}

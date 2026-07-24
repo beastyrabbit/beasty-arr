@@ -147,6 +147,7 @@ type SeriesAccumulator = {
   counts: StateCounts;
   lastSearchAt: number | null;
   nextSearchAt: number | null;
+  queued: boolean;
   searching: boolean;
 };
 
@@ -170,6 +171,7 @@ function buildSeriesItems(ctx: AppContext): SeriesListItem[] {
         counts: emptyStateCounts(),
         lastSearchAt: null,
         nextSearchAt: null,
+        queued: false,
         searching: false,
       };
       bySeriesId.set(row.seriesId, acc);
@@ -186,6 +188,7 @@ function buildSeriesItems(ctx: AppContext): SeriesListItem[] {
           ? row.nextEligibleAt
           : Math.min(acc.nextSearchAt, row.nextEligibleAt);
     }
+    if (row.manualPriority > 0) acc.queued = true;
     if (inFlight.has(row.id)) acc.searching = true;
   }
 
@@ -205,6 +208,7 @@ function buildSeriesItems(ctx: AppContext): SeriesListItem[] {
       consideredEpisodes: consideredCount(counts),
       verdict: verdictSummary(verdicts.get(`sonarr:${s.id}`)),
       pause: seriesPause(acc?.rows ?? []),
+      queued: acc?.queued ?? false,
       searching: acc?.searching ?? false,
       lastSearchAt: acc?.lastSearchAt ?? null,
       nextSearchAt: acc?.nextSearchAt ?? null,
@@ -244,6 +248,7 @@ function buildMovieItems(ctx: AppContext): MovieListItem[] {
       quality: m.quality,
       verdict: verdictSummary(verdicts.get(`radarr:${m.id}`)),
       pause: hsRow ? moviePause(hsRow) : { paused: false, since: null, until: null, note: null },
+      queued: (hsRow?.manualPriority ?? 0) > 0,
       searching: hsRow ? inFlight.has(hsRow.id) : false,
       lastSearchAt: hsRow?.lastSearchAt ?? null,
       nextSearchAt: hsRow?.nextEligibleAt ?? null,
@@ -396,6 +401,45 @@ function activityHistory(ctx: AppContext, whereJson: ReturnType<typeof sql>): It
   }));
 }
 
+function verdictHistory(
+  ctx: AppContext,
+  subjectKey: string,
+  seasonNumber?: number,
+): ItemHistoryEntry[] {
+  return ctx.db
+    .select()
+    .from(aiVerdicts)
+    .where(eq(aiVerdicts.subjectKey, subjectKey))
+    .orderBy(desc(aiVerdicts.checkedAt))
+    .limit(HISTORY_LIMIT)
+    .all()
+    .flatMap((verdict) => {
+      const seasonVerdict =
+        seasonNumber == null
+          ? undefined
+          : verdict.perSeason?.find((entry) => entry.season === seasonNumber);
+      if (seasonNumber != null && verdict.perSeason?.length && !seasonVerdict) return [];
+      const value = seasonVerdict?.verdict ?? verdict.verdict;
+      return [
+        {
+          at: verdict.checkedAt,
+          kind: "verdict" as const,
+          message: `Dub oracle${seasonNumber == null ? "" : ` S${String(seasonNumber).padStart(2, "0")}`}: ${value} (${verdict.confidence.toFixed(2)})`,
+          detail: {
+            verdictId: verdict.id,
+            provider: verdict.provider,
+            model: verdict.model,
+            promptVersion: verdict.promptVersion,
+            recheckAfter: verdict.recheckAfter,
+            evidence: verdict.evidence,
+            note: seasonVerdict?.note,
+            superseded: verdict.supersededBy != null,
+          },
+        },
+      ];
+    });
+}
+
 function mergeHistory(...parts: ItemHistoryEntry[][]): ItemHistoryEntry[] {
   return parts
     .flat()
@@ -501,12 +545,24 @@ export function registerLibraryRoutes(app: FastifyInstance, ctx: AppContext): vo
           monitored: false,
           counts: emptyStateCounts(),
           episodes: [],
+          hasGermanEvidence: false,
+          releasing: false,
+          searchCount: 0,
+          lastSearchAt: null,
+          nextEligibleAt: null,
+          history: [],
           verdictNote:
             verdictRow?.perSeason?.find((s) => s.season === ep.seasonNumber)?.note ?? null,
         };
         seasons.set(ep.seasonNumber, season);
       }
       season.monitored = season.monitored || ep.monitored;
+      season.hasGermanEvidence = season.hasGermanEvidence || ep.hasGerman;
+      season.releasing =
+        season.releasing ||
+        (seriesRow.status === "continuing" &&
+          ep.airDateUtc != null &&
+          ep.airDateUtc >= Date.now() - 28 * 86_400_000);
       season.counts[state] += 1;
       const episodeItem: EpisodeItem = {
         id: ep.id,
@@ -524,14 +580,49 @@ export function registerLibraryRoutes(app: FastifyInstance, ctx: AppContext): vo
         tier: hs?.tier ?? 0,
         lastSearchAt: hs?.lastSearchAt ?? null,
         nextEligibleAt: hs?.nextEligibleAt ?? null,
+        queued: (hs?.manualPriority ?? 0) > 0,
         searching: hs ? inFlight.has(hs.id) : false,
       };
       season.episodes.push(episodeItem);
     }
 
+    for (const season of seasons.values()) {
+      const seasonHsIds = new Set(
+        season.episodes
+          .map((episode) => hsByEpisodeId.get(episode.id)?.id)
+          .filter((value): value is number => value != null),
+      );
+      season.history = mergeHistory(
+        attemptHistory(ctx, "sonarr", seasonHsIds),
+        verdictHistory(ctx, `sonarr:${id}`, season.seasonNumber),
+      );
+      season.searchCount = season.history.filter((entry) => entry.kind === "search").length;
+      season.lastSearchAt =
+        season.history
+          .filter((entry) => entry.kind === "search")
+          .reduce<number | null>(
+            (latest, entry) => (latest == null ? entry.at : Math.max(latest, entry.at)),
+            null,
+          ) ?? null;
+      const huntable = season.episodes.filter(
+        (episode) =>
+          episode.state === "missing" ||
+          episode.state === "non_german" ||
+          episode.state === "exhausted",
+      );
+      const nextTimes = huntable
+        .map((episode) => episode.nextEligibleAt)
+        .filter((value): value is number => value != null);
+      season.nextEligibleAt =
+        huntable.some((episode) => episode.nextEligibleAt == null) || nextTimes.length === 0
+          ? null
+          : Math.min(...nextTimes);
+    }
+
     const huntStateIds = new Set(hsRows.map((r) => r.id));
     const history = mergeHistory(
       attemptHistory(ctx, "sonarr", huntStateIds),
+      verdictHistory(ctx, `sonarr:${id}`),
       activityHistory(ctx, sql`json_extract(${activityLog.data}, '$.seriesId') = ${id}`),
     );
 
@@ -569,6 +660,7 @@ export function registerLibraryRoutes(app: FastifyInstance, ctx: AppContext): vo
     const huntStateIds = new Set(hs ? [hs.id] : []);
     const history = mergeHistory(
       attemptHistory(ctx, "radarr", huntStateIds),
+      verdictHistory(ctx, `radarr:${id}`),
       activityHistory(
         ctx,
         sql`json_extract(${activityLog.data}, '$.targetId') = ${id} AND json_extract(${activityLog.data}, '$.kind') = 'movie'`,

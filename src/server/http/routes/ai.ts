@@ -77,6 +77,25 @@ export function registerAiRoutes(app: FastifyInstance, ctx: AppContext): void {
     }
   });
 
+  app.post("/api/ai/recheck", async (request, reply) => {
+    const body = parse(
+      reply,
+      z.object({ subjectKey: z.string().regex(/^(sonarr|radarr):\d+$/) }),
+      request.body,
+    );
+    if (!body.ok) return;
+    // A human-triggered check overrides dry-run suppression and the daily cap.
+    void ctx.services.oracle
+      .recheckSubject(body.data.subjectKey, true)
+      .catch((error) =>
+        request.log.warn(
+          { err: error, subjectKey: body.data.subjectKey },
+          "forced oracle recheck failed",
+        ),
+      );
+    return reply.code(202).send({ ok: true });
+  });
+
   app.post("/api/ai/codex-login/start", async (_request, reply) => {
     const { loginId } = ctx.services.codexLogin.startCodexLogin();
     const response: CodexLoginStartResponse = { id: loginId };

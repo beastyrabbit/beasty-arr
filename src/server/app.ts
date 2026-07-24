@@ -118,6 +118,19 @@ export async function buildApp(
     searxngUrl: env.SEARXNG_URL,
   });
   oracle.onVerdict = (row) => engine.applyVerdict(row);
+  engine.onAiCheckRequested = (subjectKeys, force) => {
+    if (force) {
+      for (const subjectKey of subjectKeys) {
+        void oracle.recheckSubject(subjectKey, true).catch((error) => {
+          app.log.warn({ err: error, subjectKey }, "forced dub oracle recheck failed");
+        });
+      }
+      return;
+    }
+    void oracle.checkAfterFailedSearch(subjectKeys).catch((error) => {
+      app.log.warn({ err: error, subjectKeys }, "automatic dub oracle check failed");
+    });
+  };
 
   const fixer = new FixerService(
     db,

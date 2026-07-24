@@ -43,12 +43,26 @@ const libraryMoviesRoute = createRoute({
 const seriesDetailRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "/library/series/$seriesId",
+  validateSearch: (search: Record<string, unknown>): { season?: number; live?: boolean } => {
+    const season =
+      typeof search.season === "number"
+        ? search.season
+        : typeof search.season === "string" && search.season !== ""
+          ? Number(search.season)
+          : undefined;
+    return {
+      ...(Number.isFinite(season) ? { season } : {}),
+      ...(search.live === true || search.live === "true" ? { live: true } : {}),
+    };
+  },
   component: SeriesDetailPage,
 });
 
 const movieDetailRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "/library/movies/$movieId",
+  validateSearch: (search: Record<string, unknown>): { live?: boolean } =>
+    search.live === true || search.live === "true" ? { live: true } : {},
   component: MovieDetailPage,
 });
 

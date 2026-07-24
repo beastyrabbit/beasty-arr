@@ -164,7 +164,7 @@ export function registerLogRoutes(app: FastifyInstance, ctx: AppContext): void {
       // Explicit user re-check; runs live (even in dry-run) so do it in the
       // background — the SSE ai.check.completed event refreshes the GUI.
       void ctx.services.oracle
-        .recheckSubject(row.subjectKey, false)
+        .recheckSubject(row.subjectKey, true)
         .catch((err) =>
           request.log.warn({ err, subjectKey: row.subjectKey }, "verdict recheck failed"),
         );

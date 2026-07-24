@@ -12,12 +12,15 @@ export function ForceControl({
   seasons,
   compact = false,
   withAiRecheckOption = false,
+  onForced,
 }: {
   itemRef: ItemRef;
   /** When present, offers season-scoped force. */
   seasons?: number[];
   compact?: boolean;
   withAiRecheckOption?: boolean;
+  /** Opens the corresponding live detail view after the force request is accepted. */
+  onForced?: (scope?: ForceScope) => void;
 }) {
   const force = useForceSearch();
   const [recheck, setRecheck] = useState(false);
@@ -29,7 +32,7 @@ export function ForceControl({
         size={compact ? "icon" : "md"}
         title="Force search now"
         disabled={force.isPending}
-        onClick={() => force.mutate({ ref: itemRef })}
+        onClick={() => force.mutate({ ref: itemRef }, { onSuccess: () => onForced?.(undefined) })}
       >
         <Zap size={13} />
         {!compact && "Force now"}
@@ -38,7 +41,10 @@ export function ForceControl({
   }
 
   const dispatch = (scope?: ForceScope) =>
-    force.mutate({ ref: itemRef, body: { scope, withAiRecheck: recheck || undefined } });
+    force.mutate(
+      { ref: itemRef, body: { scope, withAiRecheck: recheck || undefined } },
+      { onSuccess: () => onForced?.(scope) },
+    );
 
   return (
     <Popover>

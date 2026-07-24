@@ -310,6 +310,22 @@ function RowActions({
   arrUrl: string | null;
 }) {
   const invalidate = useInvalidateVerdict();
+  const navigate = useNavigate();
+  const openLive = () => {
+    if (itemRef.kind === "series") {
+      navigate({
+        to: "/library/series/$seriesId",
+        params: { seriesId: String(itemRef.id) },
+        search: { live: true },
+      });
+    } else {
+      navigate({
+        to: "/library/movies/$movieId",
+        params: { movieId: String(itemRef.id) },
+        search: { live: true },
+      });
+    }
+  };
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: stops row navigation under action cluster
     <span
@@ -317,7 +333,7 @@ function RowActions({
       onClick={(e) => e.stopPropagation()}
       onKeyDown={(e) => e.stopPropagation()}
     >
-      <ForceControl itemRef={itemRef} compact />
+      <ForceControl itemRef={itemRef} compact onForced={openLive} />
       {paused || aiPaused ? (
         <ResumeControl
           itemRef={itemRef}

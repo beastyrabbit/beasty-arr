@@ -25,7 +25,6 @@ import {
   HuntEngine,
   type SyncRefreshPort,
 } from "./engine.js";
-import { aiPausedUntilFor } from "./state.js";
 
 const HOUR_MS = 3_600_000;
 const DAY_MS = 24 * HOUR_MS;
@@ -394,6 +393,22 @@ describe("runCycle — dry-run", () => {
     expect(huntRow(db, hs).manualPriority).toBe(0);
     expect(db.select().from(manualRequests).all()[0].status).toBe("done");
   });
+
+  it("still runs a human-requested AI recheck in dry-run", async () => {
+    const { db, engine } = makeHarness();
+    seedSeries(db, { id: 1 });
+    seedEpisode(db, { id: 11, seriesId: 1 });
+    const calls: { keys: string[]; force: boolean }[] = [];
+    engine.onAiCheckRequested = (keys, force) => calls.push({ keys, force });
+    engine.forceSubject({
+      source: "sonarr",
+      kind: "series",
+      id: 1,
+      withAiRecheck: true,
+    });
+    await engine.runCycle();
+    expect(calls).toEqual([{ keys: ["sonarr:1"], force: true }]);
+  });
 });
 
 describe("runCycle — live dispatch", () => {
@@ -451,6 +466,95 @@ describe("runCycle — live dispatch", () => {
     await engine.runCycle();
     const row = huntRow(db, hs);
     expect(row).toMatchObject({ tier: 6, state: "exhausted", searchCount: 6 });
+  });
+
+  it("never retries a failed movie sooner than one month", async () => {
+    const { db, engine, settings } = makeHarness();
+    settings.update({ dryRun: false });
+    const hs = seedMovie(db, { id: 9 });
+    await engine.runCycle();
+    const attempt = db.select().from(searchAttempts).get();
+    expect(huntRow(db, hs).nextEligibleAt).toBe((attempt?.completedAt as number) + 30 * DAY_MS);
+  });
+
+  it("uses an RSS-first minimum delay for a still-releasing season", async () => {
+    const { db, engine, settings } = makeHarness();
+    settings.update({ dryRun: false, releasingSeasonRetryDays: 14 });
+    seedSeries(db, { id: 1, status: "continuing" });
+    const hs = seedEpisode(db, {
+      id: 11,
+      seriesId: 1,
+      airDateUtc: T0 - 2 * DAY_MS,
+    });
+    await engine.runCycle();
+    const attempt = db.select().from(searchAttempts).get();
+    expect(huntRow(db, hs).nextEligibleAt).toBe((attempt?.completedAt as number) + 14 * DAY_MS);
+  });
+
+  it("shares retry pressure across episodes in the same season", async () => {
+    const { db, engine, settings } = makeHarness();
+    settings.update({ dryRun: false });
+    seedSeries(db, { id: 1 });
+    const seasoned = seedEpisode(db, { id: 11, seriesId: 1 }, { tier: 3, searchCount: 3 });
+    const fresh = seedEpisode(db, { id: 12, seriesId: 1, episodeNumber: 2 });
+    await engine.runCycle();
+    expect(huntRow(db, seasoned).tier).toBe(4);
+    expect(huntRow(db, fresh).tier).toBe(4);
+  });
+
+  it("requests automatic AI after no-grab and marks explicit AI rechecks as forced", async () => {
+    const automatic = makeHarness();
+    automatic.settings.update({ dryRun: false });
+    seedSeries(automatic.db, { id: 1 });
+    seedEpisode(automatic.db, { id: 11, seriesId: 1 });
+    const automaticCalls: { keys: string[]; force: boolean }[] = [];
+    automatic.engine.onAiCheckRequested = (keys, force) => automaticCalls.push({ keys, force });
+    await automatic.engine.runCycle();
+    expect(automaticCalls).toEqual([{ keys: ["sonarr:1"], force: false }]);
+
+    const manual = makeHarness();
+    manual.settings.update({ dryRun: false });
+    seedSeries(manual.db, { id: 2 });
+    seedEpisode(manual.db, { id: 21, seriesId: 2 });
+    const manualCalls: { keys: string[]; force: boolean }[] = [];
+    manual.engine.onAiCheckRequested = (keys, force) => manualCalls.push({ keys, force });
+    manual.engine.forceSubject({
+      source: "sonarr",
+      kind: "series",
+      id: 2,
+      withAiRecheck: true,
+    });
+    await manual.engine.runCycle();
+    expect(manualCalls).toEqual([{ keys: ["sonarr:2"], force: true }]);
+  });
+
+  it("consumes one forced AI recheck only once across a multi-command series request", async () => {
+    const { db, engine, settings, sonarr } = makeHarness();
+    settings.update({ dryRun: false, maxCommandsPerCycle: 3 });
+    seedSeries(db, { id: 1 });
+    for (const seasonNumber of [1, 2]) {
+      for (const episodeNumber of [1, 2, 3]) {
+        seedEpisode(db, {
+          id: seasonNumber * 100 + episodeNumber,
+          seriesId: 1,
+          seasonNumber,
+          episodeNumber,
+        });
+      }
+    }
+    const calls: { keys: string[]; force: boolean }[] = [];
+    engine.onAiCheckRequested = (keys, force) => calls.push({ keys, force });
+    engine.forceSubject({
+      source: "sonarr",
+      kind: "series",
+      id: 1,
+      withAiRecheck: true,
+    });
+
+    await engine.runCycle();
+
+    expect(sonarr.sent).toHaveLength(2);
+    expect(calls).toEqual([{ keys: ["sonarr:1"], force: true }]);
   });
 
   it("skips the tier bump when a grab was credited during the search", async () => {
@@ -583,7 +687,7 @@ describe("tier reset on fresh imports", () => {
 });
 
 describe("applyVerdict", () => {
-  it("pauses unlikely series at/above the confidence threshold, honoring perSeason", () => {
+  it("applies a series verdict only to explicitly checked seasons", () => {
     const { db, engine } = makeHarness();
     seedSeries(db, { id: 1 });
     const s1 = seedEpisode(db, { id: 11, seriesId: 1, seasonNumber: 1 });
@@ -601,34 +705,50 @@ describe("applyVerdict", () => {
       perSeason: [{ season: 2, verdict: "exists" }],
     });
     const res = engine.applyVerdict(verdict);
-    expect(res.applied).toBe(2);
-    expect(huntRow(db, s1)).toMatchObject({
-      state: "ai_paused",
-      aiVerdictId: verdict.id,
-      nextEligibleAt: aiPausedUntilFor(verdict),
+    expect(res.applied).toBe(1);
+    expect(huntRow(db, s1)).toMatchObject({ state: "missing", aiVerdictId: null });
+    // listed exists season: tier 2, waits one month, NOT paused
+    expect(huntRow(db, s2)).toMatchObject({
+      state: "missing",
+      tier: 2,
+      nextEligibleAt: T0 + 30 * DAY_MS,
     });
-    // listed exists season: tier 2, immediately eligible, NOT paused
-    expect(huntRow(db, s2)).toMatchObject({ state: "missing", tier: 2, nextEligibleAt: null });
     expect(huntRow(db, done).state).toBe("german"); // untouched
   });
 
-  it("doubles the pause on consecutive unlikely verdicts, capped at 365d", () => {
+  it("uses a fixed twelve-month hold for every confident unlikely verdict", () => {
     const { db, engine } = makeHarness();
     seedSeries(db, { id: 1 });
     const hs = seedEpisode(db, { id: 11, seriesId: 1 });
     const v1 = seedVerdict(db, {});
     engine.applyVerdict(v1);
-    expect(huntRow(db, hs).nextEligibleAt).toBe(T0 + 180 * DAY_MS);
+    expect(huntRow(db, hs).nextEligibleAt).toBe(T0 + 365 * DAY_MS);
 
     const v2 = seedVerdict(db, { checkedAt: T0 + 180 * DAY_MS, recheckAfter: T0 + 270 * DAY_MS });
     engine.applyVerdict(v2);
-    // doubled previous 180d horizon
-    expect(huntRow(db, hs).nextEligibleAt).toBe(T0 + 180 * DAY_MS + 360 * DAY_MS);
+    expect(huntRow(db, hs).nextEligibleAt).toBe(T0 + 180 * DAY_MS + 365 * DAY_MS);
 
     const v3 = seedVerdict(db, { checkedAt: T0 + 540 * DAY_MS, recheckAfter: T0 + 630 * DAY_MS });
     engine.applyVerdict(v3);
-    // 2*360d capped at 365d
     expect(huntRow(db, hs).nextEligibleAt).toBe(T0 + 540 * DAY_MS + 365 * DAY_MS);
+  });
+
+  it("never AI-pauses a season that already contains a German episode", () => {
+    const { db, engine } = makeHarness();
+    seedSeries(db, { id: 1 });
+    const missing = seedEpisode(db, { id: 11, seriesId: 1, seasonNumber: 2 });
+    seedEpisode(
+      db,
+      { id: 12, seriesId: 1, seasonNumber: 2, episodeNumber: 2, hasFile: true, hasGerman: true },
+      { seasonNumber: 2, state: "german" },
+    );
+    const verdict = seedVerdict(db, { verdict: "unlikely", confidence: 0.99 });
+    engine.applyVerdict(verdict);
+    expect(huntRow(db, missing)).toMatchObject({
+      state: "missing",
+      tier: 2,
+      nextEligibleAt: T0 + 30 * DAY_MS,
+    });
   });
 
   it("does not pause below the confidence threshold and unpauses instead", () => {
@@ -648,7 +768,7 @@ describe("applyVerdict", () => {
     });
   });
 
-  it("applies announced (tier 2, eligible at expectedAvailability) and exists (tier 2, now)", () => {
+  it("applies announced timing and gives confirmed existing dubs a one-month retry", () => {
     const { db, engine } = makeHarness();
     seedSeries(db, { id: 1 });
     const hs = seedEpisode(db, { id: 11, seriesId: 1 }, { tier: 5 });
@@ -665,7 +785,10 @@ describe("applyVerdict", () => {
 
     const exists = seedVerdict(db, { verdict: "exists" });
     engine.applyVerdict(exists);
-    expect(huntRow(db, hs)).toMatchObject({ tier: 2, nextEligibleAt: null });
+    expect(huntRow(db, hs)).toMatchObject({
+      tier: 2,
+      nextEligibleAt: T0 + 30 * DAY_MS,
+    });
   });
 
   it("applies movie verdicts via radarr subject keys", () => {
@@ -699,7 +822,7 @@ describe("force / pause / resume", () => {
     );
 
     const res = engine.forceSubject({ source: "sonarr", kind: "series", id: 1 });
-    expect(res).toEqual({ queuedTargets: 2, queuePosition: 1 });
+    expect(res).toEqual({ queuedTargets: 2, queuePosition: 1, requestId: 1 });
     expect(huntRow(db, a).manualPriority).toBe(5); // max(4)+1
     expect(huntRow(db, b).manualPriority).toBe(5);
     expect(huntRow(db, german).manualPriority).toBe(0);

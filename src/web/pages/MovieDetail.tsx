@@ -1,17 +1,19 @@
-import { useParams } from "@tanstack/react-router";
-import { ExternalLink, RefreshCw } from "lucide-react";
+import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
+import { CheckCircle2, Clock3, ExternalLink, Loader2, RefreshCw } from "lucide-react";
 import type { MovieDetail } from "../../shared/api-types.js";
 import { ForceControl, PauseControl, ResumeControl } from "../components/ItemActions.js";
 import { EmptyState, ErrorState, Panel, Skeleton } from "../components/Shell.js";
 import { StateBadge } from "../components/StateBadge.js";
 import { Button } from "../components/ui/button.js";
+import { useLatestEvent } from "../lib/events.js";
 import { fmtDate, fmtDateTime, relTime } from "../lib/format.js";
-import { useInvalidateVerdict, useMovieDetail } from "../lib/queries.js";
+import { useMovieDetail, useRecheckSubject } from "../lib/queries.js";
 import { cn } from "../lib/utils.js";
 
 export function MovieDetailPage() {
   const { movieId } = useParams({ strict: false }) as { movieId: string };
-  const detail = useMovieDetail(Number(movieId));
+  const search = useSearch({ strict: false }) as { live?: boolean };
+  const detail = useMovieDetail(Number(movieId), search.live === true);
 
   if (detail.isPending) {
     return (
@@ -29,7 +31,8 @@ export function MovieDetailPage() {
 
 function MovieDetailView({ m }: { m: MovieDetail }) {
   const itemRef = { source: "radarr", kind: "movie", id: m.id } as const;
-  const invalidate = useInvalidateVerdict();
+  const recheck = useRecheckSubject();
+  const navigate = useNavigate();
 
   return (
     <div className="mx-auto flex max-w-[1100px] flex-col gap-3">
@@ -96,7 +99,17 @@ function MovieDetailView({ m }: { m: MovieDetail }) {
               </p>
             ) : null}
             <div className="mt-3 flex flex-wrap items-center gap-2">
-              <ForceControl itemRef={itemRef} />
+              <ForceControl
+                itemRef={itemRef}
+                onForced={() =>
+                  navigate({
+                    to: "/library/movies/$movieId",
+                    params: { movieId: String(m.id) },
+                    search: { live: true },
+                    replace: true,
+                  })
+                }
+              />
               {m.pause.paused || m.state === "ai_paused" ? (
                 <ResumeControl
                   itemRef={itemRef}
@@ -111,17 +124,16 @@ function MovieDetailView({ m }: { m: MovieDetail }) {
           <div className="hidden w-[260px] shrink-0 rounded-[6px] border border-line bg-bg p-3 md:block">
             <div className="flex items-center justify-between">
               <span className="microlabel">AI dub verdict</span>
-              {m.verdict ? (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => invalidate.mutate(m.verdict?.id ?? 0)}
-                  title="Invalidate & re-check"
-                >
-                  <RefreshCw size={11} />
-                  Re-check
-                </Button>
-              ) : null}
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={recheck.isPending}
+                onClick={() => recheck.mutate(`radarr:${m.id}`)}
+                title="Run a human-forced AI check now"
+              >
+                <RefreshCw size={11} />
+                Check now
+              </Button>
             </div>
             {m.verdict ? (
               <>
@@ -143,6 +155,8 @@ function MovieDetailView({ m }: { m: MovieDetail }) {
           </div>
         </div>
       </Panel>
+
+      <MovieLiveCheck m={m} />
 
       <Panel title="History">
         {m.history.length === 0 ? (
@@ -167,5 +181,50 @@ function MovieDetailView({ m }: { m: MovieDetail }) {
         )}
       </Panel>
     </div>
+  );
+}
+
+function MovieLiveCheck({ m }: { m: MovieDetail }) {
+  const aiStarted = useLatestEvent("ai.check.started");
+  const aiCompleted = useLatestEvent("ai.check.completed");
+  const subjectKey = `radarr:${m.id}`;
+  const aiRunning =
+    aiStarted?.payload.subjectKey === subjectKey &&
+    (aiCompleted?.payload.subjectKey !== subjectKey || aiCompleted.ts < aiStarted.ts);
+  const status = m.queued
+    ? {
+        icon: <Clock3 size={17} />,
+        title: "Forced movie check queued",
+        detail: "It bypasses the normal one-month retry floor and every pause.",
+      }
+    : m.searching
+      ? {
+          icon: <Loader2 size={17} className="animate-spin" />,
+          title: "Radarr search running",
+          detail: "The result and the next retry decision will appear here automatically.",
+        }
+      : aiRunning
+        ? {
+            icon: <Loader2 size={17} className="animate-spin" />,
+            title: "Dub oracle researching",
+            detail: "AI is checking whether a German release exists before the next long wait.",
+          }
+        : {
+            icon: <CheckCircle2 size={17} />,
+            title: "Latest check finished",
+            detail:
+              m.history[0]?.message ??
+              "No active command remains. The movie retry policy is now in effect.",
+          };
+  return (
+    <Panel title="Live movie check">
+      <div className="flex items-start gap-3 p-4">
+        <span className="mt-0.5 text-accent">{status.icon}</span>
+        <div>
+          <div className="text-[14px] font-medium text-ink">{status.title}</div>
+          <p className="mt-1 text-[13px] leading-5 text-muted">{status.detail}</p>
+        </div>
+      </div>
+    </Panel>
   );
 }

@@ -231,11 +231,11 @@ function makeOracle(
 }
 
 describe("OracleService.selectSubjects (trigger policy)", () => {
-  it("selects only due subjects and skips german-original/override/valid-verdict ones", () => {
-    const ctx = setup();
-    seedSeriesSubject(ctx.db, 1); // aged + searched enough → selected
+  it("selects after configured failures and skips german-original/override/valid-verdict ones", () => {
+    const ctx = setup({ aiMinSearchesBeforeCheck: 4 });
+    seedSeriesSubject(ctx.db, 1); // searched enough → selected
     seedSeriesSubject(ctx.db, 2, { searchCount: 1 }); // too few searches
-    seedSeriesSubject(ctx.db, 3, { airDateUtc: RECENT, searchCount: 9 }); // too young
+    seedSeriesSubject(ctx.db, 3, { airDateUtc: RECENT, searchCount: 9 }); // age does not block
     seedSeriesSubject(ctx.db, 4, { state: "exhausted", searchCount: 0, airDateUtc: RECENT }); // exhausted → always
     seedSeriesSubject(ctx.db, 5, { seriesOver: { originalLanguage: "German" } }); // german original
     seedSeriesSubject(ctx.db, 6); // original_ok override
@@ -249,13 +249,13 @@ describe("OracleService.selectSubjects (trigger policy)", () => {
     seedVerdict(ctx.db, "sonarr:8", { recheckAfter: NOW - DAY });
     seedSeriesSubject(ctx.db, 9); // superseded verdict only → re-selected
     seedVerdict(ctx.db, "sonarr:9", { supersededBy: 12345 });
-    seedMovieSubject(ctx.db, 10, { searchCount: 4 }); // aged movie → selected
+    seedMovieSubject(ctx.db, 10, { searchCount: 4 }); // failed enough → selected
     seedMovieSubject(ctx.db, 11, {
       searchCount: 9,
       digitalRelease: RECENT,
       physicalRelease: null,
       year: 2026,
-    }); // young movie
+    }); // release age does not block after enough failures
 
     const oracle = makeOracle(ctx, scriptedRunner().runner);
     const selected = oracle.selectSubjects();
@@ -266,11 +266,11 @@ describe("OracleService.selectSubjects (trigger policy)", () => {
     expect(keys).toContain("sonarr:9");
     expect(keys).toContain("radarr:10");
     expect(keys).not.toContain("sonarr:2");
-    expect(keys).not.toContain("sonarr:3");
+    expect(keys).toContain("sonarr:3");
     expect(keys).not.toContain("sonarr:5");
     expect(keys).not.toContain("sonarr:6");
     expect(keys).not.toContain("sonarr:7");
-    expect(keys).not.toContain("radarr:11");
+    expect(keys).toContain("radarr:11");
     // Exhausted subjects come first.
     expect(keys[0]).toBe("sonarr:4");
     const seriesSubject = selected.find((subject) => subject.subjectKey === "sonarr:1");
@@ -280,6 +280,102 @@ describe("OracleService.selectSubjects (trigger policy)", () => {
       seasons: [1],
       externalIds: { tvdbId: 1001, imdbId: "tt1" },
     });
+  });
+
+  it("skips AI for huntable episodes when their season already has a German file", () => {
+    const ctx = setup();
+    seedSeriesSubject(ctx.db, 1, { season: 2, searchCount: 3 });
+    ctx.db
+      .insert(episodes)
+      .values({
+        id: 199,
+        seriesId: 1,
+        seasonNumber: 2,
+        episodeNumber: 2,
+        monitored: true,
+        hasFile: true,
+        hasGerman: true,
+        lastSyncedAt: NOW,
+      })
+      .run();
+    const oracle = makeOracle(ctx, scriptedRunner().runner);
+    expect(oracle.selectSubjects().map((subject) => subject.subjectKey)).not.toContain("sonarr:1");
+  });
+
+  it("scopes a series check to seasons that have actually failed", () => {
+    const ctx = setup();
+    seedSeriesSubject(ctx.db, 1, { season: 1, searchCount: 1 });
+    ctx.db
+      .insert(episodes)
+      .values({
+        id: 102,
+        seriesId: 1,
+        seasonNumber: 2,
+        episodeNumber: 1,
+        monitored: true,
+        hasFile: false,
+        hasGerman: false,
+        lastSyncedAt: NOW,
+      })
+      .run();
+    ctx.db
+      .insert(huntState)
+      .values({
+        source: "sonarr",
+        targetKind: "episode",
+        targetId: 102,
+        seriesId: 1,
+        seasonNumber: 2,
+        state: "missing",
+        stateChangedAt: NOW,
+        searchCount: 0,
+      })
+      .run();
+    const subject = makeOracle(ctx, scriptedRunner().runner)
+      .selectSubjects()
+      .find((candidate) => candidate.subjectKey === "sonarr:1");
+    expect(subject?.seasons).toEqual([1]);
+  });
+
+  it("does not let a fresh verdict for one season suppress a newly failing season", () => {
+    const ctx = setup();
+    seedSeriesSubject(ctx.db, 1, { season: 1, searchCount: 2 });
+    ctx.db
+      .insert(episodes)
+      .values({
+        id: 102,
+        seriesId: 1,
+        seasonNumber: 2,
+        episodeNumber: 1,
+        monitored: true,
+        hasFile: false,
+        hasGerman: false,
+        lastSyncedAt: NOW,
+      })
+      .run();
+    ctx.db
+      .insert(huntState)
+      .values({
+        source: "sonarr",
+        targetKind: "episode",
+        targetId: 102,
+        seriesId: 1,
+        seasonNumber: 2,
+        state: "missing",
+        stateChangedAt: NOW,
+        searchCount: 2,
+      })
+      .run();
+    seedVerdict(ctx.db, "sonarr:1", {
+      verdict: "exists",
+      perSeason: [{ season: 1, verdict: "exists" }],
+    });
+
+    const subject = makeOracle(ctx, scriptedRunner().runner)
+      .selectSubjects()
+      .find((candidate) => candidate.subjectKey === "sonarr:1");
+
+    expect(subject?.seasons).toEqual([2]);
   });
 });
 
@@ -314,8 +410,9 @@ describe("OracleService.runDailyBatch", () => {
       germanTitle: "Die Serie",
       promptVersion: "dub-oracle-v1",
       checkedAt: NOW,
-      recheckAfter: NOW + 90 * DAY, // recheckAfterDays clamped 5 → 90
+      recheckAfter: NOW + 365 * DAY, // local "no dub" policy overrides model suggestion
       confidence: 0.6, // knowledge-only cap (no successful fetch)
+      perSeason: [{ season: 1, verdict: "unlikely" }],
       supersededBy: null,
     });
     expect(rows.find((row) => row.id === expired.id)?.supersededBy).toBe(fresh?.id);
@@ -401,6 +498,29 @@ describe("OracleService.runDailyBatch", () => {
     expect(ctx.db.select().from(aiVerdicts).all()).toHaveLength(0);
     const warn = ctx.db.select().from(activityLog).all();
     expect(warn.some((row) => row.level === "warn" && row.type === "ai.check")).toBe(true);
+  });
+});
+
+describe("OracleService.checkAfterFailedSearch", () => {
+  it("checks only the failed subject immediately and respects dry-run", async () => {
+    const live = setup();
+    seedSeriesSubject(live.db, 1, { searchCount: 1 });
+    seedSeriesSubject(live.db, 2, { searchCount: 1 });
+    const liveRunner = scriptedRunner(reportVerdict({ verdict: "exists" }));
+    const liveOracle = makeOracle(live, liveRunner.runner);
+    const result = await liveOracle.checkAfterFailedSearch(["sonarr:2"]);
+    expect(result).toMatchObject({ selected: 1, checked: 1, failed: 0 });
+    expect(live.db.select().from(aiVerdicts).all()).toHaveLength(1);
+    expect(live.db.select().from(aiVerdicts).get()?.subjectKey).toBe("sonarr:2");
+
+    const dry = setup({ dryRun: true });
+    seedSeriesSubject(dry.db, 3, { searchCount: 1 });
+    const dryRunner = scriptedRunner(reportVerdict());
+    const dryOracle = makeOracle(dry, dryRunner.runner);
+    expect(await dryOracle.checkAfterFailedSearch(["sonarr:3"])).toMatchObject({
+      skippedReason: "dry_run",
+    });
+    expect(dryRunner.calls).toHaveLength(0);
   });
 });
 

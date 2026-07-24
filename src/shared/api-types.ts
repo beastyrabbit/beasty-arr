@@ -222,6 +222,8 @@ export type SeriesListItem = {
   consideredEpisodes: number;
   verdict: AiVerdictSummary | null;
   pause: PauseInfo;
+  /** Transient: a manual force request is waiting for dispatch. */
+  queued: boolean;
   /** Transient: a search command for this item is in flight. */
   searching: boolean;
   lastSearchAt: number | null;
@@ -243,6 +245,7 @@ export type MovieListItem = {
   quality: string | null;
   verdict: AiVerdictSummary | null;
   pause: PauseInfo;
+  queued: boolean;
   searching: boolean;
   lastSearchAt: number | null;
   nextSearchAt: number | null;
@@ -266,6 +269,7 @@ export type EpisodeItem = {
   tier: number;
   lastSearchAt: number | null;
   nextEligibleAt: number | null;
+  queued: boolean;
   searching: boolean;
 };
 
@@ -274,6 +278,14 @@ export type SeasonItem = {
   monitored: boolean;
   counts: StateCounts;
   episodes: EpisodeItem[];
+  /** A German file in this season is strong evidence that the complete season dub exists. */
+  hasGermanEvidence: boolean;
+  /** Still-airing seasons are left longer between active searches so RSS can do its job. */
+  releasing: boolean;
+  searchCount: number;
+  lastSearchAt: number | null;
+  nextEligibleAt: number | null;
+  history: ItemHistoryEntry[];
   /** Per-season AI verdict note when the oracle answered per season. */
   verdictNote?: string | null;
 };
@@ -333,7 +345,7 @@ export type ItemSubjectKind = (typeof ITEM_SUBJECT_KINDS)[number];
 
 export type ForceScope = { seasonNumber?: number; episodeIds?: number[] };
 export type ForceRequest = { scope?: ForceScope; withAiRecheck?: boolean };
-export type ForceResponse = MaybeDryRun<{ queuePosition: number }>;
+export type ForceResponse = MaybeDryRun<{ queuePosition: number; requestId: number }>;
 
 export type PauseRequest = {
   /** Epoch ms; omit/null = indefinite. */
@@ -616,16 +628,22 @@ export type HuntSettingsDto = {
   missingToUpgradeRatio: string;
   huntSpecials: boolean;
   dubLagDaysDefault: number;
+  releasingSeasonRetryDays: number;
+  movieRetryDays: number;
   acceptedOriginalLanguages: string[];
 };
+
+export type AiThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
 export type AiSettingsDto = {
   aiProvider: "codex" | "aibox" | "off";
   aiModel: string;
+  aiThinkingLevel: AiThinkingLevel;
   aiMaxChecksPerDay: number;
   aiPauseConfidence: number;
   aiMinSearchesBeforeCheck: number;
-  aiMinAgeMonths: number;
+  aiExistsRetryDays: number;
+  aiUnlikelyRetryDays: number;
 };
 
 export type FixerSettingsDto = {

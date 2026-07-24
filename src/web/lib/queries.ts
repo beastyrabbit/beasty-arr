@@ -142,6 +142,7 @@ export function wireSseToQueryClient(qc: QueryClient): void {
       case "hunt.search.result":
         qc.invalidateQueries({ queryKey: keys.huntStatus });
         qc.invalidateQueries({ queryKey: ["attempts"] });
+        qc.invalidateQueries({ queryKey: ["library"] });
         break;
       case "hunt.win":
         qc.invalidateQueries({ queryKey: keys.wins });
@@ -151,6 +152,7 @@ export function wireSseToQueryClient(qc: QueryClient): void {
       case "ai.check.completed":
         qc.invalidateQueries({ queryKey: ["verdicts"] });
         qc.invalidateQueries({ queryKey: keys.aiStatus });
+        qc.invalidateQueries({ queryKey: ["library"] });
         break;
       case "fixer.queue.changed":
         qc.invalidateQueries({ queryKey: keys.fixerQueue });
@@ -286,17 +288,19 @@ export function useMovieList(query: LibraryQuery, enabled = true) {
   });
 }
 
-export function useSeriesDetail(id: number) {
+export function useSeriesDetail(id: number, live = false) {
   return useQuery({
     queryKey: keys.seriesDetail(id),
     queryFn: () => api.get<SeriesDetail>(`/api/library/series/${id}`),
+    refetchInterval: live ? 2_000 : false,
   });
 }
 
-export function useMovieDetail(id: number) {
+export function useMovieDetail(id: number, live = false) {
   return useQuery({
     queryKey: keys.movieDetail(id),
     queryFn: () => api.get<MovieDetail>(`/api/library/movies/${id}`),
+    refetchInterval: live ? 2_000 : false,
   });
 }
 
@@ -512,11 +516,24 @@ export function useVerdicts(query: VerdictsQuery) {
 export function useInvalidateVerdict() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: number) => api.post<OkResponse>(`/api/verdicts/${id}/invalidate`),
+    mutationFn: (id: number) => api.post<OkResponse>(`/api/verdicts/${id}/invalidate?recheck=true`),
     onSuccess: () => {
       toast.success("Verdict invalidated — re-check queued");
       qc.invalidateQueries({ queryKey: ["verdicts"] });
       qc.invalidateQueries({ queryKey: ["library"] });
+    },
+    onError: toastError,
+  });
+}
+
+export function useRecheckSubject() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (subjectKey: string) => api.post<OkResponse>("/api/ai/recheck", { subjectKey }),
+    onSuccess: () => {
+      toast.success("AI check started");
+      qc.invalidateQueries({ queryKey: ["library"] });
+      qc.invalidateQueries({ queryKey: ["verdicts"] });
     },
     onError: toastError,
   });

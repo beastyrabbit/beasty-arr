@@ -370,7 +370,7 @@ const SYSTEM_PROMPT = [
   "- announced: a German dub or German release is officially announced or dated but not yet available.",
   "- unlikely: strong evidence that no German dub exists and none is coming (niche title, years without a dub, no German distributor).",
   "- unknown: you could not determine it reliably.",
-  "For series, fill perSeason for the requested seasons whenever dub coverage differs between them.",
+  "For series, always fill perSeason with one verdict for every requested season.",
   "confidence is 0..1. Report a confidence above 0.6 only when a fetched source confirms the verdict.",
   "evidence: short bullets citing what you found, each including its source URL.",
   "expectedAvailability: ISO date (YYYY-MM-DD), only for announced with a known date.",
@@ -415,7 +415,7 @@ ${JSON.stringify(
 Instructions:
 - Verify on the preferred German sources via fetch_url${options.searxngUrl ? " (use search_web first when you need to locate the right page)" : ""}.
 - Use the external ids (TVDB/TMDB/IMDb) and the original title to avoid confusing similarly named titles.
-${subject.kind === "series" ? "- Check the listed seasons individually and report perSeason when coverage differs.\n" : ""}- Then call ${REPORT_TOOL_NAME} exactly once with your verdict.`;
+${subject.kind === "series" ? "- Check the listed seasons individually and report one perSeason entry for every listed season.\n" : ""}- Then call ${REPORT_TOOL_NAME} exactly once with your verdict.`;
 
   return {
     system: SYSTEM_PROMPT,

@@ -1,3 +1,4 @@
+import { useNavigate } from "@tanstack/react-router";
 import { ArrowUpToLine, ChevronDown, ChevronRight, Play, X, Zap } from "lucide-react";
 import { useState } from "react";
 import type { SearchResult } from "../../shared/api-types.js";
@@ -124,6 +125,7 @@ export function HuntPage() {
 }
 
 function ForceBar() {
+  const navigate = useNavigate();
   const [q, setQ] = useState("");
   const [selected, setSelected] = useState<SearchResult | null>(null);
   const [season, setSeason] = useState("");
@@ -133,10 +135,30 @@ function ForceBar() {
   const dispatch = () => {
     if (!selected) return;
     const seasonNumber = season === "" ? undefined : Number(season);
-    force.mutate({
-      ref: { source: selected.source, kind: selected.kind, id: selected.id },
-      body: seasonNumber !== undefined ? { scope: { seasonNumber } } : {},
-    });
+    const target = selected;
+    force.mutate(
+      {
+        ref: { source: target.source, kind: target.kind, id: target.id },
+        body: seasonNumber !== undefined ? { scope: { seasonNumber } } : {},
+      },
+      {
+        onSuccess: () => {
+          if (target.kind === "series") {
+            navigate({
+              to: "/library/series/$seriesId",
+              params: { seriesId: String(target.id) },
+              search: { season: seasonNumber, live: true },
+            });
+          } else {
+            navigate({
+              to: "/library/movies/$movieId",
+              params: { movieId: String(target.id) },
+              search: { live: true },
+            });
+          }
+        },
+      },
+    );
     setSelected(null);
     setQ("");
     setSeason("");
