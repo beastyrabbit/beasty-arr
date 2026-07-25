@@ -92,6 +92,15 @@ function makeHarness() {
     rmSync(dir, { recursive: true, force: true });
   });
   const settings = new SettingsService(db);
+  // Keep controller-math tests independent from the application-level
+  // recommended defaults, which are covered in app.test.ts.
+  settings.update({
+    budgetSafetyPct: 0.1,
+    budgetHorizonHours: 6,
+    budgetTrickleMinPerHour: 2,
+    budgetPacingHorizonHours: 6,
+    budgetBurstMaxDivisor: 12,
+  });
   const bus = new EventBus();
   const prowlarr = new FakeProwlarr();
   const clock = { ms: T0 };

@@ -293,7 +293,7 @@ describe("hunt + engine", () => {
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body.engine).toBe("running");
-    expect(body.queueGate.threshold).toBe(15);
+    expect(body.queueGate.threshold).toBe(10);
     expect(body.current).toBeNull();
   });
 

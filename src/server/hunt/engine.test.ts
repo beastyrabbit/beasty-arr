@@ -251,7 +251,8 @@ function seedVerdict(db: Db, over: Partial<typeof aiVerdicts.$inferInsert> = {})
 
 describe("selection ordering and interleave", () => {
   it("interleaves missing:upgrade 1:2 by priority score, manual first", () => {
-    const { db, engine } = makeHarness();
+    const { db, engine, settings } = makeHarness();
+    settings.update({ missingToUpgradeRatio: "1:2" });
     for (const id of [1, 2, 3, 4, 5, 6]) seedSeries(db, { id });
     // missing: A (score 710), B (score 530)
     const a = seedEpisode(db, { id: 11, seriesId: 1, airDateUtc: T0 - 10 * DAY_MS });
@@ -308,14 +309,15 @@ describe("selection ordering and interleave", () => {
 
 describe("dub-lag and specials gating", () => {
   it("waits dubLagDays after a non-German import before the first upgrade search", () => {
-    const { db, engine, clock } = makeHarness();
+    const { db, engine, clock, settings } = makeHarness();
+    settings.update({ dubLagDaysDefault: 7 });
     seedSeries(db, { id: 1 });
     const hs = seedEpisode(
       db,
       { id: 11, seriesId: 1, hasFile: true, fileImportedAt: T0 - 3 * DAY_MS },
       { state: "non_german" },
     );
-    expect(engine.queueView()).toHaveLength(0); // default lag 7d
+    expect(engine.queueView()).toHaveLength(0);
     clock.ms = T0 + 5 * DAY_MS; // 8d after import
     expect(engine.queueView().map((v) => v.huntStateId)).toEqual([hs]);
   });

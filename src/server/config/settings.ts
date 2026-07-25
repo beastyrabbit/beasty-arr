@@ -6,22 +6,25 @@ import { settings } from "../db/schema.js";
 /** Behavior settings live in the DB (GUI-editable). Identity/secrets/endpoints are env-only. */
 export const settingsSchema = z.object({
   dryRun: z.boolean().default(true), // default ON at first boot — flip in GUI (type "live")
-  huntTickMinutes: z.number().int().min(1).max(120).default(10),
-  maxCommandsPerCycle: z.number().int().min(1).max(10).default(3),
-  queueGateThreshold: z.number().int().min(1).default(15),
-  missingToUpgradeRatio: z.string().default("1:2"),
+  // Large-library profile: four commands/hour, split evenly between missing
+  // media and German upgrades. Season/movie grouping keeps useful throughput high.
+  huntTickMinutes: z.number().int().min(1).max(120).default(30),
+  maxCommandsPerCycle: z.number().int().min(1).max(10).default(2),
+  queueGateThreshold: z.number().int().min(1).default(10),
+  missingToUpgradeRatio: z.string().default("1:1"),
   huntSpecials: z.boolean().default(false),
-  dubLagDaysDefault: z.number().int().min(0).default(7),
-  releasingSeasonRetryDays: z.number().int().min(1).max(180).default(14),
+  dubLagDaysDefault: z.number().int().min(0).default(14),
+  releasingSeasonRetryDays: z.number().int().min(1).max(180).default(21),
   movieRetryDays: z.number().int().min(1).max(365).default(30),
   acceptedOriginalLanguages: z.array(z.string()).default([]),
 
-  // Budget controller
-  budgetSafetyPct: z.number().min(0).max(0.9).default(0.1),
-  budgetHorizonHours: z.number().int().min(1).max(24).default(6),
-  budgetTrickleMinPerHour: z.number().min(0).default(2),
-  budgetPacingHorizonHours: z.number().int().min(1).max(24).default(6),
-  budgetBurstMaxDivisor: z.number().int().min(1).default(12), // burstMax = cap / divisor
+  // Budget controller. A full-day pace and 20% reserve absorb organic RSS use
+  // and Sonarr anime searches that may fan out into many indexer queries.
+  budgetSafetyPct: z.number().min(0).max(0.9).default(0.2),
+  budgetHorizonHours: z.number().int().min(1).max(24).default(12),
+  budgetTrickleMinPerHour: z.number().min(0).default(1),
+  budgetPacingHorizonHours: z.number().int().min(1).max(24).default(24),
+  budgetBurstMaxDivisor: z.number().int().min(1).default(24), // burstMax = cap / divisor
   excludeIndexerIds: z.array(z.number().int()).default([]),
 
   // AI / oracle

@@ -46,6 +46,23 @@ describe("app skeleton", () => {
   it("has dry-run enabled by default", () => {
     expect(built.ctx.settings.get().dryRun).toBe(true);
   });
+
+  it("uses the conservative large-library hunt profile by default", () => {
+    expect(built.ctx.settings.get()).toMatchObject({
+      huntTickMinutes: 30,
+      maxCommandsPerCycle: 2,
+      queueGateThreshold: 10,
+      missingToUpgradeRatio: "1:1",
+      dubLagDaysDefault: 14,
+      releasingSeasonRetryDays: 21,
+      movieRetryDays: 30,
+      budgetSafetyPct: 0.2,
+      budgetHorizonHours: 12,
+      budgetTrickleMinPerHour: 1,
+      budgetPacingHorizonHours: 24,
+      budgetBurstMaxDivisor: 24,
+    });
+  });
 });
 
 describe("development safety", () => {
