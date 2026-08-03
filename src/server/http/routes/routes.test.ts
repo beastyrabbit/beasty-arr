@@ -501,6 +501,23 @@ describe("fixer", () => {
     expect(res.statusCode).toBe(503);
   });
 
+  it("passes exact selected targets to the auto-apply bulk runner", async () => {
+    const start = vi
+      .spyOn(b.ctx.services.fixerBulk, "start")
+      .mockResolvedValue({ ok: true, total: 2 });
+    const targets = [
+      { service: "sonarr", queueItemId: 5 },
+      { service: "radarr", queueItemId: 5 },
+    ] as const;
+
+    const res = await post(b.app, "/api/fixer/bulk/start", { targets });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ ok: true });
+    expect(start).toHaveBeenCalledWith({ targets });
+    start.mockRestore();
+  });
+
   // This replaces the whole fixer service, so it runs last.
   it("maps the queue with latest-analysis fields", async () => {
     b.ctx.services.fixer = {

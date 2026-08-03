@@ -332,6 +332,53 @@ describe("FixerBulk", () => {
     expect(calls.map((c) => c.queueItemId)).toEqual([2]);
   });
 
+  it("analyzes only the exact targets requested by the UI", async () => {
+    const { sonarr, bulk, calls } = makeHarness(() => needsReviewProposal());
+    sonarr.queue = [makeQueueItem(1), makeQueueItem(2), makeQueueItem(3)];
+    sonarr.candidatesByItem.set(2, [makeCandidate("candidate_2", [102])]);
+
+    const started = await bulk.start({
+      targets: [{ service: "sonarr", queueItemId: 2 }],
+    });
+
+    expect(started.total).toBe(1);
+    await bulk.wait();
+    expect(calls.map((call) => `${call.service}:${call.queueItemId}`)).toEqual(["sonarr:2"]);
+  });
+
+  it("treats an explicit empty target list as no work", async () => {
+    const { sonarr, bulk, calls } = makeHarness(() => needsReviewProposal());
+    sonarr.queue = [makeQueueItem(1), makeQueueItem(2)];
+
+    const started = await bulk.start({ targets: [] });
+
+    expect(started).toMatchObject({ ok: true, total: 0 });
+    expect(calls).toHaveLength(0);
+  });
+
+  it("auto-applies a proposal produced by an Analyze selected target", async () => {
+    const { settings, sonarr, bulk, svc } = makeHarness((req) =>
+      importProposal(`candidate_${req.queueItemId}`, [100 + req.queueItemId], 0.9),
+    );
+    settings.update({ fixerAutoApply: true, dryRun: false, fixerParallelism: 1 });
+    sonarr.queue = [makeQueueItem(1), makeQueueItem(2)];
+    for (const item of sonarr.queue) {
+      sonarr.candidatesByItem.set(item.id, [
+        makeCandidate(`candidate_${item.id}`, [100 + item.id]),
+      ]);
+    }
+
+    await bulk.start({ targets: [{ service: "sonarr", queueItemId: 2 }] });
+    await bulk.wait();
+
+    expect(sonarr.applyCalls.map((call) => call.queueItem.id)).toEqual([2]);
+    expect(svc.listHistory().items[0]).toMatchObject({
+      sourceKind: "ai_auto",
+      action: "import",
+      result: "ok",
+    });
+  });
+
   it("auto-imports only at or above fixerAutoImportConfidence (0.8)", async () => {
     const { settings, sonarr, bulk } = makeHarness((req) =>
       importProposal(

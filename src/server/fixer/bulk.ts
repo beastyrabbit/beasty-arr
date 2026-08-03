@@ -151,7 +151,12 @@ export class FixerBulk {
    * 202-style: refreshes the queue, picks matching analyzable items (one
    * representative per downloadId) and runs the worker pool in the background.
    */
-  async start(input: { issueTypes?: string[] } = {}): Promise<{
+  async start(
+    input: {
+      issueTypes?: string[];
+      targets?: Array<{ service: MediaService; queueItemId: number }>;
+    } = {},
+  ): Promise<{
     ok: boolean;
     total: number;
     message?: string;
@@ -173,9 +178,15 @@ export class FixerBulk {
     try {
       const snapshot = await this.service.refreshQueue();
       const issueTypeSet = input.issueTypes?.length ? new Set(input.issueTypes) : null;
+      const targetSet = input.targets
+        ? new Set(input.targets.map((target) => `${target.service}:${target.queueItemId}`))
+        : null;
       items = uniqueQueueItemsByDownload(
         snapshot.items.filter(
-          (item) => item.canAnalyze && (!issueTypeSet || issueTypeSet.has(item.issueType)),
+          (item) =>
+            item.canAnalyze &&
+            (!issueTypeSet || issueTypeSet.has(item.issueType)) &&
+            (!targetSet || targetSet.has(`${item.service}:${item.id}`)),
         ),
       );
     } catch (error) {

@@ -13,7 +13,6 @@ import { fmtBytes, fmtTime, relTime } from "../lib/format.js";
 import {
   useConfig,
   useFixerAnalysis,
-  useFixerAnalyze,
   useFixerApply,
   useFixerBulk,
   useFixerCancel,
@@ -32,7 +31,6 @@ const keyOf = (item: { service: string; id: number }): ItemKey => `${item.servic
 export function FixerPage() {
   const queue = useFixerQueue();
   const refresh = useFixerRefresh();
-  const analyze = useFixerAnalyze();
   const bulk = useFixerBulk();
   const config = useConfig();
   const updateConfig = useUpdateConfig();
@@ -55,7 +53,13 @@ export function FixerPage() {
   }, [items]);
 
   const analyzeItems = (list: FixerQueueItemDto[]) => {
-    for (const item of list) analyze.mutate({ service: item.service, id: item.id });
+    if (list.length === 0) return;
+    bulk.mutate({
+      action: "start",
+      body: {
+        targets: list.map((item) => ({ service: item.service, queueItemId: item.id })),
+      },
+    });
   };
 
   return (

@@ -585,7 +585,9 @@ export type FixerRemoveRequest = Partial<QueueRemovalOptions>;
 export type FixerRemoveResponse = MaybeDryRun<OkResponse>;
 export type FixerIgnoreResponse = MaybeDryRun<OkResponse>;
 
-export type FixerBulkStartRequest = { services?: ArrSource[]; queueItemIds?: number[] };
+export type FixerBulkStartRequest = {
+  targets?: Array<{ service: ArrSource; queueItemId: number }>;
+};
 export type FixerBulkStatusResponse = {
   running: boolean;
   total: number;

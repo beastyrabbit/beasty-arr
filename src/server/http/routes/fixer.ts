@@ -203,20 +203,24 @@ export function registerFixerRoutes(app: FastifyInstance, ctx: AppContext): void
   });
 
   app.post("/api/fixer/bulk/start", async (request, reply) => {
-    // NOTE: FixerBulk filters by issueType only — the request's services/queueItemIds
-    // are not supported by the bulk runner, so a start analyzes all analyzable items.
     const b = parse(
       reply,
       z
         .object({
-          services: z.array(z.enum(ARR_SOURCES)).optional(),
-          queueItemIds: z.array(z.number().int()).optional(),
+          targets: z
+            .array(
+              z.object({
+                service: z.enum(ARR_SOURCES),
+                queueItemId: z.number().int(),
+              }),
+            )
+            .optional(),
         })
         .optional(),
       request.body ?? {},
     );
     if (!b.ok) return;
-    const result = await ctx.services.fixerBulk.start({});
+    const result = await ctx.services.fixerBulk.start(b.data ?? {});
     if (!result.ok)
       return reply.code(409).send({ error: result.message ?? "bulk already running" });
     return { ok: true };
