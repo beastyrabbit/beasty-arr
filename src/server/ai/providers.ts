@@ -304,6 +304,7 @@ function resolveModel(
   if (!model && provider === "codex") {
     // Unknown codex model id: clone a catalog entry as template (sonarr_fixer pattern).
     const template =
+      registry.find("openai-codex", "gpt-5.6-terra") ??
       registry.find("openai-codex", "gpt-5.5") ??
       registry.getAll().find((candidate) => candidate.provider === "openai-codex");
     if (template) model = { ...template, id: modelId, name: modelId };

@@ -672,8 +672,8 @@ export type ConfigResponse = {
   webhookPaths?: { sonarr: string; radarr: string };
 };
 
-/** dryRun is NOT settable here — use POST /api/system/dry-run (typed confirm). */
-export type ConfigUpdateRequest = Partial<Omit<AppSettingsDto, "dryRun">>;
+/** dryRun has a dedicated confirmation route; the application AI provider is Codex-only. */
+export type ConfigUpdateRequest = Partial<Omit<AppSettingsDto, "dryRun" | "aiProvider">>;
 export type ConfigUpdateResponse = ConfigResponse;
 
 export type TestConnectionRequest = { service: ConnectionKind };

@@ -61,7 +61,44 @@ describe("app skeleton", () => {
       budgetTrickleMinPerHour: 1,
       budgetPacingHorizonHours: 24,
       budgetBurstMaxDivisor: 24,
+      aiProvider: "codex",
+      aiModel: "gpt-5.6-terra",
+      fixerParallelism: 5,
     });
+  });
+});
+
+describe("settings persistence", () => {
+  it("reloads saved AI and Fixer settings from SQLite after a restart", async () => {
+    const dataDir = mkdtempSync(path.join(tmpdir(), "beasty-arr-settings-"));
+    const first = await buildApp({
+      env: { NODE_ENV: "production", LOG_LEVEL: "error" },
+      dataDir,
+      serveStatic: false,
+      registerJobs: false,
+    });
+    first.ctx.settings.update({
+      aiModel: "gpt-5.6-sol",
+      aiThinkingLevel: "xhigh",
+      fixerParallelism: 8,
+      aiMaxChecksPerDay: 42,
+    });
+    await first.app.close();
+
+    const reopened = await buildApp({
+      env: { NODE_ENV: "production", LOG_LEVEL: "error" },
+      dataDir,
+      serveStatic: false,
+      registerJobs: false,
+    });
+    expect(reopened.ctx.settings.get()).toMatchObject({
+      aiModel: "gpt-5.6-sol",
+      aiThinkingLevel: "xhigh",
+      fixerParallelism: 8,
+      aiMaxChecksPerDay: 42,
+    });
+    await reopened.app.close();
+    rmSync(dataDir, { recursive: true, force: true });
   });
 });
 

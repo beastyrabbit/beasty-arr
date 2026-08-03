@@ -468,7 +468,6 @@ function AiTab({ settings }: { settings: AppSettingsDto }) {
   const aiStatus = useAiStatus();
   const models = useAiModels();
   const [form, setForm] = useState({
-    aiProvider: settings.aiProvider,
     aiModel: settings.aiModel,
     aiThinkingLevel: settings.aiThinkingLevel,
     aiMaxChecksPerDay: settings.aiMaxChecksPerDay,
@@ -476,6 +475,7 @@ function AiTab({ settings }: { settings: AppSettingsDto }) {
     aiMinSearchesBeforeCheck: settings.aiMinSearchesBeforeCheck,
     aiExistsRetryDays: settings.aiExistsRetryDays,
     aiUnlikelyRetryDays: settings.aiUnlikelyRetryDays,
+    fixerParallelism: settings.fixerParallelism,
   });
   const [loginOpen, setLoginOpen] = useState(false);
 
@@ -487,32 +487,34 @@ function AiTab({ settings }: { settings: AppSettingsDto }) {
     <div className="flex flex-col gap-4">
       <Panel title="Dub oracle">
         <SettingRow
-          label="Provider"
-          description="The oracle is asked only after the configured number of failed searches, unless a human explicitly requests an AI re-check."
-        >
-          <Field label="Provider">
-            <Select
-              value={form.aiProvider}
-              onValueChange={(v) =>
-                setForm((f) => ({ ...f, aiProvider: v as typeof f.aiProvider }))
-              }
-              options={[
-                { value: "codex", label: "Codex (gpt-5.5)" },
-                { value: "aibox", label: "AI box (Ollama)" },
-                { value: "off", label: "Off" },
-              ]}
-            />
-          </Field>
-        </SettingRow>
-        <SettingRow
           label="Model"
-          description="Model used to research German dub availability and cite evidence. This does not change the model used by other applications."
+          description="Codex model used to research German dub availability and analyze Fixer items. The available models are loaded from the installed provider catalog."
         >
           <Field label="Model">
             <Select
               value={form.aiModel}
               onValueChange={(v) => setForm((f) => ({ ...f, aiModel: v }))}
               options={modelOptions}
+            />
+          </Field>
+        </SettingRow>
+        <SettingRow
+          label="Parallel Fixer analyses"
+          description="Maximum number of Fixer items Codex analyzes at the same time. This is separate from the Hunt commands-per-cycle limit."
+        >
+          <Field label="Concurrent analyses" hint="1–10">
+            <Input
+              type="number"
+              min={1}
+              max={10}
+              value={form.fixerParallelism}
+              onChange={(e) =>
+                setForm((f) => ({
+                  ...f,
+                  fixerParallelism: Number.parseInt(e.target.value, 10) || 0,
+                }))
+              }
+              className="font-mono"
             />
           </Field>
         </SettingRow>

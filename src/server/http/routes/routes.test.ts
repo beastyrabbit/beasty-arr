@@ -460,6 +460,7 @@ describe("ai", () => {
     const res = await get(b.app, "/api/ai/status");
     expect(res.statusCode).toBe(200);
     expect(res.json().provider).toBe("codex");
+    expect(res.json().model).toBe("gpt-5.6-terra");
     expect(res.json().status).toBe("unauthenticated");
     expect(res.json().capPerDay).toBe(20);
   });
@@ -584,6 +585,33 @@ describe("config", () => {
     await put(b.app, "/api/config", { huntTickMinutes: 15 });
     expect(b.ctx.settings.get().huntTickMinutes).toBe(15);
     expect(b.ctx.settings.get().dryRun).toBe(true);
+  });
+
+  it("keeps the application AI provider Codex-only", async () => {
+    const res = await put(b.app, "/api/config", { aiProvider: "off" });
+    expect(res.statusCode).toBe(400);
+    expect(b.ctx.settings.get().aiProvider).toBe("codex");
+  });
+
+  it("updates only the supplied settings instead of resetting unrelated values", async () => {
+    b.ctx.settings.update({
+      aiModel: "gpt-5.6-sol",
+      aiThinkingLevel: "xhigh",
+      fixerParallelism: 7,
+      maxCommandsPerCycle: 6,
+    });
+
+    const res = await put(b.app, "/api/config", { fixerAutoApply: true });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().settings).toMatchObject({
+      aiModel: "gpt-5.6-sol",
+      aiThinkingLevel: "xhigh",
+      fixerParallelism: 7,
+      maxCommandsPerCycle: 6,
+      fixerAutoApply: true,
+    });
+    expect(b.ctx.settings.get()).toMatchObject(res.json().settings);
   });
 });
 

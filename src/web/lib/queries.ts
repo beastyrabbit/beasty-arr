@@ -562,7 +562,7 @@ export function useAiModels() {
   return useQuery({
     queryKey: keys.aiModels,
     queryFn: () => api.get<AiModelsResponse>("/api/ai/models"),
-    staleTime: Number.POSITIVE_INFINITY,
+    staleTime: 5 * 60_000,
   });
 }
 

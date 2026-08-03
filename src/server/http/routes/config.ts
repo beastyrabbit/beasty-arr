@@ -10,7 +10,7 @@ import type {
   ConnectionKind,
   TestConnectionResponse,
 } from "../../../shared/api-types.js";
-import { settingsSchema } from "../../config/settings.js";
+import { settingsPatchSchema } from "../../config/settings.js";
 import type { AppContext } from "../../context.js";
 import { indexers, syncState } from "../../db/schema.js";
 import { parse } from "./util.js";
@@ -28,7 +28,7 @@ export const APP_VERSION = (() => {
 })();
 
 // dryRun is toggled only via POST /api/system/dry-run (typed confirm) — never here.
-const configPatchSchema = settingsSchema.omit({ dryRun: true }).partial();
+const configPatchSchema = settingsPatchSchema.omit({ dryRun: true, aiProvider: true });
 
 function syncStateNum(ctx: AppContext, key: string): number | null {
   const row = ctx.db.select().from(syncState).where(eq(syncState.key, key)).get();

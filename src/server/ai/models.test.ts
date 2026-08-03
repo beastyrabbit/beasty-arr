@@ -118,3 +118,24 @@ describe("listModels aibox", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 });
+
+describe("listModels codex", () => {
+  it("loads the installed Codex catalog including the Terra default", async () => {
+    const models = await listModels("codex", {
+      dataDir: tempDir(),
+      env: {},
+      settings: settings("codex", "gpt-5.6-terra"),
+    });
+
+    expect(models).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "gpt-5.6-terra",
+          provider: "codex",
+          supportsReasoning: true,
+          available: true,
+        }),
+      ]),
+    );
+  });
+});
