@@ -138,6 +138,36 @@ describe("validateProposalForImport", () => {
     expect(result.issues.some((issue) => issue.message.includes("not present"))).toBe(true);
   });
 
+  it("blocks a season pack that imports other episodes but not the queued target", () => {
+    const result = validateProposalForImport(
+      [candidate({ seriesId: 12, episodeIds: [], episodeLabels: [] })],
+      {
+        ...importProposal,
+        selectedImports: [{ candidateId: "candidate_1", episodeIds: [202] }],
+      },
+      queueItem({ episodeIds: [101] }),
+      [202],
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.issues.some((issue) => issue.message.includes("queued target episode"))).toBe(
+      true,
+    );
+  });
+
+  it("allows a season pack that contains the queued target and additional known episodes", () => {
+    const result = validateProposalForImport(
+      [candidate({ seriesId: 12, episodeIds: [101, 102] })],
+      {
+        ...importProposal,
+        selectedImports: [{ candidateId: "candidate_1", episodeIds: [101, 102] }],
+      },
+      queueItem({ episodeIds: [101] }),
+    );
+
+    expect(result.ok).toBe(true);
+  });
+
   it("does not block non-import actions", () => {
     const result = validateProposalForImport([], {
       ...importProposal,

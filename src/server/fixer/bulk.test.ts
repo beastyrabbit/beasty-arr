@@ -402,6 +402,46 @@ describe("FixerBulk", () => {
     expect(status.autoImported).toBe(1);
   });
 
+  it("frees a worker slot when a completed proposal waits below the auto-apply threshold", async () => {
+    let releaseSecond: (() => void) | undefined;
+    let markSecondStarted: (() => void) | undefined;
+    const secondStarted = new Promise<void>((resolve) => {
+      markSecondStarted = resolve;
+    });
+    const secondGate = new Promise<void>((resolve) => {
+      releaseSecond = resolve;
+    });
+    const { settings, sonarr, bulk, calls } = makeHarness(async (req) => {
+      if (req.queueItemId === 2) {
+        markSecondStarted?.();
+        await secondGate;
+      }
+      return importProposal(`candidate_${req.queueItemId}`, [100 + req.queueItemId], 0.5);
+    });
+    settings.update({ fixerAutoApply: true, dryRun: false, fixerParallelism: 1 });
+    sonarr.queue = [makeQueueItem(1), makeQueueItem(2)];
+    for (const item of sonarr.queue) {
+      sonarr.candidatesByItem.set(item.id, [
+        makeCandidate(`candidate_${item.id}`, [100 + item.id]),
+      ]);
+    }
+
+    await bulk.start();
+    await secondStarted;
+
+    expect(calls.map((call) => call.queueItemId)).toEqual([1, 2]);
+    expect(bulk.getStatus()).toMatchObject({
+      running: true,
+      completed: 1,
+      autoImported: 0,
+    });
+    expect(bulk.getStatus().inFlight.map((item) => item.queueItemId)).toEqual([2]);
+
+    releaseSecond?.();
+    await bulk.wait();
+    expect(bulk.getStatus()).toMatchObject({ running: false, completed: 2, autoImported: 0 });
+  });
+
   it("auto-removes only with matching explicit options and confidence >= 0.95", async () => {
     const safe: QueueRemovalOptions = {
       removeFromClient: true,

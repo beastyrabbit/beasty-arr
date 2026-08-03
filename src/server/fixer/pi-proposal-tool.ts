@@ -69,6 +69,9 @@ export function createProposalTool(
       service === "radarr"
         ? "The selectedImports mapping is authoritative; do not guess a movie id outside the queue or candidate context."
         : "The selectedImports mapping is authoritative; do not rely on Sonarr's parsed candidate episode ids when you decide they are wrong.",
+      service === "radarr"
+        ? "The selected movie must be the queued movie."
+        : "Every import proposal must include the queued target episode. Do not import unrelated episodes while leaving the target unresolved.",
       "Never select candidates marked as likely samples.",
       "When active Dub Oracle context says exists with confidence greater than 0.6, a candidate with known language metadata but no German audio must use remove_queue_item with removeFromClient=true, blocklist=true, skipRedownload=false, changeCategory=false, even when it is a quality upgrade or the current file is non-German or missing. For Sonarr, apply the exact perSeason verdict when available.",
       "If a current library file has German audio and the incoming candidate has known language metadata but no German audio, use remove_queue_item with removeFromClient=true, blocklist=true, skipRedownload=false, changeCategory=false. This is not needs_review and not an ordinary non-upgrade removal.",

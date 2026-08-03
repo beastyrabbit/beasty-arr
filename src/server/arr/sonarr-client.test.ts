@@ -351,7 +351,7 @@ describe("SonarrClient", () => {
     expect(result.message).toContain("Blocked language downgrade");
   });
 
-  it("accepts a captured One Piece absolute-number mapping after full-series verification", async () => {
+  it("blocks a captured One Piece pack that does not contain the queued target", async () => {
     const fetchMock = vi.fn(async (url: string) => {
       if (String(url).includes("/api/v3/episode?")) {
         return jsonResponse([realOnePieceAbsoluteEpisode()]);
@@ -370,7 +370,8 @@ describe("SonarrClient", () => {
       proposal,
     );
 
-    expect(result.ok).toBe(true);
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("queued target episode");
   });
 
   it("imports a non-German candidate when the existing file also lacks German", async () => {

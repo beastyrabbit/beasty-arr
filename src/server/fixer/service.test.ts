@@ -614,7 +614,7 @@ describe("FixerService apply", () => {
     expect(detail?.wouldHave.candidateIds).toEqual(["candidate_1"]);
   });
 
-  it("applies a real anime absolute-number mapping verified through Sonarr lookup", async () => {
+  it("blocks a real anime pack whose verified mapping omits the queued target", async () => {
     const harness = makeHarness();
     harness.sonarr.queue = [realOnePieceQueueItem()];
     harness.sonarr.candidatesByItem.set(realOnePieceQueueItem().id, [realOnePieceCandidate()]);
@@ -635,10 +635,12 @@ describe("FixerService apply", () => {
     });
 
     const outcome = await harness.svc.analyzeAndWait("sonarr", realOnePieceQueueItem().id);
-    expect(outcome.result?.status).toBe("proposal");
+    expect(outcome.result?.status).toBe("needs_review");
+    expect(outcome.result?.validation.ok).toBe(false);
 
     const result = await harness.svc.apply(outcome.analysisId);
-    expect(result).toMatchObject({ ok: true, dryRun: true });
+    expect(result).toMatchObject({ ok: false, dryRun: false });
+    expect(result.message).toContain("queued target episode");
     expect(harness.sonarr.applyCalls).toHaveLength(0);
   });
 

@@ -313,6 +313,19 @@ export function validateProposalForImport(
     }
   }
 
+  if (
+    service === "sonarr" &&
+    queueItem?.episodeIds.length &&
+    proposal.selectedImports.length > 0 &&
+    !queueItem.episodeIds.some((episodeId) => seenEpisodes.has(episodeId))
+  ) {
+    issues.push({
+      severity: "error",
+      message:
+        "The selected imports do not contain the queued target episode. Refusing to import unrelated episodes from this download.",
+    });
+  }
+
   return {
     ok: !issues.some((issue) => issue.severity === "error"),
     issues,

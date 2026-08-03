@@ -9,12 +9,14 @@ import { Button } from "../components/ui/button.js";
 import { Switch } from "../components/ui/switch.js";
 import { Tip } from "../components/ui/tooltip.js";
 import { useSseEvent } from "../lib/events.js";
+import { uniqueQueueItems, waitsForReview } from "../lib/fixer-queue.js";
 import { fmtBytes, fmtTime, relTime } from "../lib/format.js";
 import {
   useConfig,
   useFixerAnalysis,
   useFixerApply,
   useFixerBulk,
+  useFixerBulkStatus,
   useFixerCancel,
   useFixerIgnore,
   useFixerQueue,
@@ -32,6 +34,7 @@ export function FixerPage() {
   const queue = useFixerQueue();
   const refresh = useFixerRefresh();
   const bulk = useFixerBulk();
+  const bulkStatus = useFixerBulkStatus();
   const config = useConfig();
   const updateConfig = useUpdateConfig();
   const [selected, setSelected] = useState<Set<ItemKey>>(new Set());
@@ -39,8 +42,10 @@ export function FixerPage() {
 
   const dryRun = config.data?.settings.dryRun ?? true;
   const autoApply = config.data?.settings.fixerAutoApply ?? false;
-  const items = queue.data?.items ?? [];
+  const items = useMemo(() => uniqueQueueItems(queue.data?.items ?? []), [queue.data?.items]);
   const activeItem = items.find((i) => keyOf(i) === activeKey) ?? null;
+  const activeAnalyses = bulkStatus.data?.activeItemIds.length ?? 0;
+  const waitingReviews = items.filter(waitsForReview).length;
 
   const groups = useMemo(() => {
     const map = new Map<string, FixerQueueItemDto[]>();
@@ -85,7 +90,7 @@ export function FixerPage() {
           <Button
             variant="outline"
             size="sm"
-            disabled={selected.size === 0}
+            disabled={selected.size === 0 || bulkStatus.data?.running}
             onClick={() => {
               analyzeItems(items.filter((i) => selected.has(keyOf(i))));
               setSelected(new Set());
@@ -94,7 +99,15 @@ export function FixerPage() {
             <Sparkles size={12} />
             Analyze selected
           </Button>
-          <Button variant="outline" size="sm" onClick={() => bulk.mutate({ action: "cancel" })}>
+          <span className="font-mono text-[10px] text-faint">
+            {activeAnalyses} running · {waitingReviews} waiting review
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={!bulkStatus.data?.running}
+            onClick={() => bulk.mutate({ action: "cancel" })}
+          >
             <OctagonX size={12} />
             Stop all
           </Button>
@@ -141,7 +154,19 @@ export function FixerPage() {
                     variant="ghost"
                     size="sm"
                     className="ml-auto"
-                    onClick={() => analyzeItems(groupItems)}
+                    disabled={
+                      bulkStatus.data?.running ||
+                      groupItems.every(
+                        (item) => waitsForReview(item) || item.analysisState === "analyzing",
+                      )
+                    }
+                    onClick={() =>
+                      analyzeItems(
+                        groupItems.filter(
+                          (item) => !waitsForReview(item) && item.analysisState !== "analyzing",
+                        ),
+                      )
+                    }
                   >
                     Analyze all
                   </Button>
@@ -346,6 +371,9 @@ function ProposalCard({
     includes ?? new Set(proposal.selectedCandidateIds.filter((id) => id.length > 0));
   const candidates = analysis.candidates ?? [];
   const selectedCandidates = candidates.filter((c) => proposal.selectedCandidateIds.includes(c.id));
+  const selectedImports = new Map(
+    proposal.selectedImports.map((selectedImport) => [selectedImport.candidateId, selectedImport]),
+  );
 
   const verdict =
     proposal.action === "remove_queue_item"
@@ -459,28 +487,37 @@ function ProposalCard({
                 </tr>
               </thead>
               <tbody>
-                {selectedCandidates.map((c) => (
-                  <tr key={c.id} className="h-8 border-b border-line last:border-b-0">
-                    <td className="px-2">
-                      <input
-                        type="checkbox"
-                        className="accent-[#f0a63a]"
-                        checked={selectedIds.has(c.id)}
-                        onChange={(e) => toggleInclude(c.id, e.target.checked)}
-                      />
-                    </td>
-                    <td className="max-w-[380px] truncate px-2 font-mono text-[11px] text-ink">
-                      {c.relativePath ?? c.path}
-                      {c.isLikelySample ? (
-                        <span className="ml-1.5 text-nongerman">SAMPLE?</span>
-                      ) : null}
-                    </td>
-                    <td className="px-2 font-mono text-[11px] text-muted">{fmtBytes(c.size)}</td>
-                    <td className="px-2 font-mono text-[11px] text-muted">
-                      {c.episodeLabels.join(", ") || c.movieTitle || "—"}
-                    </td>
-                  </tr>
-                ))}
+                {selectedCandidates.map((c) => {
+                  const mapping = selectedImports.get(c.id);
+                  const mappingLabel =
+                    item.service === "radarr"
+                      ? mapping?.movieId
+                        ? `movie ${mapping.movieId}`
+                        : "—"
+                      : mapping?.episodeIds.length
+                        ? `episode IDs ${mapping.episodeIds.join(", ")}`
+                        : "—";
+                  return (
+                    <tr key={c.id} className="h-8 border-b border-line last:border-b-0">
+                      <td className="px-2">
+                        <input
+                          type="checkbox"
+                          className="accent-[#f0a63a]"
+                          checked={selectedIds.has(c.id)}
+                          onChange={(e) => toggleInclude(c.id, e.target.checked)}
+                        />
+                      </td>
+                      <td className="max-w-[380px] truncate px-2 font-mono text-[11px] text-ink">
+                        {c.relativePath ?? c.path}
+                        {c.isLikelySample ? (
+                          <span className="ml-1.5 text-nongerman">SAMPLE?</span>
+                        ) : null}
+                      </td>
+                      <td className="px-2 font-mono text-[11px] text-muted">{fmtBytes(c.size)}</td>
+                      <td className="px-2 font-mono text-[11px] text-muted">{mappingLabel}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -505,7 +542,7 @@ function ProposalCard({
         <div className="flex flex-wrap items-center gap-2 border-t border-line pt-3">
           <Button
             variant="primary"
-            disabled={selectedIds.size === 0 || apply.isPending}
+            disabled={!validationOk || selectedIds.size === 0 || apply.isPending}
             onClick={() => setConfirm("apply")}
           >
             Apply import ({selectedIds.size})
