@@ -310,7 +310,8 @@ function createReportTool(capture: (verdict: RawDubVerdict) => void) {
       }),
       expectedAvailability: Type.Optional(
         Type.String({
-          description: "ISO date (YYYY-MM-DD) when the dub becomes available; only for announced.",
+          description:
+            "ISO date (YYYY-MM-DD) when hunting should resume; required for announced when any date or release window is known. Convert an approximate month, quarter, or season to the first day of that window and say it is approximate in evidence.",
         }),
       ),
       recheckAfterDays: Type.Integer({
@@ -373,7 +374,8 @@ const SYSTEM_PROMPT = [
   "For series, always fill perSeason with one verdict for every requested season.",
   "confidence is 0..1. Report a confidence above 0.6 only when a fetched source confirms the verdict.",
   "evidence: short bullets citing what you found, each including its source URL.",
-  "expectedAvailability: ISO date (YYYY-MM-DD), only for announced with a known date.",
+  "expectedAvailability: for announced, return the ISO date (YYYY-MM-DD) when hunting should resume whenever any date or release window is known.",
+  "Convert approximate windows to their first plausible day: month → day 01; Q1/Q2/Q3/Q4 → Jan/Apr/Jul/Oct 01; spring/summer/autumn/winter → Mar/Jun/Sep/Dec 01. State that this conversion is approximate in evidence.",
   "recheckAfterDays: when to re-verify this verdict (90–730 days; long-running niche titles that will never get a dub → larger).",
   `Finish by calling ${REPORT_TOOL_NAME} exactly once.`,
 ].join("\n");

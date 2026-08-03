@@ -1,5 +1,6 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { hasGermanAudio, hasKnownLanguageMetadata } from "../../shared/domain.js";
 import type { ManualImportCandidate, QueueItem, ResolverEvent } from "../../shared/fixer-types.js";
 import type {
   RadarrClient,
@@ -33,6 +34,7 @@ function compactMovieFile(file?: RadarrMovieFileRecord) {
   if (!file) {
     return undefined;
   }
+  const languages = file.languages ?? [];
   return {
     id: file.id,
     path: file.path,
@@ -41,7 +43,9 @@ function compactMovieFile(file?: RadarrMovieFileRecord) {
     quality: valueName(
       (file.quality as { quality?: unknown } | undefined)?.quality ?? file.quality,
     ),
-    languages: (file.languages ?? []).map(valueName).filter(Boolean),
+    languages: languages.map(valueName).filter(Boolean),
+    languageMetadataPresent: hasKnownLanguageMetadata(languages),
+    hasGermanAudio: hasGermanAudio(languages),
     releaseGroup: file.releaseGroup,
     edition: file.edition,
     customFormats: (file.customFormats ?? []).map((format) => ({
@@ -218,9 +222,14 @@ export function createRadarrLookupTools({
     name: "radarr_get_upgrade_context",
     label: "Get Radarr Upgrade Context",
     description:
-      "Read the current movie file, quality profile scoring, and custom formats for deciding whether a candidate is an upgrade.",
+      "Required before every final resolution: read the current movie file, explicit German-audio flags, quality profile scoring, and custom formats before deciding whether a candidate is safe to import or should be removed.",
     promptSnippet:
-      "Use radarr_get_upgrade_context when Radarr mentions custom formats, quality profiles, upgrade rejections, or an existing file.",
+      "Always use radarr_get_upgrade_context before proposing a final resolution, including sample-only warnings.",
+    promptGuidelines: [
+      "Call this for every queue analysis before proposing a resolution, even when the only warning mentions sample detection.",
+      "A candidate explicitly lacking German must never replace a current file whose hasGermanAudio field is true.",
+      "Compare candidate and current-file language, quality, and custom-format score before deciding.",
+    ],
     parameters: Type.Object({
       includeCustomFormatDefinitions: Type.Optional(
         Type.Boolean({ description: "Return every custom format definition." }),

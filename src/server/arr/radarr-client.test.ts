@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import type { QueueItem, ResolutionProposal } from "../../shared/fixer-types.js";
+import {
+  realDevilsRejectsCandidate,
+  realDevilsRejectsMovie,
+  realDevilsRejectsQueueItem,
+} from "../fixer/real-world-fixtures.js";
 import type { FetchImpl } from "./http-util.js";
 import { RadarrClient } from "./radarr-client.js";
 
@@ -221,6 +226,35 @@ describe("RadarrClient", () => {
     expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/api/v3/command"))).toBe(
       false,
     );
+  });
+
+  it("blocks the captured Devil's Rejects German-audio downgrade in real preflight", async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.endsWith("/api/v3/movie/5454")) {
+        return jsonResponse(realDevilsRejectsMovie());
+      }
+      return new Response("not found", { status: 404, statusText: "Not Found" });
+    });
+    const proposal: ResolutionProposal = {
+      action: "import_candidates",
+      confidence: 0.98,
+      selectedCandidateIds: ["candidate_1"],
+      selectedImports: [{ candidateId: "candidate_1", episodeIds: [], movieId: 5_454 }],
+      sampleCandidateIds: [],
+      reason: "English candidate.",
+      issueSummary: "Manual import warning.",
+      evidence: [],
+      warnings: [],
+    };
+
+    const result = await client(fetchMock).preflightImportProposal(
+      realDevilsRejectsQueueItem(),
+      [realDevilsRejectsCandidate()],
+      proposal,
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("Blocked language downgrade");
   });
 
   // ---- hunt-engine read methods ----

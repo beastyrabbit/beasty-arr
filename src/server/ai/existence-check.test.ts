@@ -216,6 +216,7 @@ describe("buildDubCheckSession", () => {
     expect(withSearch.tools.map((tool) => tool.name)).toContain("search_web");
     expect(session.prompt).toContain('"tvdbId": 123');
     expect(session.system).toContain("synchronkartei.de");
+    expect(session.system).toContain("spring/summer/autumn/winter → Mar/Jun/Sep/Dec 01");
   });
 
   it("captures the verdict through the terminating tool and terminates", async () => {

@@ -785,6 +785,20 @@ describe("applyVerdict", () => {
     engine.applyVerdict(announcedNoDate);
     expect(huntRow(db, hs).nextEligibleAt).toBe(T0 + 30 * DAY_MS);
 
+    const announcedPastDate = seedVerdict(db, {
+      verdict: "announced",
+      expectedAvailability: T0 - DAY_MS,
+    });
+    engine.applyVerdict(announcedPastDate);
+    expect(huntRow(db, hs).nextEligibleAt).toBe(T0 + 30 * DAY_MS);
+
+    const announcedSoon = seedVerdict(db, {
+      verdict: "announced",
+      expectedAvailability: T0 + 5 * DAY_MS,
+    });
+    engine.applyVerdict(announcedSoon);
+    expect(huntRow(db, hs).nextEligibleAt).toBe(T0 + 5 * DAY_MS);
+
     const exists = seedVerdict(db, { verdict: "exists" });
     engine.applyVerdict(exists);
     expect(huntRow(db, hs)).toMatchObject({

@@ -1,3 +1,4 @@
+import { hasGermanAudio } from "../../shared/domain.js";
 import type {
   ApplyResult,
   ArrSystemStatus,
@@ -475,22 +476,12 @@ export class RadarrClient {
     candidates: ManualImportCandidate[],
     proposal: ResolutionProposal,
   ): Promise<ApplyResult> {
+    const preflight = await this.preflightImportProposal(queueItem, candidates, proposal);
+    if (!preflight.ok) {
+      return preflight;
+    }
     const normalizedProposal = normalizeProposal(proposal);
-    const validation = validateProposalForImport(candidates, normalizedProposal, queueItem);
-    if (!validation.ok) {
-      return { ok: false, message: validation.issues.map((issue) => issue.message).join(" ") };
-    }
-    if (normalizedProposal.action !== "import_candidates") {
-      return {
-        ok: false,
-        message: `Proposal action ${normalizedProposal.action} is not an import.`,
-      };
-    }
     const byId = new Map(candidates.map((candidate) => [candidate.id, candidate]));
-    const languageDowngrades = await this.findGermanAudioDowngrades(normalizedProposal, byId);
-    if (languageDowngrades.length > 0) {
-      return { ok: false, message: languageDowngrades.join(" ") };
-    }
     const files: ManualImportCommandFile[] = normalizedProposal.selectedCandidateIds.map(
       (candidateId) => {
         const candidate = byId.get(candidateId);
@@ -531,16 +522,38 @@ export class RadarrClient {
     };
   }
 
+  async preflightImportProposal(
+    queueItem: QueueItem,
+    candidates: ManualImportCandidate[],
+    proposal: ResolutionProposal,
+  ): Promise<ApplyResult> {
+    const normalizedProposal = normalizeProposal(proposal);
+    const validation = validateProposalForImport(candidates, normalizedProposal, queueItem);
+    if (!validation.ok) {
+      return { ok: false, message: validation.issues.map((issue) => issue.message).join(" ") };
+    }
+    if (normalizedProposal.action !== "import_candidates") {
+      return {
+        ok: false,
+        message: `Proposal action ${normalizedProposal.action} is not an import.`,
+      };
+    }
+    const byId = new Map(candidates.map((candidate) => [candidate.id, candidate]));
+    const languageDowngrades = await this.findGermanAudioDowngrades(normalizedProposal, byId);
+    if (languageDowngrades.length > 0) {
+      return { ok: false, message: languageDowngrades.join(" ") };
+    }
+    return { ok: true, message: "Radarr import proposal passed preflight." };
+  }
+
   private async findGermanAudioDowngrades(
     proposal: ResolutionProposal,
     candidatesById: Map<string, ManualImportCandidate>,
   ): Promise<string[]> {
-    const hasGerman = (labels: string[]) =>
-      labels.some((label) => label.trim().toLowerCase() === "german");
     const messages: string[] = [];
     for (const selectedImport of proposal.selectedImports) {
       const candidate = candidatesById.get(selectedImport.candidateId);
-      if (!candidate || hasGerman(candidate.languageLabels)) {
+      if (!candidate || hasGermanAudio(candidate.languages)) {
         continue;
       }
       const movieId =
@@ -551,12 +564,14 @@ export class RadarrClient {
       let movie: RadarrMovieRecord;
       try {
         movie = await this.getMovie(movieId);
-      } catch {
-        // If Radarr is unreachable the ManualImport command below would fail as well.
-        continue;
+      } catch (error) {
+        throw new Error(
+          `Could not verify existing Radarr movie-file languages for movie ${movieId}; refusing the import.`,
+          { cause: error },
+        );
       }
-      const fileLanguages = (movie.movieFile?.languages ?? []).map(valueName);
-      if (hasGerman(fileLanguages)) {
+      const fileLanguages = movie.movieFile?.languages ?? [];
+      if (hasGermanAudio(fileLanguages)) {
         const existing =
           movie.movieFile?.relativePath ?? movie.movieFile?.path ?? `the file for movie ${movieId}`;
         messages.push(

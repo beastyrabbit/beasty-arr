@@ -6,12 +6,24 @@ import type {
   QueueRemovalOptions,
   ResolutionProposal,
 } from "../../shared/fixer-types.js";
+import type { RadarrMovieRecord } from "../arr/radarr-client.js";
+import type { SonarrEpisodeRecord } from "../arr/sonarr-client.js";
 import type { FixerAnalysisEvent, FixerPiRunner, FixerPiRunRequest } from "./ai-port.js";
+import {
+  realDevilsRejectsCandidate,
+  realDevilsRejectsMovie,
+  realDevilsRejectsQueueItem,
+  realMentalistCandidate,
+  realMentalistExistingEpisode,
+  realMentalistQueueItem,
+} from "./real-world-fixtures.js";
 import { resolveQueueItem } from "./resolver.js";
 
 class FakeArrClient {
   queue: QueueItem[] = [];
   candidatesByItem = new Map<number, ManualImportCandidate[]>();
+  episodes: SonarrEpisodeRecord[] = [];
+  moviesById = new Map<number, RadarrMovieRecord>();
   async listQueue(): Promise<QueueItem[]> {
     return this.queue;
   }
@@ -21,11 +33,14 @@ class FakeArrClient {
   async applyImportProposal(): Promise<ApplyResult> {
     return { ok: true, message: "applied" };
   }
+  async preflightImportProposal(): Promise<ApplyResult> {
+    return { ok: true, message: "preflight passed" };
+  }
   async removeQueueItem(queueItemId: number, _options: QueueRemovalOptions): Promise<ApplyResult> {
     return { ok: true, message: `Removed queue item ${queueItemId}.` };
   }
-  async getEpisodes(): Promise<never[]> {
-    return [];
+  async getEpisodes(): Promise<SonarrEpisodeRecord[]> {
+    return this.episodes;
   }
   async getQualityProfiles(): Promise<never[]> {
     return [];
@@ -33,8 +48,8 @@ class FakeArrClient {
   async getCustomFormats(): Promise<never[]> {
     return [];
   }
-  async getMovie(movieId: number): Promise<{ id: number }> {
-    return { id: movieId };
+  async getMovie(movieId: number): Promise<RadarrMovieRecord> {
+    return this.moviesById.get(movieId) ?? { id: movieId };
   }
 }
 
@@ -123,6 +138,12 @@ async function invokeProposalTool(
   await tool.execute("call_1", proposal, undefined, undefined, undefined as never);
 }
 
+async function invokeLookupTool(req: FixerPiRunRequest, name: string): Promise<void> {
+  const tool = (req.tools as ProposalToolLike[]).find((candidate) => candidate.name === name);
+  if (!tool) throw new Error(`${name} not found`);
+  await tool.execute("lookup_1", {}, undefined, undefined, undefined as never);
+}
+
 describe("resolveQueueItem", () => {
   it("returns a needs_review fallback without running Pi when there are no candidates", async () => {
     const calls: FixerPiRunRequest[] = [];
@@ -167,7 +188,16 @@ describe("resolveQueueItem", () => {
     expect(req?.systemPrompt).toContain(
       "German audio is preferred but not required. When several usable candidates exist, prefer one whose languages include German.",
     );
+    expect(req?.systemPrompt).toContain(
+      "Always call sonarr_get_upgrade_context before the proposal tool, for every queue item.",
+    );
+    expect(req?.systemPrompt).toContain(
+      "do not import it and do not use needs_review. Use remove_queue_item",
+    );
     expect(req?.prompt).toContain("Call propose_sonarr_resolution now.");
+    expect(req?.prompt).toContain(
+      "languageMetadataPresent=true and hasGermanAudio=false while the mapped current file has hasGermanAudio=true",
+    );
     // lookup tools + proposal tool assembled for the session
     expect(req?.tools).toHaveLength(5);
 
@@ -244,45 +274,209 @@ describe("resolveQueueItem", () => {
     expect(result.status).toBe("needs_review");
   });
 
-  it("builds the Radarr prompt/tooling for radarr queue items", async () => {
+  it("replays the real Devil's Rejects Radarr decision", async () => {
     const calls: FixerPiRunRequest[] = [];
     const runner: FixerPiRunner = async (req) => {
       calls.push(req);
+      await invokeLookupTool(req, "radarr_get_upgrade_context");
       await invokeProposalTool(req, {
-        ...importProposal("candidate_1"),
-        selectedImports: [{ candidateId: "candidate_1", episodeIds: [], movieId: 42 }],
+        action: "remove_queue_item",
+        confidence: 0.97,
+        selectedCandidateIds: [],
+        selectedImports: [],
+        sampleCandidateIds: [],
+        reason: "Do not import this English-only candidate over the existing German/DL file.",
+        issueSummary:
+          "The sample warning is not credible for this feature-sized file, but the language downgrade is blocking.",
+        evidence: ["Candidate is English-only; existing library file is German and English."],
+        warnings: [],
+        queueRemovalOptions: {
+          removeFromClient: true,
+          blocklist: true,
+          skipRedownload: false,
+          changeCategory: false,
+        },
       });
       return { log: [] };
     };
+    const client = new FakeArrClient();
+    client.moviesById.set(5_454, realDevilsRejectsMovie());
     const result = await resolveQueueItem({
-      queueItem: makeQueueItem({
-        id: 21,
-        service: "radarr",
-        movieId: 42,
-        movieTitle: "Movie",
-        movieYear: 2020,
-        episodeIds: [],
-        episodeLabels: [],
-        seasonEpisode: undefined,
-      }),
-      candidates: [
-        makeCandidate("candidate_1", {
-          service: "radarr",
-          movieId: 42,
-          movieTitle: "Movie",
-          episodeIds: [],
-          episodeLabels: [],
-          seriesId: undefined,
-        }),
-      ],
-      client: new FakeArrClient(),
+      queueItem: realDevilsRejectsQueueItem(),
+      candidates: [realDevilsRejectsCandidate()],
+      client,
       runner,
     });
     expect(calls[0]?.toolNames).toContain("propose_radarr_resolution");
     expect(calls[0]?.prompt).toContain("Call propose_radarr_resolution now.");
+    expect(calls[0]?.systemPrompt).toContain(
+      "Always call radarr_get_upgrade_context before the proposal tool, for every queue item.",
+    );
+    expect(calls[0]?.prompt).toContain(
+      "languageMetadataPresent=true and hasGermanAudio=false while the current movie file has hasGermanAudio=true",
+    );
+    expect(calls[0]?.prompt).toContain("The.Devils.Rejects.2005.MULTi.1080p.WEB.H265-CHiLL.mkv");
+    expect(calls[0]?.prompt).toContain("No active Dub Oracle verdict is available for this movie.");
+    expect(calls[0]?.prompt).toContain("even if it is higher quality");
+    expect(calls[0]?.prompt).toContain("Radarr searches for a German release");
     expect(result.status).toBe("proposal");
-    expect(result.proposal.selectedImports[0]?.movieId).toBe(42);
+    expect(result.proposal).toMatchObject({
+      action: "remove_queue_item",
+      confidence: 0.97,
+      queueRemovalOptions: {
+        removeFromClient: true,
+        blocklist: true,
+        skipRedownload: false,
+        changeCategory: false,
+      },
+    });
   });
+
+  it("replays the real Mentalist Sonarr decision", async () => {
+    const calls: FixerPiRunRequest[] = [];
+    const runner: FixerPiRunner = async (req) => {
+      calls.push(req);
+      await invokeLookupTool(req, "sonarr_get_upgrade_context");
+      await invokeProposalTool(req, {
+        action: "remove_queue_item",
+        confidence: 0.99,
+        selectedCandidateIds: [],
+        selectedImports: [],
+        sampleCandidateIds: [],
+        reason: "Do not import this English-only release over the existing German episode.",
+        issueSummary:
+          "The candidate score is 57 versus the existing file's 11050 and it would downgrade German audio.",
+        evidence: ["Candidate is English-only; existing S01E23 has German audio."],
+        warnings: [],
+        queueRemovalOptions: {
+          removeFromClient: true,
+          blocklist: true,
+          skipRedownload: false,
+          changeCategory: false,
+        },
+      });
+      return { log: [] };
+    };
+    const client = new FakeArrClient();
+    client.episodes = [realMentalistExistingEpisode()];
+
+    const result = await resolveQueueItem({
+      queueItem: realMentalistQueueItem(),
+      candidates: [realMentalistCandidate()],
+      client,
+      runner,
+    });
+
+    expect(calls[0]?.prompt).toContain("Red John's Footsteps");
+    expect(calls[0]?.prompt).toContain('"customFormatScore": 57');
+    expect(result.proposal).toMatchObject({
+      action: "remove_queue_item",
+      confidence: 0.99,
+      queueRemovalOptions: {
+        removeFromClient: true,
+        blocklist: true,
+        skipRedownload: false,
+        changeCategory: false,
+      },
+    });
+  });
+
+  it("gives the model active Dub Oracle evidence for the synthetic no-live-queue case", async () => {
+    const calls: FixerPiRunRequest[] = [];
+    const runner: FixerPiRunner = async (req) => {
+      calls.push(req);
+      await invokeProposalTool(req, {
+        action: "remove_queue_item",
+        confidence: 0.98,
+        selectedCandidateIds: [],
+        selectedImports: [],
+        sampleCandidateIds: [],
+        reason: "A verified German dub exists, so reject this English-only release.",
+        issueSummary: "English-only release while German dub is obtainable",
+        evidence: ["Dub Oracle reports German audio for season 1."],
+        warnings: [],
+        queueRemovalOptions: {
+          removeFromClient: true,
+          blocklist: true,
+          skipRedownload: false,
+          changeCategory: false,
+        },
+      });
+      return { log: [] };
+    };
+
+    await resolveQueueItem({
+      // No current fixer queue item also has an active Oracle verdict, so this
+      // policy-only combination intentionally remains synthetic.
+      queueItem: makeQueueItem(),
+      candidates: [
+        makeCandidate("candidate_1", {
+          languages: [{ id: 1, name: "English" }],
+          languageLabels: ["English"],
+        }),
+      ],
+      dubVerdict: {
+        verdict: "exists",
+        confidence: 0.98,
+        germanTitle: "Die Serie",
+        perSeason: [{ season: 1, verdict: "exists", note: "German release available" }],
+        evidence: ["Verified German home-video release."],
+        expectedAvailability: null,
+        checkedAt: 1_000,
+        recheckAfter: 2_000,
+      },
+      client: new FakeArrClient(),
+      runner,
+    });
+
+    expect(calls[0]?.prompt).toContain('"verdict": "exists"');
+    expect(calls[0]?.prompt).toContain('"season": 1');
+    expect(calls[0]?.prompt).toContain("even if it is higher quality");
+    expect(calls[0]?.prompt).toContain("blocklist: true, skipRedownload: false");
+    expect(calls[0]?.systemPrompt).toContain(
+      "Dub Oracle context is separate research about whether a German dub exists.",
+    );
+  });
+
+  it.each([
+    ["exists", 0.6, "does not pass the sourced-evidence threshold"],
+    ["announced", 0.95, "is planned but not available"],
+    ["unlikely", 0.95, "is not known to exist"],
+    ["unknown", 0.95, "could not be established"],
+  ] as const)(
+    "does not describe a %s Oracle verdict at confidence %s as an automatic block",
+    async (verdict, confidence, evidence) => {
+      const calls: FixerPiRunRequest[] = [];
+      const runner: FixerPiRunner = async (req) => {
+        calls.push(req);
+        await invokeProposalTool(req, importProposal("candidate_1"));
+        return { log: [] };
+      };
+
+      await resolveQueueItem({
+        queueItem: makeQueueItem(),
+        candidates: [makeCandidate("candidate_1")],
+        dubVerdict: {
+          verdict,
+          confidence,
+          germanTitle: null,
+          perSeason: [{ season: 1, verdict }],
+          evidence: [evidence],
+          expectedAvailability: verdict === "announced" ? 2_000 : null,
+          checkedAt: 1_000,
+          recheckAfter: 3_000,
+        },
+        client: new FakeArrClient(),
+        runner,
+      });
+
+      expect(calls[0]?.prompt).toContain(`"verdict": "${verdict}"`);
+      expect(calls[0]?.prompt).toContain(evidence);
+      expect(calls[0]?.prompt).toContain(
+        "not above 0.6 confidence, not exists for the target season",
+      );
+    },
+  );
 
   it("skips the runner entirely when the signal is already aborted", async () => {
     const calls: FixerPiRunRequest[] = [];

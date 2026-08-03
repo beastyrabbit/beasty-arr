@@ -18,6 +18,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - name: Enable pnpm
         run: corepack enable
       - name: Resolve pnpm store
@@ -34,6 +36,8 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Run quality checks
         run: pnpm check
+      - name: Audit production dependencies
+        run: pnpm audit:prod
 
   container:
     needs: quality
@@ -41,6 +45,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - name: Install Docker CLI
         run: |
           set -euo pipefail
@@ -52,6 +58,14 @@ jobs:
         with:
           driver: remote
           endpoint: tcp://buildkitd.forgejo-runners.svc.cluster.local:1234
+      - name: Scan Git history for secrets
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "$PWD:/repo" \
+            -w /repo \
+            ghcr.io/gitleaks/gitleaks:v8.30.1 \
+            git --no-banner --redact
       - name: Log in to Forgejo Container Registry
         if: github.event_name != 'pull_request'
         uses: https://git.heerlab.com/beasty/forgejo-ci/actions/registry-login@main

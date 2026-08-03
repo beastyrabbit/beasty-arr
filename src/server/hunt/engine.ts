@@ -1099,7 +1099,10 @@ export class HuntEngine {
       } else {
         if (eff === "announced") {
           patch.tier = 2;
-          patch.nextEligibleAt = verdict.expectedAvailability ?? now + ANNOUNCED_FALLBACK_MS;
+          patch.nextEligibleAt =
+            verdict.expectedAvailability != null && verdict.expectedAvailability > now
+              ? verdict.expectedAvailability
+              : now + ANNOUNCED_FALLBACK_MS;
         } else if (eff === "exists" || germanSeasonEvidence) {
           patch.tier = 2;
           patch.nextEligibleAt = verdict.checkedAt + cfg.aiExistsRetryDays * DAY_MS;

@@ -144,13 +144,13 @@ function ForceBar() {
       {
         onSuccess: () => {
           if (target.kind === "series") {
-            navigate({
+            void navigate({
               to: "/library/series/$seriesId",
               params: { seriesId: String(target.id) },
               search: { season: seasonNumber, live: true },
             });
           } else {
-            navigate({
+            void navigate({
               to: "/library/movies/$movieId",
               params: { movieId: String(target.id) },
               search: { live: true },

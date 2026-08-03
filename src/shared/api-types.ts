@@ -195,6 +195,7 @@ export type AiVerdictSummary = {
   confidence: number;
   checkedAt: number;
   recheckAfter: number;
+  expectedAvailability: number | null;
   evidence: string[];
   germanTitle?: string | null;
 };

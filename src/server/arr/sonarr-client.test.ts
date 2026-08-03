@@ -4,6 +4,14 @@ import type {
   QueueItem,
   ResolutionProposal,
 } from "../../shared/fixer-types.js";
+import {
+  realMentalistCandidate,
+  realMentalistExistingEpisode,
+  realMentalistQueueItem,
+  realOnePieceAbsoluteEpisode,
+  realOnePieceCandidate,
+  realOnePieceQueueItem,
+} from "../fixer/real-world-fixtures.js";
 import type { FetchImpl } from "./http-util.js";
 import { SonarrClient } from "./sonarr-client.js";
 
@@ -319,6 +327,50 @@ describe("SonarrClient", () => {
     expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/api/v3/command"))).toBe(
       false,
     );
+  });
+
+  it("blocks the captured Mentalist German-audio downgrade in real preflight", async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (String(url).includes("/api/v3/episode?")) {
+        return jsonResponse([realMentalistExistingEpisode()]);
+      }
+      return new Response("not found", { status: 404, statusText: "Not Found" });
+    });
+    const proposal: ResolutionProposal = {
+      ...importProposal(),
+      selectedImports: [{ candidateId: "candidate_1", episodeIds: [25_505] }],
+    };
+
+    const result = await client(fetchMock).preflightImportProposal(
+      realMentalistQueueItem(),
+      [realMentalistCandidate()],
+      proposal,
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("Blocked language downgrade");
+  });
+
+  it("accepts a captured One Piece absolute-number mapping after full-series verification", async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (String(url).includes("/api/v3/episode?")) {
+        return jsonResponse([realOnePieceAbsoluteEpisode()]);
+      }
+      return new Response("not found", { status: 404, statusText: "Not Found" });
+    });
+    const proposal: ResolutionProposal = {
+      ...importProposal(),
+      selectedCandidateIds: ["candidate_9"],
+      selectedImports: [{ candidateId: "candidate_9", episodeIds: [4_951] }],
+    };
+
+    const result = await client(fetchMock).preflightImportProposal(
+      realOnePieceQueueItem(),
+      [realOnePieceCandidate()],
+      proposal,
+    );
+
+    expect(result.ok).toBe(true);
   });
 
   it("imports a non-German candidate when the existing file also lacks German", async () => {

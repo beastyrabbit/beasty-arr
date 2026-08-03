@@ -1,11 +1,29 @@
+min_version: 2.1.10
+glob_matcher: doublestar
+
 pre-commit:
   parallel: true
   commands:
     biome:
-      run: pnpm biome check .
+      run: pnpm lint
+      fail_text: Biome linting or formatting failed.
+    typecheck:
+      glob: "**/*.{ts,tsx,json}"
+      run: pnpm typecheck
+      fail_text: TypeScript validation failed.
     gitleaks:
-      run: gitleaks git --staged --no-banner --redact
+      run: pnpm secrets:staged
+      fail_text: Gitleaks found a possible secret in the staged changes.
+
 pre-push:
+  parallel: true
   commands:
-    test:
-      run: pnpm test
+    quality:
+      run: pnpm check
+      fail_text: Full quality checks failed.
+    gitleaks:
+      run: pnpm secrets
+      fail_text: Gitleaks found a possible secret in Git history.
+    dependency-audit:
+      run: pnpm audit:prod
+      fail_text: A high-severity production dependency vulnerability was found.

@@ -49,6 +49,9 @@ class FakeArrClient {
     this.applyCalls.push({ queueItem, proposal });
     return { ok: true, message: "Started ManualImport.", commandId: 7 };
   }
+  async preflightImportProposal(): Promise<ApplyResult> {
+    return { ok: true, message: "preflight passed" };
+  }
   async removeQueueItem(queueItemId: number, options: QueueRemovalOptions): Promise<ApplyResult> {
     this.removeCalls.push({ queueItemId, options });
     return { ok: true, message: `Removed queue item ${queueItemId}.` };

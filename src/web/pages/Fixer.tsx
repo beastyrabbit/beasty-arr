@@ -569,7 +569,7 @@ function ProposalCard({
         open={confirm === "blocklist"}
         onOpenChange={(o) => !o && setConfirm(null)}
         title="Delete + blocklist"
-        description="Removes the download AND blocklists the release so the arr never grabs it again."
+        description="Removes the download, blocklists this exact release, and lets the arr search for a different one."
         confirmLabel="Delete + blocklist"
         danger
         onConfirm={() => {
@@ -579,7 +579,7 @@ function ProposalCard({
             body: {
               removeFromClient: true,
               blocklist: true,
-              skipRedownload: true,
+              skipRedownload: false,
               changeCategory: false,
             },
           });

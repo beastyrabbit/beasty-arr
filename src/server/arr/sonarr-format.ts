@@ -1,3 +1,4 @@
+import { hasGermanAudio, hasKnownLanguageMetadata } from "../../shared/domain.js";
 import type { ManualImportCandidate } from "../../shared/fixer-types.js";
 import type { SonarrEpisodeRecord } from "./sonarr-client.js";
 
@@ -38,6 +39,8 @@ export function compactCandidate(candidate: ManualImportCandidate) {
     episodeLabels: candidate.episodeLabels,
     quality: candidate.qualityLabel,
     languages: candidate.languageLabels,
+    languageMetadataPresent: hasKnownLanguageMetadata(candidate.languages),
+    hasGermanAudio: hasGermanAudio(candidate.languages),
     releaseGroup: candidate.releaseGroup,
     customFormats: candidate.customFormatLabels ?? [],
     customFormatScore: candidate.customFormatScore,

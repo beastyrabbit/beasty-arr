@@ -52,7 +52,7 @@ export function DashboardPage() {
   });
 
   const goLibrary = (state: HuntState) => {
-    navigate({ to: "/library/series", search: { states: [state], page: 1 } });
+    void navigate({ to: "/library/series", search: { states: [state], page: 1 } });
   };
 
   const s = summary.data;

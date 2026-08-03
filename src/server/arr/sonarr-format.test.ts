@@ -34,7 +34,7 @@ describe("compactCandidate", () => {
     absoluteEpisodeNumbers: [34],
     episodeLabels: ["S01E02"],
     qualityLabel: "WEBRip-720p",
-    languages: [],
+    languages: [{ id: 4, name: "German" }],
     languageLabels: ["German"],
     customFormatLabels: ["Anime Dual Audio"],
     customFormatScore: 100,
@@ -51,5 +51,29 @@ describe("compactCandidate", () => {
     expect(compact.seriesId).toBe(12);
     expect(compact.quality).toBe("WEBRip-720p");
     expect(compact.languages).toEqual(["German"]);
+    expect(compact.languageMetadataPresent).toBe(true);
+    expect(compact.hasGermanAudio).toBe(true);
+  });
+
+  it("distinguishes explicit non-German metadata from missing metadata", () => {
+    const english = compactCandidate({
+      ...candidate,
+      languages: [{ id: 1, name: "English" }],
+      languageLabels: ["English"],
+    });
+    const unknown = compactCandidate({ ...candidate, languages: [], languageLabels: [] });
+
+    expect(english).toMatchObject({ languageMetadataPresent: true, hasGermanAudio: false });
+    expect(unknown).toMatchObject({ languageMetadataPresent: false, hasGermanAudio: false });
+  });
+
+  it("treats ARR's id=0 Unknown sentinel as missing metadata", () => {
+    const unknown = compactCandidate({
+      ...candidate,
+      languages: [{ id: 0, name: "Unknown" }],
+      languageLabels: ["Unknown"],
+    });
+
+    expect(unknown).toMatchObject({ languageMetadataPresent: false, hasGermanAudio: false });
   });
 });

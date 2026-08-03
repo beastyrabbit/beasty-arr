@@ -28,9 +28,9 @@ export function CommandPalette({
   const openDetail = (item: SearchResult) => {
     onOpenChange(false);
     if (item.kind === "series") {
-      navigate({ to: "/library/series/$seriesId", params: { seriesId: String(item.id) } });
+      void navigate({ to: "/library/series/$seriesId", params: { seriesId: String(item.id) } });
     } else {
-      navigate({ to: "/library/movies/$movieId", params: { movieId: String(item.id) } });
+      void navigate({ to: "/library/movies/$movieId", params: { movieId: String(item.id) } });
     }
   };
 
@@ -88,13 +88,13 @@ export function CommandPalette({
                       onSuccess: () => {
                         onOpenChange(false);
                         if (item.kind === "series") {
-                          navigate({
+                          void navigate({
                             to: "/library/series/$seriesId",
                             params: { seriesId: String(item.id) },
                             search: { live: true },
                           });
                         } else {
-                          navigate({
+                          void navigate({
                             to: "/library/movies/$movieId",
                             params: { movieId: String(item.id) },
                             search: { live: true },

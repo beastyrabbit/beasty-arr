@@ -1,0 +1,13 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": ["src/server/index.ts"],
+  "project": ["src/**/*.{ts,tsx}", "test/**/*.ts", "*.{ts,js}"],
+  "ignoreBinaries": ["gitleaks", "infisical", "portless"],
+  "ignoreDependencies": [
+    "@fontsource-variable/inter",
+    "@fontsource-variable/jetbrains-mono",
+    "concurrently",
+    "pino-pretty",
+    "tailwindcss"
+  ]
+}

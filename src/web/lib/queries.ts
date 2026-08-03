@@ -190,6 +190,15 @@ export function toastError(err: unknown): void {
 export function toastMaybeDryRun(result: unknown, liveMessage: string): void {
   if (isDryRunResult(result)) {
     toast(`DRY RUN — ${result.wouldHave}`, { icon: "◌" });
+  } else if (
+    result !== null &&
+    typeof result === "object" &&
+    "ok" in result &&
+    result.ok === false &&
+    "message" in result &&
+    typeof result.message === "string"
+  ) {
+    toast.error(result.message);
   } else {
     toast.success(liveMessage);
   }

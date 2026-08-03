@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { eq } from "drizzle-orm";
 import type { FastifyBaseLogger } from "fastify";
 import { afterEach, describe, expect, it } from "vitest";
 import type {
@@ -10,10 +11,17 @@ import type {
   QueueRemovalOptions,
   ResolutionProposal,
 } from "../../shared/fixer-types.js";
+import type { SonarrEpisodeRecord } from "../arr/sonarr-client.js";
 import { SettingsService } from "../config/settings.js";
 import { createDb } from "../db/index.js";
+import { aiVerdicts, fixerAnalyses } from "../db/schema.js";
 import { type AppEvent, EventBus } from "../events/bus.js";
 import type { FixerAnalysisEvent, FixerPiRunner, FixerPiRunRequest } from "./ai-port.js";
+import {
+  realOnePieceAbsoluteEpisode,
+  realOnePieceCandidate,
+  realOnePieceQueueItem,
+} from "./real-world-fixtures.js";
 import {
   FixerService,
   ignoreRemovalOptions,
@@ -40,6 +48,8 @@ class FakeArrClient {
   failCandidates = false;
   applyCalls: Array<{ queueItem: QueueItem; proposal: ResolutionProposal }> = [];
   removeCalls: Array<{ queueItemId: number; options: QueueRemovalOptions }> = [];
+  preflightResult: ApplyResult = { ok: true, message: "preflight passed" };
+  episodes: SonarrEpisodeRecord[] = [];
   async listQueue(): Promise<QueueItem[]> {
     return this.queue;
   }
@@ -57,12 +67,15 @@ class FakeArrClient {
     this.applyCalls.push({ queueItem, proposal });
     return { ok: true, message: "Started ManualImport command 7.", commandId: 7 };
   }
+  async preflightImportProposal(): Promise<ApplyResult> {
+    return this.preflightResult;
+  }
   async removeQueueItem(queueItemId: number, options: QueueRemovalOptions): Promise<ApplyResult> {
     this.removeCalls.push({ queueItemId, options });
     return { ok: true, message: `Removed queue item ${queueItemId}.` };
   }
-  async getEpisodes(): Promise<never[]> {
-    return [];
+  async getEpisodes(): Promise<SonarrEpisodeRecord[]> {
+    return this.episodes;
   }
   async getQualityProfiles(): Promise<never[]> {
     return [];
@@ -259,6 +272,33 @@ describe("FixerService queue", () => {
 });
 
 describe("FixerService analyze lifecycle", () => {
+  it("fails orphaned running analyses when a new service instance starts", () => {
+    const { db, settings, sonarr, radarr, runnerCtl, bus } = makeHarness();
+    db.insert(fixerAnalyses)
+      .values({
+        id: "orphaned-analysis",
+        createdAt: 1_000,
+        service: "radarr",
+        queueItemId: 99,
+        itemLabel: "Orphaned Movie",
+        status: "running",
+        events: [],
+      })
+      .run();
+
+    new FixerService(db, settings, { sonarr, radarr }, runnerCtl.runner, bus, noopLog, {
+      now: () => 2_000,
+    });
+
+    expect(
+      db.select().from(fixerAnalyses).where(eq(fixerAnalyses.id, "orphaned-analysis")).get(),
+    ).toMatchObject({
+      status: "failed",
+      completedAt: 2_000,
+      error: "Analysis was interrupted by an application restart.",
+    });
+  });
+
   it("runs an analysis to completion, persisting proposal, validation, candidates, and events", async () => {
     const { svc, sonarr, runnerCtl, busEvents } = makeHarness();
     sonarr.queue = [makeQueueItem(1)];
@@ -381,6 +421,168 @@ describe("FixerService analyze lifecycle", () => {
     expect(firstOutcome.status).toBe("cancelled");
     expect(secondOutcome.status).toBe("completed");
   });
+
+  it("injects the latest active Dub Oracle verdict for the queue subject", async () => {
+    const { db, svc, sonarr, runnerCtl } = makeHarness();
+    const now = Date.now();
+    sonarr.queue = [makeQueueItem(1)];
+    sonarr.candidatesByItem.set(1, [makeCandidate("candidate_1", [101])]);
+    db.insert(aiVerdicts)
+      .values({
+        subjectKind: "series",
+        subjectKey: "sonarr:5",
+        title: "Show",
+        verdict: "unknown",
+        confidence: 0.7,
+        evidence: ["Older inconclusive evidence."],
+        provider: "test",
+        model: "test",
+        promptVersion: "test",
+        checkedAt: now - 1_000,
+        recheckAfter: now + 86_400_000,
+      })
+      .run();
+    db.insert(aiVerdicts)
+      .values({
+        subjectKind: "series",
+        subjectKey: "sonarr:5",
+        title: "Show",
+        verdict: "exists",
+        confidence: 0.98,
+        germanTitle: "Die Serie",
+        perSeason: [{ season: 1, verdict: "exists", note: "German dub verified" }],
+        evidence: ["Verified German release."],
+        expectedAvailability: null,
+        provider: "test",
+        model: "test",
+        promptVersion: "test",
+        checkedAt: now,
+        recheckAfter: now + 86_400_000,
+      })
+      .run();
+    runnerCtl.setScript((req) => {
+      expect(req.prompt).toContain('"germanTitle": "Die Serie"');
+      expect(req.prompt).toContain('"perSeason"');
+      expect(req.prompt).toContain('"verdict": "exists"');
+      expect(req.prompt).not.toContain("Older inconclusive evidence.");
+      return importProposal("candidate_1", [101]);
+    });
+
+    const outcome = await svc.analyzeAndWait("sonarr", 1);
+
+    expect(outcome.status).toBe("completed");
+    expect(runnerCtl.calls).toHaveLength(1);
+  });
+
+  it("does not fall back to a global series verdict for an unassessed season", async () => {
+    const { db, svc, sonarr, runnerCtl } = makeHarness();
+    const now = Date.now();
+    sonarr.queue = [
+      makeQueueItem(1, {
+        title: "Show.S21E01.1080p",
+        seasonEpisode: "S21E01",
+        episodeLabels: ["S21E01"],
+      }),
+    ];
+    sonarr.candidatesByItem.set(1, [
+      makeCandidate("candidate_1", [101], {
+        seasonNumber: 21,
+        languages: [{ id: 1, name: "English" }],
+        languageLabels: ["English"],
+      }),
+    ]);
+    db.insert(aiVerdicts)
+      .values({
+        subjectKind: "series",
+        subjectKey: "sonarr:5",
+        title: "Show",
+        verdict: "exists",
+        confidence: 0.98,
+        perSeason: [{ season: 1, verdict: "exists", note: "Only season 1 was verified" }],
+        evidence: ["A German dub exists for season 1."],
+        provider: "test",
+        model: "test",
+        promptVersion: "test",
+        checkedAt: now,
+        recheckAfter: now + 86_400_000,
+      })
+      .run();
+    runnerCtl.setScript((req) => {
+      expect(req.prompt).toContain("No active Dub Oracle verdict is available for this series.");
+      expect(req.prompt).not.toContain("Only season 1 was verified");
+      return importProposal("candidate_1", [101]);
+    });
+
+    const outcome = await svc.analyzeAndWait("sonarr", 1);
+
+    expect(outcome.status).toBe("completed");
+    expect(runnerCtl.calls).toHaveLength(1);
+  });
+
+  it("does not inject a superseded Dub Oracle verdict", async () => {
+    const { db, svc, sonarr, runnerCtl } = makeHarness();
+    const now = Date.now();
+    sonarr.queue = [makeQueueItem(1)];
+    sonarr.candidatesByItem.set(1, [makeCandidate("candidate_1", [101])]);
+    db.insert(aiVerdicts)
+      .values({
+        subjectKind: "series",
+        subjectKey: "sonarr:5",
+        title: "Show",
+        verdict: "exists",
+        confidence: 0.98,
+        evidence: ["Superseded German evidence."],
+        provider: "test",
+        model: "test",
+        promptVersion: "test",
+        checkedAt: now,
+        recheckAfter: now + 86_400_000,
+        supersededBy: 123,
+      })
+      .run();
+    runnerCtl.setScript((req) => {
+      expect(req.prompt).toContain("No active Dub Oracle verdict is available for this series.");
+      expect(req.prompt).not.toContain("Superseded German evidence.");
+      return importProposal("candidate_1", [101]);
+    });
+
+    const outcome = await svc.analyzeAndWait("sonarr", 1);
+
+    expect(outcome.status).toBe("completed");
+    expect(runnerCtl.calls).toHaveLength(1);
+  });
+
+  it("does not inject an expired Dub Oracle verdict", async () => {
+    const { db, svc, sonarr, runnerCtl } = makeHarness();
+    const now = Date.now();
+    sonarr.queue = [makeQueueItem(1)];
+    sonarr.candidatesByItem.set(1, [makeCandidate("candidate_1", [101])]);
+    db.insert(aiVerdicts)
+      .values({
+        subjectKind: "series",
+        subjectKey: "sonarr:5",
+        title: "Show",
+        verdict: "exists",
+        confidence: 0.98,
+        evidence: ["Old evidence."],
+        provider: "test",
+        model: "test",
+        promptVersion: "test",
+        checkedAt: now - 2_000,
+        recheckAfter: now - 1_000,
+      })
+      .run();
+    runnerCtl.setScript((req) => {
+      expect(req.prompt).toContain("No active Dub Oracle verdict is available for this series.");
+      expect(req.prompt).not.toContain("Old evidence.");
+      return importProposal("candidate_1", [101]);
+    });
+
+    const outcome = await svc.analyzeAndWait("sonarr", 1);
+
+    expect(outcome.status).toBe("completed");
+    expect(runnerCtl.calls).toHaveLength(1);
+  });
 });
 
 describe("FixerService apply", () => {
@@ -410,6 +612,52 @@ describe("FixerService apply", () => {
     expect(entry?.analysisId).toBe(analysisId);
     const detail = entry?.detail as { wouldHave: { candidateIds: string[] } } | undefined;
     expect(detail?.wouldHave.candidateIds).toEqual(["candidate_1"]);
+  });
+
+  it("applies a real anime absolute-number mapping verified through Sonarr lookup", async () => {
+    const harness = makeHarness();
+    harness.sonarr.queue = [realOnePieceQueueItem()];
+    harness.sonarr.candidatesByItem.set(realOnePieceQueueItem().id, [realOnePieceCandidate()]);
+    harness.sonarr.episodes = [realOnePieceAbsoluteEpisode()];
+    harness.runnerCtl.setScript(async (req) => {
+      const findEpisodes = (req.tools as ProposalToolLike[]).find(
+        (tool) => tool.name === "sonarr_find_episodes",
+      );
+      if (!findEpisodes) throw new Error("sonarr_find_episodes tool not found");
+      await findEpisodes.execute(
+        "lookup_1",
+        { seriesId: 77, absoluteEpisodeNumber: 78, window: 0 },
+        undefined,
+        undefined,
+        undefined as never,
+      );
+      return importProposal("candidate_9", [4_951]);
+    });
+
+    const outcome = await harness.svc.analyzeAndWait("sonarr", realOnePieceQueueItem().id);
+    expect(outcome.result?.status).toBe("proposal");
+
+    const result = await harness.svc.apply(outcome.analysisId);
+    expect(result).toMatchObject({ ok: true, dryRun: true });
+    expect(harness.sonarr.applyCalls).toHaveLength(0);
+  });
+
+  it("reports a blocked language preflight instead of simulating an impossible import", async () => {
+    const { svc, sonarr, analysisId } = await analyzedHarness();
+    sonarr.preflightResult = {
+      ok: false,
+      message: "Blocked language downgrade: the existing file has German audio.",
+    };
+
+    const result = await svc.apply(analysisId);
+
+    expect(result).toEqual({
+      ok: false,
+      dryRun: true,
+      message: "Blocked language downgrade: the existing file has German audio.",
+    });
+    expect(sonarr.applyCalls).toHaveLength(0);
+    expect(svc.listHistory().total).toBe(0);
   });
 
   it("applies live when dry-run is off, records history, and drops the queue row", async () => {

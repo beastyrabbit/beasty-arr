@@ -34,9 +34,48 @@ export const LANGUAGE_ID_ENGLISH = 1;
 
 export type FileLanguage = { id: number; name: string };
 
-export function hasGermanAudio(languages: FileLanguage[] | null | undefined): boolean {
+const UNKNOWN_LANGUAGE_NAMES = new Set([
+  "",
+  "unknown",
+  "undetermined",
+  "unidentified",
+  "none",
+  "n/a",
+]);
+
+/** Whether ARR supplied a concrete language rather than its id=0 Unknown sentinel. */
+export function hasKnownLanguageMetadata(
+  languages: readonly unknown[] | null | undefined,
+): boolean {
   if (!languages) return false;
-  return languages.some((l) => l.id === LANGUAGE_ID_GERMAN || l.name.toLowerCase() === "german");
+  return languages.some((language) => {
+    if (typeof language === "string") {
+      return !UNKNOWN_LANGUAGE_NAMES.has(language.trim().toLowerCase());
+    }
+    if (!language || typeof language !== "object") return false;
+    const record = language as Record<string, unknown>;
+    const id = Number(record.id);
+    const name = String(record.name ?? "")
+      .trim()
+      .toLowerCase();
+    return (Number.isFinite(id) && id > 0) || !UNKNOWN_LANGUAGE_NAMES.has(name);
+  });
+}
+
+export function hasGermanAudio(languages: readonly unknown[] | null | undefined): boolean {
+  if (!languages) return false;
+  return languages.some((language) => {
+    if (typeof language === "string") {
+      const name = language.trim().toLowerCase();
+      return name === "german" || name === "deutsch";
+    }
+    if (!language || typeof language !== "object") return false;
+    const record = language as Record<string, unknown>;
+    const name = String(record.name ?? "")
+      .trim()
+      .toLowerCase();
+    return Number(record.id) === LANGUAGE_ID_GERMAN || name === "german" || name === "deutsch";
+  });
 }
 
 /** Backoff ladder (ms) indexed by tier; capped at the last entry. */

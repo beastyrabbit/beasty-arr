@@ -1,5 +1,5 @@
 import path from "node:path";
-import { count, eq } from "drizzle-orm";
+import { count } from "drizzle-orm";
 import type { FastifyReply } from "fastify";
 import type { z } from "zod";
 import type { ArrHealthValue, DryRunResult, StateCounts } from "../../../shared/api-types.js";

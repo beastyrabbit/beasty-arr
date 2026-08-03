@@ -19,7 +19,6 @@ import type {
   ManualImportCandidate,
   QueueRemovalOptions,
   ResolutionProposal,
-  ResolverEvent,
   ValidationResult,
 } from "../../../shared/fixer-types.js";
 import type { AppContext } from "../../context.js";
@@ -146,6 +145,10 @@ export function registerFixerRoutes(app: FastifyInstance, ctx: AppContext): void
     if (!ctx.services.fixer.getAnalysis(p.data.id)) return notFound(reply, "analysis not found");
     const outcome = await ctx.services.fixer.apply(p.data.id, b.data.candidateIds);
     if (outcome.dryRun) {
+      if (!outcome.ok) {
+        const response: FixerApplyResponse = { ok: false, message: outcome.message };
+        return response;
+      }
       const response: FixerApplyResponse = dryRunResult(outcome.message);
       return response;
     }

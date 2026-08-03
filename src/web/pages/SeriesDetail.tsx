@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import type { EpisodeItem, SeasonItem, SeriesDetail } from "../../shared/api-types.js";
+import { DubVerdictSummary } from "../components/DubVerdictSummary.js";
 import { ForceControl, PauseControl, ResumeControl } from "../components/ItemActions.js";
 import { SegmentedBar } from "../components/SegmentedBar.js";
 import { DataTable, EmptyState, ErrorState, Panel, Skeleton, Td, Th } from "../components/Shell.js";
@@ -144,19 +145,7 @@ function SeriesDetailView({ s, selectedSeason }: { s: SeriesDetail; selectedSeas
               </Button>
             </div>
             {s.verdict ? (
-              <>
-                <div className="mt-1.5 font-mono text-[13px] text-ink">
-                  {s.verdict.verdict} · {s.verdict.confidence.toFixed(2)}
-                </div>
-                <ul className="mt-1.5 list-disc space-y-1 pl-4 text-[11px] text-muted">
-                  {s.verdict.evidence.slice(0, 4).map((e) => (
-                    <li key={e}>{e}</li>
-                  ))}
-                </ul>
-                <div className="mt-2 font-mono text-[10px] text-faint">
-                  checked {relTime(s.verdict.checkedAt)} · recheck {relTime(s.verdict.recheckAfter)}
-                </div>
-              </>
+              <DubVerdictSummary verdict={s.verdict} />
             ) : (
               <p className="mt-2 text-[12px] text-faint">Not checked yet.</p>
             )}

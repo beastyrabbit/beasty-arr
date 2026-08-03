@@ -1,8 +1,9 @@
-import { eq } from "drizzle-orm";
+import { and, desc, eq, gt, isNull } from "drizzle-orm";
 import type { FastifyBaseLogger } from "fastify";
 import { nanoid } from "nanoid";
 import type {
   AnalysisResult,
+  FixerDubVerdictContext,
   ManualImportCandidate,
   MediaService,
   QueueItem,
@@ -13,8 +14,9 @@ import type {
 import { canLoadManualImportCandidates } from "../arr/sonarr-client.js";
 import type { SettingsService } from "../config/settings.js";
 import type { Db } from "../db/index.js";
-import { fixerAnalyses } from "../db/schema.js";
+import { aiVerdicts, fixerAnalyses } from "../db/schema.js";
 import type { EventBus } from "../events/bus.js";
+import { isAiVerdictValue } from "../hunt/state.js";
 import type { FixerAnalysisEvent, FixerPiRunner } from "./ai-port.js";
 import { toResolverEvent } from "./events-map.js";
 import {
@@ -49,6 +51,27 @@ export const ignoreRemovalOptions: QueueRemovalOptions = {
 };
 
 const MAX_PERSISTED_EVENTS = 500;
+const SEASON_EPISODE_PATTERN = /\bS(\d{1,4})E/i;
+
+function targetSeasonNumber(
+  queueItem: QueueItem,
+  candidates: ManualImportCandidate[],
+): number | undefined {
+  const candidateSeasons = new Set(
+    candidates.flatMap((candidate) =>
+      candidate.seasonNumber === undefined ? [] : [candidate.seasonNumber],
+    ),
+  );
+  if (candidateSeasons.size === 1) {
+    return candidateSeasons.values().next().value;
+  }
+  if (candidateSeasons.size > 1) {
+    return undefined;
+  }
+  const label = queueItem.seasonEpisode ?? queueItem.episodeLabels[0];
+  const parsed = label?.match(SEASON_EPISODE_PATTERN)?.[1];
+  return parsed === undefined ? undefined : Number(parsed);
+}
 
 // ============ queue view helpers (ported from sonarr_fixer renderer utils/queue.ts) ============
 
@@ -197,6 +220,18 @@ export class FixerService {
   ) {
     this.now = opts.now ?? Date.now;
     this.makeId = opts.makeId ?? (() => nanoid());
+    // A process restart cannot preserve the in-memory runner/controller that
+    // owns a running row. Fail those orphaned rows immediately so the UI does
+    // not display an analysis as "running" forever after a reload or crash.
+    this.db
+      .update(fixerAnalyses)
+      .set({
+        status: "failed",
+        completedAt: this.now(),
+        error: "Analysis was interrupted by an application restart.",
+      })
+      .where(eq(fixerAnalyses.status, "running"))
+      .run();
   }
 
   // ============ queue ============
@@ -290,6 +325,55 @@ export class FixerService {
       );
     }
     return item;
+  }
+
+  private activeDubVerdict(
+    queueItem: QueueItem,
+    candidates: ManualImportCandidate[],
+  ): FixerDubVerdictContext | undefined {
+    const subjectId = queueItem.service === "sonarr" ? queueItem.seriesId : queueItem.movieId;
+    if (subjectId == null) {
+      return undefined;
+    }
+    const row = this.db
+      .select()
+      .from(aiVerdicts)
+      .where(
+        and(
+          eq(aiVerdicts.subjectKey, `${queueItem.service}:${subjectId}`),
+          isNull(aiVerdicts.supersededBy),
+          gt(aiVerdicts.recheckAfter, this.now()),
+        ),
+      )
+      .orderBy(desc(aiVerdicts.checkedAt))
+      .get();
+    if (!row) {
+      return undefined;
+    }
+    const perSeason =
+      row.perSeason?.flatMap((entry) =>
+        isAiVerdictValue(entry.verdict)
+          ? [{ season: entry.season, verdict: entry.verdict, note: entry.note }]
+          : [],
+      ) ?? null;
+    const targetSeason =
+      queueItem.service === "sonarr" ? targetSeasonNumber(queueItem, candidates) : undefined;
+    const seasonVerdict = perSeason?.length
+      ? perSeason.find((entry) => entry.season === targetSeason)
+      : undefined;
+    if (queueItem.service === "sonarr" && perSeason?.length && !seasonVerdict) {
+      return undefined;
+    }
+    return {
+      verdict: seasonVerdict?.verdict ?? row.verdict,
+      confidence: row.confidence,
+      germanTitle: row.germanTitle,
+      perSeason: seasonVerdict ? [seasonVerdict] : perSeason,
+      evidence: row.evidence,
+      expectedAvailability: row.expectedAvailability,
+      checkedAt: row.checkedAt,
+      recheckAfter: row.recheckAfter,
+    };
   }
 
   // ============ analysis ============
@@ -499,6 +583,7 @@ export class FixerService {
       const result = await resolveQueueItem({
         queueItem,
         candidates,
+        dubVerdict: this.activeDubVerdict(queueItem, candidates),
         client,
         runner: this.runner,
         signal: controller.signal,
@@ -575,7 +660,21 @@ export class FixerService {
       return { ok: false, dryRun: false, message: errorMessage(error) };
     }
 
-    const validation = validateProposalForImport(candidates, effective, queueItem);
+    // The resolver may use sonarr_find_episodes to map anime/scene-numbered files
+    // to valid episode ids that are not present in Sonarr's initially parsed
+    // manual-import candidates. Treat those selected ids as structurally valid
+    // here; the Sonarr client's live preflight reloads the full series and is
+    // the authority that verifies the ids actually exist before any command.
+    const selectedSonarrEpisodeIds =
+      row.service === "sonarr"
+        ? effective.selectedImports.flatMap((selectedImport) => selectedImport.episodeIds)
+        : [];
+    const validation = validateProposalForImport(
+      candidates,
+      effective,
+      queueItem,
+      selectedSonarrEpisodeIds,
+    );
     if (!validation.ok) {
       return {
         ok: false,
@@ -594,6 +693,18 @@ export class FixerService {
       analysisId,
     };
     if (this.settings.get().dryRun) {
+      try {
+        const preflight = await client.preflightImportProposal(queueItem, candidates, effective);
+        if (!preflight.ok) {
+          return { ok: false, dryRun: true, message: preflight.message };
+        }
+      } catch (error) {
+        return {
+          ok: false,
+          dryRun: true,
+          message: `Dry-run preflight failed: ${errorMessage(error)}`,
+        };
+      }
       const historyId = recordFixerHistory(this.db, {
         ...base,
         at: this.now(),

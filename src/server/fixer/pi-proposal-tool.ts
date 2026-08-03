@@ -62,6 +62,7 @@ export function createProposalTool(
     promptSnippet: `Return the final typed ${serviceName} queue resolution proposal.`,
     promptGuidelines: [
       `Always finish ${serviceName} queue analysis by calling ${toolName}.`,
+      `Before calling ${toolName}, always call ${service === "radarr" ? "radarr_get_upgrade_context" : "sonarr_get_upgrade_context"}; the initial candidate list does not prove whether a library file already exists.`,
       service === "radarr"
         ? "Use selectedImports to explicitly map each chosen file candidate to its exact Radarr movie id."
         : "Use selectedImports to explicitly map each chosen file candidate to the Sonarr episode ids it should be imported as.",
@@ -69,6 +70,8 @@ export function createProposalTool(
         ? "The selectedImports mapping is authoritative; do not guess a movie id outside the queue or candidate context."
         : "The selectedImports mapping is authoritative; do not rely on Sonarr's parsed candidate episode ids when you decide they are wrong.",
       "Never select candidates marked as likely samples.",
+      "When active Dub Oracle context says exists with confidence greater than 0.6, a candidate with known language metadata but no German audio must use remove_queue_item with removeFromClient=true, blocklist=true, skipRedownload=false, changeCategory=false, even when it is a quality upgrade or the current file is non-German or missing. For Sonarr, apply the exact perSeason verdict when available.",
+      "If a current library file has German audio and the incoming candidate has known language metadata but no German audio, use remove_queue_item with removeFromClient=true, blocklist=true, skipRedownload=false, changeCategory=false. This is not needs_review and not an ordinary non-upgrade removal.",
       "Use needs_review when the candidate data is ambiguous or incomplete.",
     ],
     parameters: Type.Object({
@@ -117,7 +120,7 @@ export function createProposalTool(
           },
           {
             description:
-              "Only for remove_queue_item. For ordinary non-upgrades where the existing episode file is already better, use removeFromClient=true, blocklist=false, skipRedownload=false, changeCategory=false. For unsuitable releases such as wrong episodes, wrong series, or unusable folders, use removeFromClient=true, blocklist=true, skipRedownload=false, changeCategory=false.",
+              "Only for remove_queue_item. For ordinary non-upgrades where the existing library file is better, use removeFromClient=true, blocklist=false, skipRedownload=false, changeCategory=false. When a candidate explicitly lacks German and would replace a German-audio library file, or for unsuitable releases such as wrong episodes, wrong series/movie, or unusable folders, use removeFromClient=true, blocklist=true, skipRedownload=false, changeCategory=false.",
           },
         ),
       ),

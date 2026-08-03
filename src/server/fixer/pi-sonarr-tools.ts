@@ -1,5 +1,6 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { hasGermanAudio, hasKnownLanguageMetadata } from "../../shared/domain.js";
 import type { ManualImportCandidate, QueueItem } from "../../shared/fixer-types.js";
 import type {
   SonarrClient,
@@ -67,6 +68,7 @@ function compactEpisodeFile(file?: SonarrEpisodeFileRecord) {
   if (!file) {
     return undefined;
   }
+  const languages = file.languages ?? [];
   return {
     id: file.id,
     path: file.path,
@@ -75,7 +77,9 @@ function compactEpisodeFile(file?: SonarrEpisodeFileRecord) {
     quality: valueName(
       (file.quality as { quality?: unknown } | undefined)?.quality ?? file.quality,
     ),
-    languages: (file.languages ?? []).map(valueName).filter(Boolean),
+    languages: languages.map(valueName).filter(Boolean),
+    languageMetadataPresent: hasKnownLanguageMetadata(languages),
+    hasGermanAudio: hasGermanAudio(languages),
     releaseGroup: file.releaseGroup,
     releaseType: file.releaseType,
     customFormats: (file.customFormats ?? []).map(compactFormat),
@@ -323,11 +327,12 @@ export function createSonarrLookupTools({
     name: "sonarr_get_upgrade_context",
     label: "Get Upgrade Context",
     description:
-      "Read current episode files, quality profile scoring, and custom format data for deciding whether a candidate is a real upgrade.",
+      "Required before every final resolution: read current episode files, explicit German-audio flags, quality profile scoring, and custom formats before deciding whether any candidate is safe to import or should be removed.",
     promptSnippet:
       "Use sonarr_get_upgrade_context when Sonarr mentions custom formats, quality profiles, upgrade rejections, or existing files.",
     promptGuidelines: [
-      "Use this before overriding a non-upgrade or custom-format rejection.",
+      "Call this for every queue analysis before proposing a resolution, even when the only warning mentions sample detection.",
+      "A candidate explicitly lacking German must never replace a current file whose hasGermanAudio field is true.",
       "Compare the candidate languages/custom format score with the existing episode file and profile scoring.",
     ],
     parameters: Type.Object({

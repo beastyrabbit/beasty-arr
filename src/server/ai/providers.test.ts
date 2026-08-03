@@ -97,6 +97,22 @@ describe("withProviderRetries", () => {
     ).rejects.toThrow(/rate limit/);
     expect(attempts).toBe(2);
   });
+
+  it("aborts immediately while waiting for a provider retry", async () => {
+    const controller = new AbortController();
+    const task = withProviderRetries(
+      async () => {
+        throw new Error("503 service unavailable");
+      },
+      {
+        signal: controller.signal,
+        retryDelaysMs: [60_000],
+        onRetry: () => controller.abort(new DOMException("cancelled", "AbortError")),
+      },
+    );
+
+    await expect(task).rejects.toThrow(/cancelled/);
+  });
 });
 
 describe("createPiRunner live-AI guard", () => {

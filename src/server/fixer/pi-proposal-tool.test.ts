@@ -4,6 +4,17 @@ import type { ResolutionProposal } from "../../shared/fixer-types.js";
 import { createProposalTool } from "./pi-proposal-tool.js";
 
 describe("createProposalTool", () => {
+  it("repeats the Dub Oracle German-release rule in the terminating tool guidance", () => {
+    const tool = createProposalTool(["candidate_1"], () => undefined, "radarr");
+
+    expect(JSON.stringify(tool)).toContain(
+      "active Dub Oracle context says exists with confidence greater than 0.6",
+    );
+    expect(JSON.stringify(tool)).toContain(
+      "blocklist=true, skipRedownload=false, changeCategory=false",
+    );
+  });
+
   it("restricts candidate ids through the TypeBox schema", () => {
     const tool = createProposalTool(["candidate_1", "candidate_2"], () => undefined);
     const valid = {

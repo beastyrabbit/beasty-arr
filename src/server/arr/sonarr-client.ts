@@ -1,3 +1,4 @@
+import { hasGermanAudio } from "../../shared/domain.js";
 import type {
   ApplyResult,
   ManualImportCandidate,
@@ -724,34 +725,12 @@ export class SonarrClient {
     candidates: ManualImportCandidate[],
     proposal: ResolutionProposal,
   ): Promise<ApplyResult> {
+    const preflight = await this.preflightImportProposal(queueItem, candidates, proposal);
+    if (!preflight.ok) {
+      return preflight;
+    }
     const normalizedProposal = normalizeProposal(proposal);
-    const knownEpisodeIds = await this.getKnownEpisodeIds(queueItem, candidates);
-    const validation = validateProposalForImport(
-      candidates,
-      normalizedProposal,
-      queueItem,
-      knownEpisodeIds,
-    );
-    if (!validation.ok) {
-      return {
-        ok: false,
-        message: validation.issues.map((issue) => issue.message).join(" "),
-      };
-    }
-
-    if (normalizedProposal.action !== "import_candidates") {
-      return {
-        ok: false,
-        message: `Proposal action ${normalizedProposal.action} is not an import.`,
-      };
-    }
-
     const byId = new Map(candidates.map((candidate) => [candidate.id, candidate]));
-    const languageDowngrades = await this.findGermanAudioDowngrades(normalizedProposal, byId);
-    if (languageDowngrades.length > 0) {
-      return { ok: false, message: languageDowngrades.join(" ") };
-    }
-
     const files: ManualImportCommandFile[] = normalizedProposal.selectedCandidateIds.map(
       (candidateId) => {
         const candidate = byId.get(candidateId);
@@ -797,15 +776,48 @@ export class SonarrClient {
     };
   }
 
+  async preflightImportProposal(
+    queueItem: QueueItem,
+    candidates: ManualImportCandidate[],
+    proposal: ResolutionProposal,
+  ): Promise<ApplyResult> {
+    const normalizedProposal = normalizeProposal(proposal);
+    const knownEpisodeIds = await this.getKnownEpisodeIds(queueItem, candidates);
+    const validation = validateProposalForImport(
+      candidates,
+      normalizedProposal,
+      queueItem,
+      knownEpisodeIds,
+    );
+    if (!validation.ok) {
+      return {
+        ok: false,
+        message: validation.issues.map((issue) => issue.message).join(" "),
+      };
+    }
+
+    if (normalizedProposal.action !== "import_candidates") {
+      return {
+        ok: false,
+        message: `Proposal action ${normalizedProposal.action} is not an import.`,
+      };
+    }
+
+    const byId = new Map(candidates.map((candidate) => [candidate.id, candidate]));
+    const languageDowngrades = await this.findGermanAudioDowngrades(normalizedProposal, byId);
+    if (languageDowngrades.length > 0) {
+      return { ok: false, message: languageDowngrades.join(" ") };
+    }
+    return { ok: true, message: "Sonarr import proposal passed preflight." };
+  }
+
   private async findGermanAudioDowngrades(
     proposal: ResolutionProposal,
     candidatesById: Map<string, ManualImportCandidate>,
   ): Promise<string[]> {
-    const hasGerman = (labels: string[]) =>
-      labels.some((label) => label.trim().toLowerCase() === "german");
     const nonGermanImports = proposal.selectedImports.filter((selectedImport) => {
       const candidate = candidatesById.get(selectedImport.candidateId);
-      return candidate !== undefined && !hasGerman(candidate.languageLabels);
+      return candidate !== undefined && !hasGermanAudio(candidate.languages);
     });
     const episodeIds = [
       ...new Set(nonGermanImports.flatMap((selectedImport) => selectedImport.episodeIds)),
@@ -816,14 +828,16 @@ export class SonarrClient {
     let episodes: SonarrEpisodeRecord[];
     try {
       episodes = await this.getEpisodes({ episodeIds, includeEpisodeFile: true });
-    } catch {
-      // If Sonarr is unreachable the ManualImport command below would fail as well.
-      return [];
+    } catch (error) {
+      throw new Error(
+        "Could not verify existing Sonarr episode-file languages; refusing the import.",
+        { cause: error },
+      );
     }
     const germanFilesByEpisodeId = new Map<number, string>();
     for (const episode of episodes) {
-      const fileLanguages = (episode.episodeFile?.languages ?? []).map(languageLabel);
-      if (episode.id !== undefined && hasGerman(fileLanguages)) {
+      const fileLanguages = episode.episodeFile?.languages ?? [];
+      if (episode.id !== undefined && hasGermanAudio(fileLanguages)) {
         germanFilesByEpisodeId.set(
           episode.id,
           episode.episodeFile?.relativePath ?? episode.episodeFile?.path ?? `episode ${episode.id}`,

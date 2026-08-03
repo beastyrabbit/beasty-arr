@@ -1,0 +1,6 @@
+# Historical test-only API-key fixtures. Keep these narrow fingerprints so new
+# findings in the same files still fail the scan.
+8729058846f12ad04ff736d4755995eb9fc72da0:src/server/http/routes/routes.test.ts:generic-api-key:18
+3239cc1b81bf226410d3b12f91efb418d2a2b9f3:src/server/app.test.ts:generic-api-key:13
+3239cc1b81bf226410d3b12f91efb418d2a2b9f3:src/server/app.test.ts:generic-api-key:40
+3239cc1b81bf226410d3b12f91efb418d2a2b9f3:src/server/app.test.ts:generic-api-key:50

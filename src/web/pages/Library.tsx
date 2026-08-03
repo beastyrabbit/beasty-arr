@@ -47,7 +47,7 @@ export function LibraryPage({ kind }: { kind: "series" | "movies" }) {
 
   const to = kind === "series" ? "/library/series" : "/library/movies";
   const setSearch = (patch: Partial<LibrarySearchParams>) => {
-    navigate({ to, search: { ...search, page: undefined, ...patch } });
+    void navigate({ to, search: { ...search, page: undefined, ...patch } });
   };
 
   // Debounced free-text filter → URL.
@@ -313,13 +313,13 @@ function RowActions({
   const navigate = useNavigate();
   const openLive = () => {
     if (itemRef.kind === "series") {
-      navigate({
+      void navigate({
         to: "/library/series/$seriesId",
         params: { seriesId: String(itemRef.id) },
         search: { live: true },
       });
     } else {
-      navigate({
+      void navigate({
         to: "/library/movies/$movieId",
         params: { movieId: String(itemRef.id) },
         search: { live: true },

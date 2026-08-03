@@ -1,5 +1,7 @@
 // Ported near-verbatim from sonarr_fixer src/shared/types.ts (framework-free).
 
+import type { AiVerdictValue } from "./domain.js";
+
 export type PiThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
 export type MediaService = "sonarr" | "radarr";
 
@@ -87,6 +89,18 @@ export interface ManualImportCandidate {
   downloadId?: string;
   isLikelySample: boolean;
   sampleReason?: string;
+}
+
+/** Active Dub Oracle research supplied as evidence to the fixer model. */
+export interface FixerDubVerdictContext {
+  verdict: AiVerdictValue;
+  confidence: number;
+  germanTitle: string | null;
+  perSeason: { season: number; verdict: AiVerdictValue; note?: string }[] | null;
+  evidence: string[];
+  expectedAvailability: number | null;
+  checkedAt: number;
+  recheckAfter: number;
 }
 
 export type ProposalAction =

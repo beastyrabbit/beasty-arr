@@ -1,6 +1,7 @@
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { CheckCircle2, Clock3, ExternalLink, Loader2, RefreshCw } from "lucide-react";
 import type { MovieDetail } from "../../shared/api-types.js";
+import { DubVerdictSummary } from "../components/DubVerdictSummary.js";
 import { ForceControl, PauseControl, ResumeControl } from "../components/ItemActions.js";
 import { EmptyState, ErrorState, Panel, Skeleton } from "../components/Shell.js";
 import { StateBadge } from "../components/StateBadge.js";
@@ -136,19 +137,7 @@ function MovieDetailView({ m }: { m: MovieDetail }) {
               </Button>
             </div>
             {m.verdict ? (
-              <>
-                <div className="mt-1.5 font-mono text-[13px] text-ink">
-                  {m.verdict.verdict} · {m.verdict.confidence.toFixed(2)}
-                </div>
-                <ul className="mt-1.5 list-disc space-y-1 pl-4 text-[11px] text-muted">
-                  {m.verdict.evidence.slice(0, 4).map((e) => (
-                    <li key={e}>{e}</li>
-                  ))}
-                </ul>
-                <div className="mt-2 font-mono text-[10px] text-faint">
-                  checked {relTime(m.verdict.checkedAt)} · recheck {relTime(m.verdict.recheckAfter)}
-                </div>
-              </>
+              <DubVerdictSummary verdict={m.verdict} />
             ) : (
               <p className="mt-2 text-[12px] text-faint">Not checked yet.</p>
             )}

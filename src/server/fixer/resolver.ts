@@ -1,5 +1,6 @@
 import type {
   AnalysisResult,
+  FixerDubVerdictContext,
   ManualImportCandidate,
   MediaService,
   QueueItem,
@@ -24,6 +25,7 @@ export type SonarrFixerClientPort = Pick<
   SonarrClient,
   | "listQueue"
   | "getManualImportCandidates"
+  | "preflightImportProposal"
   | "applyImportProposal"
   | "removeQueueItem"
   | "getEpisodes"
@@ -35,6 +37,7 @@ export type RadarrFixerClientPort = Pick<
   RadarrClient,
   | "listQueue"
   | "getManualImportCandidates"
+  | "preflightImportProposal"
   | "applyImportProposal"
   | "removeQueueItem"
   | "getMovie"
@@ -60,7 +63,7 @@ const RADARR_TOOL_NAMES = [
   "propose_radarr_resolution",
 ];
 
-// ============ prompts (ported verbatim from sonarr_fixer pi-resolver.ts) ============
+// ============ fixer decision contract ============
 
 function buildSonarrSystemPrompt(): string {
   return [
@@ -70,15 +73,21 @@ function buildSonarrSystemPrompt(): string {
     "You must finish by calling propose_sonarr_resolution exactly once.",
     "You decide both the physical file candidate or candidates and the exact Sonarr episode ids to import them as.",
     "Return that decision only through selectedImports in propose_sonarr_resolution.",
+    "Always call sonarr_get_upgrade_context before the proposal tool, for every queue item. The initial queue/candidate payload does not show whether a target already has a library file. This requirement also applies when the only warning is sample detection.",
     "Never select candidates marked as likely samples.",
     "German audio is preferred but not required. When several usable candidates exist, prefer one whose languages include German.",
-    "Candidates without German, such as English or original-language releases, are acceptable fallbacks. Import them when they are otherwise valid; a German version arrives later through the normal upgrade flow.",
+    "Candidates without German, such as English or original-language releases, are acceptable fallbacks only when the mapped target does not already have German audio. A German version may arrive later through the normal upgrade flow.",
     "Never remove or blocklist a queue item only because its languages lack German.",
-    "The fallback rule never runs backwards: never replace an existing episode file whose languages include German with a candidate that lacks German, even when profile scoring favors the candidate. Check the existing file via sonarr_get_upgrade_context before importing a non-German candidate over it, and use needs_review for that conflict.",
+    "Dub Oracle context is separate research about whether a German dub exists. It takes precedence over the ordinary non-German fallback rule when it is relevant to the target season and has confidence greater than 0.6.",
+    "For a series, use only the exact perSeason entry for the candidate's target season when perSeason entries exist; it overrides the global verdict for that season. If perSeason is non-empty but has no entry for the target season, there is no relevant Oracle verdict and the global verdict must not be used. A relevant verified exists verdict means a German release is obtainable and the fixer must keep hunting for it.",
+    "When the relevant Dub Oracle verdict is exists with confidence greater than 0.6 and a candidate has known language metadata but no German audio, do not import it even if it is a quality upgrade or the current episode is English-only or missing. Use remove_queue_item with queueRemovalOptions removeFromClient=true, blocklist=true, skipRedownload=false, changeCategory=false so Sonarr rejects that exact release and searches for a German one.",
+    "Do not apply the Dub Oracle blocking rule to announced, unlikely, unknown, expired/missing context, confidence at or below 0.6, or unknown candidate language metadata. Use the normal rules and needs_review for genuine ambiguity.",
+    "The fallback rule never runs backwards: when a candidate has known language metadata and lacks German while the mapped existing episode file has German audio, do not import it and do not use needs_review. Use remove_queue_item with queueRemovalOptions removeFromClient=true, blocklist=true, skipRedownload=false, changeCategory=false so Sonarr rejects this release and searches for a different one.",
+    "Unknown or missing candidate language metadata is ambiguity, not proof that German is absent; use needs_review instead of the language-downgrade rule.",
     "Never import Blu-ray disc structure stream chunks such as BDMV/STREAM/*.m2ts.",
     "If the download is only Blu-ray disc structure stream chunks, use remove_queue_item.",
     "Treat Sonarr status messages as the main diagnostic clue.",
-    "When Sonarr reports a quality, custom format, or non-upgrade rejection, call sonarr_get_upgrade_context before deciding. Compare the candidate to the current episode file, quality profile, custom format score, and languages.",
+    "Use sonarr_get_upgrade_context on every analysis and compare the candidate to the current episode file, quality profile, custom format score, and languages.",
     "If the candidate is otherwise valid but does not improve the existing episode file according to Sonarr's profile/custom-format scoring, do not import it. Use remove_queue_item with queueRemovalOptions removeFromClient=true, blocklist=false, skipRedownload=false, changeCategory=false.",
     "For unsuitable or unwanted releases, such as wrong episodes, wrong series, missing usable video files, or disc structures, use remove_queue_item with queueRemovalOptions removeFromClient=true, blocklist=true, skipRedownload=false, changeCategory=false so Sonarr searches again.",
     "If Sonarr exposes multiple clean Season Pack manual import candidates for one download, you may import all safe candidates using their parsed episode ids even when the currently selected queue row targets only one episode.",
@@ -93,7 +102,11 @@ function buildSonarrSystemPrompt(): string {
   ].join("\n");
 }
 
-function buildSonarrPrompt(queueItem: QueueItem, candidates: ManualImportCandidate[]): string {
+function buildSonarrPrompt(
+  queueItem: QueueItem,
+  candidates: ManualImportCandidate[],
+  dubVerdict?: FixerDubVerdictContext,
+): string {
   return `Analyze this Sonarr queue item and choose the safest resolution.
 
 Queue item:
@@ -120,18 +133,26 @@ ${JSON.stringify(
 Manual import candidates:
 ${JSON.stringify(candidates.map(compactCandidate), null, 2)}
 
+Active Dub Oracle context:
+${dubVerdict ? JSON.stringify(dubVerdict, null, 2) : "No active Dub Oracle verdict is available for this series."}
+
 Rules:
 - Read Sonarr's statusMessages first. They describe the actual failure mode.
+- Always call sonarr_get_upgrade_context before the proposal tool, even when the only warning is sample detection. The initial payload does not say whether a library file already exists.
 - Use sonarr_find_episodes when Sonarr mentions an unexpected episode, anime absolute numbers, or scene numbering.
-- Use sonarr_get_upgrade_context when Sonarr mentions quality, custom formats, scores, existing files, or non-upgrade rejections.
 - Compare Sonarr's target episode ids, the queue folder/title, the candidate filename/title, and Sonarr's episode lookup before deciding.
-- Prefer candidates whose languages include German when several usable candidates exist, but candidates without German (English or the original language) are acceptable fallbacks. Import them when they are otherwise valid instead of removing the download.
+- Prefer candidates whose languages include German when several usable candidates exist. Candidates with known non-German language metadata are acceptable fallbacks only when the mapped target does not already have German audio.
 - Do not propose remove_queue_item only because no candidate includes German.
-- Never replace an existing episode file whose languages include German with a non-German candidate, even when profile scoring favors the candidate. Check the existing file with sonarr_get_upgrade_context first and use needs_review for that conflict.
+- If the Active Dub Oracle context has confidence greater than 0.6, use only the exact perSeason verdict for each candidate's season when perSeason is non-empty; that season verdict overrides the global series verdict. If perSeason has no entry for the target season, treat the Oracle as unavailable for that season and never fall back to the global verdict. A relevant exists verdict means German audio is obtainable.
+- For a relevant verified exists verdict, reject every candidate with languageMetadataPresent=true and hasGermanAudio=false even if it is higher quality or the existing file is English-only or missing. Propose remove_queue_item with queueRemovalOptions { removeFromClient: true, blocklist: true, skipRedownload: false, changeCategory: false } so Sonarr searches for a German release. This rule takes precedence over the ordinary non-German fallback and quality-upgrade rules.
+- If the Dub Oracle context is absent, expired, not above 0.6 confidence, not exists for the target season, or the candidate language metadata is absent, do not infer this block from the Oracle; use the other evidence and normal rules.
+- If a candidate has languageMetadataPresent=true and hasGermanAudio=false while the mapped current file has hasGermanAudio=true, propose remove_queue_item with queueRemovalOptions { removeFromClient: true, blocklist: true, skipRedownload: false, changeCategory: false }. Do not import it, use needs_review, or treat it as an ordinary non-upgrade.
+- If candidate language metadata is absent, use needs_review; absence of metadata does not prove absence of German audio.
 - If Sonarr's upgrade context shows the existing file is already better and the candidate is otherwise valid, propose remove_queue_item with queueRemovalOptions { removeFromClient: true, blocklist: false, skipRedownload: false, changeCategory: false }. Do not blocklist these ordinary non-upgrades.
 - If the release is unsuitable or unwanted, such as wrong episode, wrong series, missing usable video files, or disc structure, propose remove_queue_item with queueRemovalOptions { removeFromClient: true, blocklist: true, skipRedownload: false, changeCategory: false } so Sonarr searches again.
 - You are allowed to import a candidate using episode ids different from Sonarr's parsed candidate ids if your Sonarr lookup supports that mapping.
 - For multi-file Season Pack candidates from the same download, you may select multiple safe candidates and map each one to its own Sonarr-parsed episode ids. Do not reject a season pack solely because the first visible candidate is not the currently selected queue target.
+- Because blocklisting removes the whole download, use needs_review for a mixed Season Pack that contains both safe imports and a non-German-over-German conflict; do not discard safe files automatically.
 - Put the exact import mapping in selectedImports: candidateId plus the Sonarr episode ids to import the file as.
 - Do not import if you cannot explain why the selected file and selected episode ids are the correct pair.
 - If one real episode file and one sample are present, select only the real episode file and list the sample id in sampleCandidateIds.
@@ -150,14 +171,19 @@ function buildRadarrSystemPrompt(): string {
     "You must finish by calling propose_radarr_resolution exactly once.",
     "You decide the physical file candidate and exact Radarr movie id to import it as.",
     "Return that decision through selectedImports using candidateId and movieId.",
+    "Always call radarr_get_upgrade_context before the proposal tool, for every queue item. The initial queue/candidate payload does not show whether the movie already has a library file. This requirement also applies when the only warning is sample detection.",
     "Never select candidates marked as likely samples.",
     "German audio is preferred but not required. When several usable candidates exist, prefer one whose languages include German.",
-    "Candidates without German, such as English or original-language releases, are acceptable fallbacks. Import them when they are otherwise valid; a German version arrives later through the normal upgrade flow.",
+    "Candidates without German, such as English or original-language releases, are acceptable fallbacks only when the movie does not already have German audio. A German version may arrive later through the normal upgrade flow.",
     "Never remove or blocklist a queue item only because its languages lack German.",
-    "The fallback rule never runs backwards: never replace an existing movie file whose languages include German with a candidate that lacks German, even when profile scoring favors the candidate. Check the existing file via radarr_get_upgrade_context first and use needs_review for that conflict.",
+    "Dub Oracle context is separate research about whether a German dub exists. It takes precedence over the ordinary non-German fallback rule when its verdict is exists with confidence greater than 0.6.",
+    "A verified exists verdict means a German movie release is obtainable. When the candidate has known language metadata but no German audio, do not import it even if it is a quality upgrade or the current movie is English-only or missing. Use remove_queue_item with queueRemovalOptions removeFromClient=true, blocklist=true, skipRedownload=false, changeCategory=false so Radarr rejects that exact release and searches for a German one.",
+    "Do not apply the Dub Oracle blocking rule to announced, unlikely, unknown, expired/missing context, confidence at or below 0.6, or unknown candidate language metadata. Use the normal rules and needs_review for genuine ambiguity.",
+    "The fallback rule never runs backwards: when a candidate has known language metadata and lacks German while the existing movie file has German audio, do not import it and do not use needs_review. Use remove_queue_item with queueRemovalOptions removeFromClient=true, blocklist=true, skipRedownload=false, changeCategory=false so Radarr rejects this release and searches for a different one.",
+    "Unknown or missing candidate language metadata is ambiguity, not proof that German is absent; use needs_review instead of the language-downgrade rule.",
     "Never import Blu-ray disc structure stream chunks such as BDMV/STREAM/*.m2ts.",
     "Treat Radarr status messages as the main diagnostic clue.",
-    "When Radarr reports a quality, custom format, or non-upgrade rejection, call radarr_get_upgrade_context before deciding.",
+    "Use radarr_get_upgrade_context on every analysis and compare the candidate to the current movie file, quality profile, custom format score, and languages.",
     "If the existing movie file is already better, remove the queue item without blocklisting it.",
     "For unsuitable releases such as the wrong movie, missing usable video files, or disc structures, remove and blocklist so Radarr searches again.",
     "Use radarr_get_movie to verify title, year, TMDb/IMDb identity, and the existing file before resolving a wrong-movie or ambiguous match.",
@@ -167,7 +193,11 @@ function buildRadarrSystemPrompt(): string {
   ].join("\n");
 }
 
-function buildRadarrPrompt(queueItem: QueueItem, candidates: ManualImportCandidate[]): string {
+function buildRadarrPrompt(
+  queueItem: QueueItem,
+  candidates: ManualImportCandidate[],
+  dubVerdict?: FixerDubVerdictContext,
+): string {
   return `Analyze this Radarr queue item and choose the safest resolution.
 
 Queue item:
@@ -192,11 +222,18 @@ ${JSON.stringify(
 Manual import candidates:
 ${JSON.stringify(candidates.map(compactCandidate), null, 2)}
 
+Active Dub Oracle context:
+${dubVerdict ? JSON.stringify(dubVerdict, null, 2) : "No active Dub Oracle verdict is available for this movie."}
+
 Rules:
 - Read Radarr's statusMessages first.
-- Use radarr_get_movie for movie identity and radarr_get_upgrade_context for quality/custom-format/non-upgrade warnings.
-- Prefer German candidates, but candidates without German (English or the original language) are acceptable fallbacks; do not remove a download only because it lacks German.
-- Never replace an existing movie file whose languages include German with a non-German candidate; check the existing file with radarr_get_upgrade_context first and use needs_review for that conflict.
+- Always call radarr_get_upgrade_context before the proposal tool, even when the only warning is sample detection. The initial payload does not say whether a library file already exists.
+- Use radarr_get_movie for movie identity when needed; use the mandatory upgrade context for current-file, quality, custom-format, and language comparison.
+- Prefer German candidates. Candidates with known non-German language metadata are acceptable fallbacks only when the movie does not already have German audio; do not remove a download merely because it lacks German.
+- If the Active Dub Oracle verdict is exists with confidence greater than 0.6, German audio is obtainable. Reject a candidate with languageMetadataPresent=true and hasGermanAudio=false even if it is higher quality or the current movie is English-only or missing. Propose remove_queue_item with queueRemovalOptions { removeFromClient: true, blocklist: true, skipRedownload: false, changeCategory: false } so Radarr searches for a German release. This rule takes precedence over the ordinary non-German fallback and quality-upgrade rules.
+- If the Dub Oracle context is absent, expired, not above 0.6 confidence, not exists, or the candidate language metadata is absent, do not infer this block from the Oracle; use the other evidence and normal rules.
+- If a candidate has languageMetadataPresent=true and hasGermanAudio=false while the current movie file has hasGermanAudio=true, propose remove_queue_item with queueRemovalOptions { removeFromClient: true, blocklist: true, skipRedownload: false, changeCategory: false }. Do not import it, use needs_review, or treat it as an ordinary non-upgrade.
+- If candidate language metadata is absent, use needs_review; absence of metadata does not prove absence of German audio.
 - Map the chosen candidate to the exact queue/candidate movie id in selectedImports.movieId.
 - Select only the main movie file; never select samples, extras, or Blu-ray disc structure chunks.
 - If the existing file is better, remove without blocklisting. If the release is unsuitable or the wrong movie, remove and blocklist so Radarr searches again.
@@ -225,6 +262,7 @@ type ToolEmit = { type: string; itemId?: number; message: string; details?: unkn
 export interface ResolveQueueItemInput {
   queueItem: QueueItem;
   candidates: ManualImportCandidate[];
+  dubVerdict?: FixerDubVerdictContext;
   /** Must match queueItem.service (sonarr port for sonarr items, radarr for radarr). */
   client: FixerClientPort;
   runner: FixerPiRunner;
@@ -339,8 +377,8 @@ export async function resolveQueueItem(input: ResolveQueueItemInput): Promise<An
       systemPrompt: service === "radarr" ? buildRadarrSystemPrompt() : buildSonarrSystemPrompt(),
       prompt:
         service === "radarr"
-          ? buildRadarrPrompt(queueItem, candidates)
-          : buildSonarrPrompt(queueItem, candidates),
+          ? buildRadarrPrompt(queueItem, candidates, input.dubVerdict)
+          : buildSonarrPrompt(queueItem, candidates, input.dubVerdict),
       followUp: {
         prompt: `You did not call ${proposalToolName}. Call it now with the safest ${serviceName} resolution.`,
         when: () => {

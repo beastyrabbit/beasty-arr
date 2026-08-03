@@ -85,6 +85,7 @@ function verdictSummary(row: VerdictRow | undefined): AiVerdictSummary | null {
     confidence: row.confidence,
     checkedAt: row.checkedAt,
     recheckAfter: row.recheckAfter,
+    expectedAvailability: row.expectedAvailability,
     evidence: row.evidence,
     germanTitle: row.germanTitle,
   };
