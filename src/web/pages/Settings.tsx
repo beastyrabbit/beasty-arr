@@ -681,6 +681,12 @@ function CodexLoginDialog({
   const start = useCodexLoginStart();
   const [loginId, setLoginId] = useState<string | null>(null);
   const status = useCodexLoginStatus(open ? loginId : null);
+  const beginLogin = () => {
+    setLoginId(null);
+    start.mutate(undefined, {
+      onSuccess: (response) => setLoginId(response.id),
+    });
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -689,13 +695,11 @@ function CodexLoginDialog({
         description="Authenticates the pod's Pi/Codex OAuth. The token persists on the data volume."
       >
         {!loginId ? (
-          <Button
-            variant="primary"
-            disabled={start.isPending}
-            onClick={() => start.mutate(undefined, { onSuccess: (r) => setLoginId(r.id) })}
-          >
-            {start.isPending ? "Starting…" : "Start device login"}
-          </Button>
+          <div className="flex flex-col items-start gap-2">
+            <Button variant="primary" disabled={start.isPending} onClick={beginLogin}>
+              {start.isPending ? "Starting…" : "Start device login"}
+            </Button>
+          </div>
         ) : status.data ? (
           <div className="flex flex-col gap-2">
             {status.data.verificationUri ? (
@@ -721,9 +725,19 @@ function CodexLoginDialog({
                   <Check size={13} /> Authenticated.
                 </span>
               ) : status.data.status === "failed" || status.data.status === "expired" ? (
-                <span className="text-missing">
-                  {status.data.error ?? `Login ${status.data.status}.`}
-                </span>
+                <div className="flex flex-col items-start gap-2">
+                  <span className="text-missing">
+                    {status.data.error ?? `Login ${status.data.status}.`}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={start.isPending}
+                    onClick={beginLogin}
+                  >
+                    {start.isPending ? "Restarting…" : "Try device login again"}
+                  </Button>
+                </div>
               ) : (
                 <span className="flex items-center gap-1 text-muted">
                   <Loader2 size={13} className="animate-spin" /> Waiting for confirmation…
@@ -734,9 +748,16 @@ function CodexLoginDialog({
         ) : (
           <Loader2 size={16} className="animate-spin text-muted" />
         )}
+        <LoginStartError error={start.error} />
       </DialogContent>
     </Dialog>
   );
+}
+
+function LoginStartError({ error }: { error: unknown }) {
+  if (!error) return null;
+  const message = error instanceof Error ? error.message : String(error);
+  return <span className="text-[12px] text-missing">{message}</span>;
 }
 
 // ============ danger ============

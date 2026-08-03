@@ -93,6 +93,7 @@ type LoginEntry = {
 };
 
 const MAX_TRACKED_LOGINS = 20;
+const DEVICE_CODE_LOGIN_METHOD = "device_code";
 
 export class CodexLoginService {
   private readonly logins = new Map<string, LoginEntry>();
@@ -128,6 +129,7 @@ export class CodexLoginService {
   private async run(loginId: string, controller: AbortController): Promise<void> {
     try {
       const runtime = await this.getRuntime();
+      let loginMethodSelected = false;
       await runtime.login("openai-codex", "oauth", {
         signal: controller.signal,
         notify: (event) => {
@@ -150,6 +152,18 @@ export class CodexLoginService {
         },
         prompt: async (prompt) => {
           if (prompt.type === "select") {
+            if (!loginMethodSelected) {
+              const deviceCode = prompt.options.find(
+                (option) => option.id === DEVICE_CODE_LOGIN_METHOD,
+              );
+              if (deviceCode) {
+                loginMethodSelected = true;
+                return deviceCode.id;
+              }
+              throw new Error(
+                "The installed Codex provider does not offer device-code login. Update the provider and try again.",
+              );
+            }
             const first = prompt.options[0]?.id;
             if (first) return first;
           }

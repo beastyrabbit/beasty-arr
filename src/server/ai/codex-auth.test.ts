@@ -3,11 +3,16 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import type { AuthInteraction, Credential } from "@earendil-works/pi-ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CodexLoginService, seedOpenAICodexAuthFromCodex } from "./codex-auth.js";
-import { FileCredentialStore } from "./providers.js";
+import {
+  type CodexLoginRuntime,
+  CodexLoginService,
+  seedOpenAICodexAuthFromCodex,
+} from "./codex-auth.js";
+import { createModelRuntime, FileCredentialStore } from "./providers.js";
 
 const cleanups: (() => void)[] = [];
 afterEach(() => {
+  vi.restoreAllMocks();
   while (cleanups.length) cleanups.pop()?.();
 });
 
@@ -108,6 +113,46 @@ function fakeRuntime(): { runtime: { login: never }; login: FakeLogin } {
 }
 
 describe("CodexLoginService", () => {
+  it("drives the installed Pi provider into its device-code flow", async () => {
+    const requestedUrls: string[] = [];
+    let pollingSignal: AbortSignal | null = null;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = input instanceof Request ? input.url : String(input);
+      requestedUrls.push(url);
+      if (url.endsWith("/api/accounts/deviceauth/usercode")) {
+        return new Response(
+          JSON.stringify({ device_auth_id: "device-1", user_code: "ABCD-EFGH", interval: 60 }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (url.endsWith("/api/accounts/deviceauth/token")) {
+        pollingSignal = init?.signal ?? null;
+        return new Response(null, { status: 403 });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    const runtime = await createModelRuntime(makeStore());
+    const service = new CodexLoginService(async () => runtime);
+
+    const { loginId } = service.startCodexLogin();
+    await vi.waitFor(() => expect(service.getCodexLogin(loginId)?.status).not.toBe("pending"));
+    expect(service.getCodexLogin(loginId)).toEqual({
+      status: "waiting_user",
+      verificationUri: "https://auth.openai.com/codex/device",
+      userCode: "ABCD-EFGH",
+      message: "Confirm the code on the OpenAI page.",
+    });
+    expect(requestedUrls).toEqual([
+      "https://auth.openai.com/api/accounts/deviceauth/usercode",
+      "https://auth.openai.com/api/accounts/deviceauth/token",
+    ]);
+    expect(pollingSignal?.aborted).toBe(false);
+
+    expect(service.cancelCodexLogin(loginId)).toBe(true);
+    await vi.waitFor(() => expect(service.getCodexLogin(loginId)?.status).toBe("error"));
+    expect(pollingSignal?.aborted).toBe(true);
+  });
+
   it("walks the device-login flow: pending → waiting_user → done", async () => {
     const { runtime, login } = fakeRuntime();
     const service = new CodexLoginService(async () => runtime);
@@ -149,7 +194,7 @@ describe("CodexLoginService", () => {
     );
   });
 
-  it("answers select prompts with the first option and rejects other prompts", async () => {
+  it("selects device-code login even when browser login is the first option", async () => {
     const { runtime, login } = fakeRuntime();
     const service = new CodexLoginService(async () => runtime);
     service.startCodexLogin();
@@ -157,13 +202,62 @@ describe("CodexLoginService", () => {
     await expect(
       login.interaction?.prompt({
         type: "select",
-        message: "pick",
+        message: "Select OpenAI Codex login method:",
+        options: [
+          { id: "browser", label: "Browser login (default)" },
+          { id: "device_code", label: "Device code login (headless)" },
+        ],
+      }),
+    ).resolves.toBe("device_code");
+  });
+
+  it("handles later select prompts after choosing the device-code login method", async () => {
+    const { runtime, login } = fakeRuntime();
+    const service = new CodexLoginService(async () => runtime);
+    service.startCodexLogin();
+    await vi.waitFor(() => expect(login.interaction).toBeDefined());
+    await expect(
+      login.interaction?.prompt({
+        type: "select",
+        message: "Select OpenAI Codex login method:",
+        options: [
+          { id: "browser", label: "Browser login" },
+          { id: "device_code", label: "Device code login" },
+        ],
+      }),
+    ).resolves.toBe("device_code");
+    await expect(
+      login.interaction?.prompt({
+        type: "select",
+        message: "Select a workspace:",
         options: [{ id: "first", label: "First" }],
       }),
     ).resolves.toBe("first");
     await expect(
       login.interaction?.prompt({ type: "text", message: "enter something" }),
     ).rejects.toThrow(/Interactive input/);
+  });
+
+  it("surfaces a terminal service error when device-code login is unavailable", async () => {
+    const runtime: CodexLoginRuntime = {
+      login: async (_providerId, _type, interaction) => {
+        await interaction.prompt({
+          type: "select",
+          message: "Select OpenAI Codex login method:",
+          options: [{ id: "browser", label: "Browser login" }],
+        });
+      },
+    };
+    const service = new CodexLoginService(async () => runtime);
+    const { loginId } = service.startCodexLogin();
+
+    await vi.waitFor(() =>
+      expect(service.getCodexLogin(loginId)).toEqual({
+        status: "error",
+        error:
+          "The installed Codex provider does not offer device-code login. Update the provider and try again.",
+      }),
+    );
   });
 
   it("cancel aborts the flow and settles as error", async () => {
