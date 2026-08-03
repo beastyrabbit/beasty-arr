@@ -4,3 +4,5 @@ allowBuilds:
   esbuild: true
   lefthook: true
   protobufjs: true
+overrides:
+  '@earendil-works/pi-coding-agent>undici': 8.9.0
