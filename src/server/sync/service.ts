@@ -395,6 +395,24 @@ export class SyncService {
         .set({ result: "grabbed" })
         .where(eq(searchAttempts.id, match.id))
         .run();
+      this.db
+        .insert(activityLog)
+        .values({
+          at: this.now(),
+          level: "info",
+          type: "hunt.search",
+          message: `Grab detected after command completion: ${match.targetLabel ?? `${source} ${targetKind} ${targetId}`}`,
+          data: {
+            attemptId: match.id,
+            source,
+            result: "grabbed",
+            status: match.status,
+            late: true,
+            targetId,
+            grabAt: at,
+          },
+        })
+        .run();
     }
   }
 

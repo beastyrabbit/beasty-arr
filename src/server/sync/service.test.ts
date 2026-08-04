@@ -366,18 +366,20 @@ describe("incrementalSync", () => {
     const h = makeHarness();
     seedStandardFixture(h);
     await h.svc.fullReconcile();
+    const hs102 = h.huntRow("sonarr", "episode", 102);
     const hs103 = h.huntRow("sonarr", "episode", 103);
+    expect(hs102).toBeDefined();
     expect(hs103).toBeDefined();
-    if (!hs103) throw new Error("unreachable");
+    if (!hs102 || !hs103) throw new Error("unreachable");
     h.db
       .insert(searchAttempts)
       .values({
         createdAt: T0 - HOUR,
         source: "sonarr",
         commandName: "EpisodeSearch",
-        payload: { episodeIds: [103] },
-        targetIds: [hs103.id],
-        targetLabel: "Dark Matters S01E03",
+        payload: { episodeIds: [102, 103] },
+        targetIds: [hs102.id, hs103.id],
+        targetLabel: "Dark Matters S01E02-E03",
         trigger: "scheduled",
         estimatedQueries: 4,
         status: "completed",
@@ -392,12 +394,36 @@ describe("incrementalSync", () => {
       seriesId: 1,
       date: iso(grabAt),
     });
+    h.sonarr.history.push({
+      id: 42,
+      eventType: "grabbed",
+      episodeId: 102,
+      seriesId: 1,
+      date: iso(grabAt + 1_000),
+    });
     await h.svc.incrementalSync();
 
     expect(h.huntRow("sonarr", "episode", 103)?.awaitingImportSince).toBe(grabAt);
+    expect(h.huntRow("sonarr", "episode", 102)?.awaitingImportSince).toBe(grabAt + 1_000);
     const attempt = h.db.select().from(searchAttempts).all()[0];
     expect(attempt?.result).toBe("grabbed");
-    expect(h.cursor("sonarr.lastHistoryId")).toBe("41");
+    expect(
+      h.db.select().from(activityLog).where(eq(activityLog.type, "hunt.search")).all(),
+    ).toMatchObject([
+      {
+        level: "info",
+        message: "Grab detected after command completion: Dark Matters S01E02-E03",
+        data: {
+          attemptId: attempt?.id,
+          source: "sonarr",
+          result: "grabbed",
+          late: true,
+          targetId: 103,
+          grabAt,
+        },
+      },
+    ]);
+    expect(h.cursor("sonarr.lastHistoryId")).toBe("42");
   });
 
   it("keeps a pending upgrade grab while Radarr still mirrors the older file", async () => {
