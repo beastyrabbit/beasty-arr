@@ -544,24 +544,49 @@ describe("OracleService.checkAfterFailedSearch", () => {
     expect(dryRunner.calls).toHaveLength(0);
   });
 
-  it("does not spend an AI check when a delayed grab appears during the grace period", async () => {
+  it("refreshes Arr history after the grace period and skips a late Radarr grab", async () => {
     const ctx = setup();
-    seedSeriesSubject(ctx.db, 1, { searchCount: 1 });
+    seedMovieSubject(ctx.db, 13_867, { searchCount: 1, title: "The Roast of Kevin Hart" });
     const runner = scriptedRunner(reportVerdict());
+    const order: string[] = [];
     const oracle = makeOracle(ctx, runner.runner, {
       sleep: async () => {
+        order.push("grace");
+      },
+      refreshAutomaticState: async () => {
+        order.push("incremental-sync");
         ctx.db
           .update(huntState)
-          .set({ awaitingImportSince: NOW })
-          .where(eq(huntState.targetId, 101))
+          .set({ awaitingImportSince: Date.UTC(2026, 7, 4, 8, 36, 32) })
+          .where(eq(huntState.targetId, 13_867))
           .run();
       },
     });
 
-    expect(await oracle.checkAfterFailedSearch(["sonarr:1"])).toMatchObject({
+    expect(await oracle.checkAfterFailedSearch(["radarr:13867"])).toMatchObject({
       selected: 0,
       checked: 0,
       failed: 0,
+    });
+    expect(order).toEqual(["grace", "incremental-sync"]);
+    expect(runner.calls).toHaveLength(0);
+  });
+
+  it("fails closed when fresh Arr state cannot be loaded", async () => {
+    const ctx = setup();
+    seedMovieSubject(ctx.db, 1, { searchCount: 1 });
+    const runner = scriptedRunner(reportVerdict());
+    const oracle = makeOracle(ctx, runner.runner, {
+      refreshAutomaticState: async () => {
+        throw new Error("Radarr history unavailable");
+      },
+    });
+
+    expect(await oracle.checkAfterFailedSearch(["radarr:1"])).toMatchObject({
+      selected: 0,
+      checked: 0,
+      failed: 0,
+      skippedReason: "state_refresh_failed",
     });
     expect(runner.calls).toHaveLength(0);
   });

@@ -116,6 +116,7 @@ export async function buildApp(
   const codexLogin = createCodexLoginService(dataDir);
   const oracle = new OracleService(db, settings, piRunner, bus, app.log, {
     searxngUrl: env.SEARXNG_URL,
+    refreshAutomaticState: () => sync.incrementalSync(),
   });
   oracle.onVerdict = (row) => engine.applyVerdict(row);
   engine.onAiCheckRequested = (subjectKeys, force) => {

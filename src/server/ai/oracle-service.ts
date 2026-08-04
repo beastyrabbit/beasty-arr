@@ -54,13 +54,15 @@ export type OracleBatchResult = {
   selected: number;
   checked: number;
   failed: number;
-  skippedReason?: "provider_off" | "dry_run" | "daily_cap";
+  skippedReason?: "provider_off" | "dry_run" | "daily_cap" | "state_refresh_failed";
 };
 
 export type OracleServiceOptions = {
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
   postSearchGraceMs?: number;
+  /** Refreshes Arr history after the grace period so late grabs suppress paid AI checks. */
+  refreshAutomaticState?: () => Promise<void>;
   searxngUrl?: string;
   /** Injected into the fetch_url tool (tests use fakes; prod omits). */
   fetchImpl?: typeof fetch;
@@ -74,6 +76,7 @@ export class OracleService {
   private readonly now: () => number;
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly postSearchGraceMs: number;
+  private readonly refreshAutomaticState: () => Promise<void>;
   private readonly automaticChecksInFlight = new Set<string>();
   private automaticCheckChain: Promise<void> = Promise.resolve();
 
@@ -88,6 +91,7 @@ export class OracleService {
     this.now = opts.now ?? Date.now;
     this.sleep = opts.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
     this.postSearchGraceMs = opts.postSearchGraceMs ?? DEFAULT_POST_SEARCH_GRACE_MS;
+    this.refreshAutomaticState = opts.refreshAutomaticState ?? (async () => undefined);
   }
 
   /**
@@ -330,6 +334,21 @@ export class OracleService {
     const task = this.automaticCheckChain.then(async () => {
       const remainingGraceMs = graceEndsAt - this.now();
       if (remainingGraceMs > 0) await this.sleep(remainingGraceMs);
+      try {
+        await this.refreshAutomaticState();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.log.warn(
+          { err: message, subjectKeys },
+          "automatic dub oracle state refresh failed — skipping AI checks",
+        );
+        return {
+          selected: 0,
+          checked: 0,
+          failed: 0,
+          skippedReason: "state_refresh_failed" as const,
+        };
+      }
       return this.runAutomaticChecksAfterFailure(subjectKeys);
     });
     this.automaticCheckChain = task.then(
