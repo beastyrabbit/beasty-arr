@@ -511,11 +511,11 @@ describe("fixer", () => {
       { service: "radarr", queueItemId: 5 },
     ] as const;
 
-    const res = await post(b.app, "/api/fixer/bulk/start", { targets });
+    const res = await post(b.app, "/api/fixer/bulk/start", { targets, skipAnalyzed: true });
 
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ ok: true });
-    expect(start).toHaveBeenCalledWith({ targets });
+    expect(start).toHaveBeenCalledWith({ targets, skipAnalyzed: true });
     start.mockRestore();
   });
 

@@ -215,6 +215,7 @@ export function registerFixerRoutes(app: FastifyInstance, ctx: AppContext): void
               }),
             )
             .optional(),
+          skipAnalyzed: z.boolean().optional(),
         })
         .optional(),
       request.body ?? {},

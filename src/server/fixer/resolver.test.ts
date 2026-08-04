@@ -13,6 +13,9 @@ import {
   realDevilsRejectsCandidate,
   realDevilsRejectsMovie,
   realDevilsRejectsQueueItem,
+  realHouseDragonExistingEpisode,
+  realHouseDragonGermanUpgradeCandidate,
+  realHouseDragonGermanUpgradeQueueItem,
   realMentalistCandidate,
   realMentalistExistingEpisode,
   realMentalistQueueItem,
@@ -379,6 +382,46 @@ describe("resolveQueueItem", () => {
         changeCategory: false,
       },
     });
+  });
+
+  it("treats the captured House of the Dragon case as an intentional German-audio upgrade", async () => {
+    const calls: FixerPiRunRequest[] = [];
+    const runner: FixerPiRunner = async (req) => {
+      calls.push(req);
+      await invokeLookupTool(req, "sonarr_get_upgrade_context");
+      await invokeProposalTool(req, {
+        action: "import_candidates",
+        confidence: 0.99,
+        selectedCandidateIds: ["candidate_1"],
+        selectedImports: [{ candidateId: "candidate_1", episodeIds: [86_875] }],
+        sampleCandidateIds: [],
+        reason: "Import the exact German-audio upgrade for S03E06.",
+        issueSummary:
+          "The German candidate scores 11700 over the English-only current file at 407.",
+        evidence: ["Exact episode mapping, allowed 1080p quality, and German audio."],
+        warnings: [],
+      });
+      return { log: [] };
+    };
+    const client = new FakeArrClient();
+    client.episodes = [realHouseDragonExistingEpisode()];
+
+    const result = await resolveQueueItem({
+      queueItem: realHouseDragonGermanUpgradeQueueItem(),
+      candidates: [realHouseDragonGermanUpgradeCandidate()],
+      client,
+      runner,
+    });
+
+    expect(calls[0]?.prompt).toContain("Not a quality revision upgrade");
+    expect(calls[0]?.prompt).toContain("adds German audio to a current file without German");
+    expect(calls[0]?.systemPrompt).toContain("intended German-audio upgrade");
+    expect(result.proposal).toMatchObject({
+      action: "import_candidates",
+      confidence: 0.99,
+      selectedImports: [{ candidateId: "candidate_1", episodeIds: [86_875] }],
+    });
+    expect(result.validation.ok).toBe(true);
   });
 
   it("gives the model active Dub Oracle evidence for the synthetic no-live-queue case", async () => {

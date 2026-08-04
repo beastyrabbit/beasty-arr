@@ -13,8 +13,12 @@ afterEach(() => {
 describe("settings", () => {
   it("parses config updates as genuinely sparse patches", () => {
     expect(
-      settingsPatchSchema.parse({ aiModel: "gpt-5.6-terra", aiThinkingLevel: "xhigh" }),
-    ).toEqual({ aiModel: "gpt-5.6-terra", aiThinkingLevel: "xhigh" });
+      settingsPatchSchema.parse({
+        aiModel: "gpt-5.6-terra",
+        aiThinkingLevel: "xhigh",
+        fixerAutoRun: true,
+      }),
+    ).toEqual({ aiModel: "gpt-5.6-terra", aiThinkingLevel: "xhigh", fixerAutoRun: true });
   });
 
   it("migrates defaults reset by v0.2.3 exactly once", () => {

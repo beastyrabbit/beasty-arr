@@ -75,6 +75,9 @@ export function createProposalTool(
       "Never select candidates marked as likely samples.",
       "When active Dub Oracle context says exists with confidence greater than 0.6, a candidate with known language metadata but no German audio must use remove_queue_item with removeFromClient=true, blocklist=true, skipRedownload=false, changeCategory=false, even when it is a quality upgrade or the current file is non-German or missing. For Sonarr, apply the exact perSeason verdict when available.",
       "If a current library file has German audio and the incoming candidate has known language metadata but no German audio, use remove_queue_item with removeFromClient=true, blocklist=true, skipRedownload=false, changeCategory=false. This is not needs_review and not an ordinary non-upgrade removal.",
+      service === "sonarr"
+        ? "A 'Not a quality revision upgrade' rejection may be overridden with import_candidates when the mapping is exact, the candidate adds German audio to a non-German current file, the quality profile allows it, and the custom-format score is materially higher."
+        : "Use the current movie, quality profile, and custom-format evidence to distinguish a real upgrade from a blocking rejection.",
       "Use needs_review when the candidate data is ambiguous or incomplete.",
     ],
     parameters: Type.Object({

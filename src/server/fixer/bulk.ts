@@ -47,16 +47,19 @@ export function autoRemovalOptionsForResult(
 }
 
 /** Ported from sonarr_fixer renderer utils/queue.ts: one representative per download. */
-export function uniqueQueueItemsByDownload<T extends { downloadId?: string }>(items: T[]): T[] {
+export function uniqueQueueItemsByDownload<
+  T extends { service?: MediaService; downloadId?: string },
+>(items: T[]): T[] {
   const seenDownloadIds = new Set<string>();
   return items.filter((item) => {
     if (!item.downloadId) {
       return true;
     }
-    if (seenDownloadIds.has(item.downloadId)) {
+    const key = `${item.service ?? "unknown"}:${item.downloadId}`;
+    if (seenDownloadIds.has(key)) {
       return false;
     }
-    seenDownloadIds.add(item.downloadId);
+    seenDownloadIds.add(key);
     return true;
   });
 }
@@ -66,6 +69,7 @@ export function uniqueQueueItemsByDownload<T extends { downloadId?: string }>(it
 /** Structural port of FixerService — the orchestrator passes the service itself. */
 export interface FixerBulkServicePort {
   refreshQueue(): Promise<FixerQueueSnapshot>;
+  hasAnalysis(item: FixerQueueItem): boolean;
   analyzeAndWait(service: MediaService, queueItemId: number): Promise<FixerRunOutcome>;
   apply(
     analysisId: string,
@@ -155,6 +159,7 @@ export class FixerBulk {
     input: {
       issueTypes?: string[];
       targets?: Array<{ service: MediaService; queueItemId: number }>;
+      skipAnalyzed?: boolean;
     } = {},
   ): Promise<{
     ok: boolean;
@@ -185,6 +190,7 @@ export class FixerBulk {
         snapshot.items.filter(
           (item) =>
             item.canAnalyze &&
+            (!input.skipAnalyzed || !this.service.hasAnalysis(item)) &&
             (!issueTypeSet || issueTypeSet.has(item.issueType)) &&
             (!targetSet || targetSet.has(`${item.service}:${item.id}`)),
         ),

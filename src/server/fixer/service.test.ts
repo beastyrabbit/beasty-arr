@@ -676,6 +676,24 @@ describe("FixerService apply", () => {
     expect(queue.items).toHaveLength(0);
   });
 
+  it("drops every cached queue row belonging to the applied season-pack download", async () => {
+    const harness = makeHarness();
+    harness.sonarr.queue = [
+      makeQueueItem(1, { downloadId: "season-pack" }),
+      makeQueueItem(2, { downloadId: "season-pack", episodeIds: [102] }),
+      makeQueueItem(3, { downloadId: "other-download", episodeIds: [103] }),
+    ];
+    harness.sonarr.candidatesByItem.set(1, [makeCandidate("candidate_1", [101])]);
+    harness.runnerCtl.setScript(() => importProposal("candidate_1", [101]));
+    const outcome = await harness.svc.analyzeAndWait("sonarr", 1);
+    harness.settings.update({ dryRun: false });
+
+    const result = await harness.svc.apply(outcome.analysisId);
+
+    expect(result.ok).toBe(true);
+    expect((await harness.svc.getQueue()).items.map((item) => item.id)).toEqual([3]);
+  });
+
   it("re-validates at apply time and blocks invalid proposals without touching the arr", async () => {
     const harness = makeHarness();
     harness.sonarr.queue = [makeQueueItem(1)];

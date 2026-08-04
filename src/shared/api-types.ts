@@ -587,6 +587,7 @@ export type FixerIgnoreResponse = MaybeDryRun<OkResponse>;
 
 export type FixerBulkStartRequest = {
   targets?: Array<{ service: ArrSource; queueItemId: number }>;
+  skipAnalyzed?: boolean;
 };
 export type FixerBulkStatusResponse = {
   running: boolean;
@@ -653,6 +654,7 @@ export type FixerSettingsDto = {
   fixerAutoImportConfidence: number;
   fixerAutoRemoveConfidence: number;
   fixerParallelism: number;
+  fixerAutoRun: boolean;
   fixerAutoApply: boolean;
 };
 

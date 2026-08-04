@@ -96,6 +96,102 @@ export function realMentalistExistingEpisode(): SonarrEpisodeRecord {
   };
 }
 
+/** Captured from the v0.2.5 live queue/history audit on 2026-08-04. */
+export function realHouseDragonGermanUpgradeQueueItem(): QueueItem {
+  return {
+    id: 1_351_447_793,
+    service: "sonarr",
+    title: "House.of.the.Dragon.2022.S03E06.German.DL.EAC3.1080p.WEB.HEVC-TSiNT",
+    seriesId: 206,
+    seriesTitle: "House of the Dragon",
+    downloadId: "7f76eea1-dbce-4777-956c-c596e4b6b4ef",
+    status: "completed",
+    trackedDownloadStatus: "warning",
+    trackedDownloadState: "importPending",
+    isInProgress: false,
+    size: 1_822_881_388,
+    outputPath:
+      "/data/usenet/complete/tv/House.of.the.Dragon.2022.S03E06.German.DL.EAC3.1080p.WEB.HEVC-TSiNT/",
+    episodeIds: [86_875],
+    absoluteEpisodeNumbers: [],
+    episodeLabels: ["S03E06 - TBA"],
+    seasonEpisode: "S03E06",
+    statusMessages: [
+      "House.of.the.Dragon.2022.S03E06.German.DL.EAC3.1080p.WEB.HEVC-TSiNT",
+      "Not a quality revision upgrade for existing episode file(s)",
+    ],
+    canAnalyze: true,
+    addedAt: "2026-07-27T01:17:00Z",
+  };
+}
+
+export function realHouseDragonGermanUpgradeCandidate(): ManualImportCandidate {
+  return {
+    id: "candidate_1",
+    service: "sonarr",
+    path: "/data/usenet/complete/tv/House.of.the.Dragon.2022.S03E06.German.DL.EAC3.1080p.WEB.HEVC-TSiNT/House.of.the.Dragon.2022.S03E06.German.DL.EAC3.1080p.WEB.HEVC-TSiNT.mkv",
+    relativePath: "House.of.the.Dragon.2022.S03E06.German.DL.EAC3.1080p.WEB.HEVC-TSiNT.mkv",
+    folderName: "House.of.the.Dragon.2022.S03E06.German.DL.EAC3.1080p.WEB.HEVC-TSiNT",
+    name: "House.of.the.Dragon.2022.S03E06.German.DL.EAC3.1080p.WEB.HEVC-TSiNT",
+    size: 1_729_060_065,
+    seriesId: 206,
+    seriesTitle: "House of the Dragon",
+    seasonNumber: 3,
+    episodeIds: [86_875],
+    absoluteEpisodeNumbers: [],
+    episodeLabels: ["S03E06 - Faceless Men"],
+    quality: {
+      quality: { id: 3, name: "WEBDL-1080p", source: "web", resolution: 1080 },
+      revision: { version: 1, real: 0, isRepack: false },
+    },
+    qualityLabel: "WEBDL-1080p",
+    languages: [
+      { id: 4, name: "German" },
+      { id: 1, name: "English" },
+    ],
+    languageLabels: ["German", "English"],
+    releaseGroup: "TSiNT",
+    customFormats: [
+      { id: 310, name: "1080p" },
+      { id: 283, name: "German 1080p Booster" },
+      { id: 312, name: "German DL" },
+      { id: 270, name: "x265 (HD)" },
+      { id: 324, name: "x265 (no HDR/DV)" },
+    ],
+    customFormatLabels: [
+      "1080p",
+      "German 1080p Booster",
+      "German DL",
+      "x265 (HD)",
+      "x265 (no HDR/DV)",
+    ],
+    customFormatScore: 11_700,
+    indexerFlags: 0,
+    releaseType: "singleEpisode",
+    rejections: ["Not a quality revision upgrade for existing episode file(s)"],
+    downloadId: "7f76eea1-dbce-4777-956c-c596e4b6b4ef",
+    isLikelySample: false,
+  };
+}
+
+export function realHouseDragonExistingEpisode(): SonarrEpisodeRecord {
+  return {
+    id: 86_875,
+    seriesId: 206,
+    title: "Faceless Men",
+    seasonNumber: 3,
+    episodeNumber: 6,
+    hasFile: true,
+    episodeFile: {
+      size: 5_207_000_000,
+      languages: [{ id: 1, name: "English" }],
+      quality: { quality: { id: 3, name: "WEBDL-1080p" } },
+      customFormatScore: 407,
+    },
+    series: { id: 206, title: "House of the Dragon" },
+  };
+}
+
 export function realOnePieceQueueItem(): QueueItem {
   return {
     id: 20_804_907,

@@ -31,6 +31,7 @@ const settingValidators = {
   fixerAutoImportConfidence: z.number().min(0).max(1),
   fixerAutoRemoveConfidence: z.number().min(0).max(1),
   fixerParallelism: z.number().int().min(1).max(10),
+  fixerAutoRun: z.boolean(),
   fixerAutoApply: z.boolean(),
 } satisfies z.ZodRawShape;
 
@@ -79,6 +80,7 @@ export const settingsSchema = z.object({
   fixerAutoImportConfidence: settingValidators.fixerAutoImportConfidence.default(0.8),
   fixerAutoRemoveConfidence: settingValidators.fixerAutoRemoveConfidence.default(0.95),
   fixerParallelism: settingValidators.fixerParallelism.default(5),
+  fixerAutoRun: settingValidators.fixerAutoRun.default(false),
   fixerAutoApply: settingValidators.fixerAutoApply.default(false),
 });
 

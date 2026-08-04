@@ -196,6 +196,17 @@ export async function buildApp(
       },
     });
     ctx.scheduler.registerJob({
+      name: "fixer.auto",
+      intervalMs: 5 * 60 * 1000,
+      run: async (signal) => {
+        if (signal.aborted || !settings.get().fixerAutoRun) return;
+        const result = await fixerBulk.start({ skipAnalyzed: true });
+        if (!result.ok && !fixerBulk.getStatus().running) {
+          throw new Error(result.message ?? "automatic Fixer run could not start");
+        }
+      },
+    });
+    ctx.scheduler.registerJob({
       name: "stats.daily",
       intervalMs: 60 * 60 * 1000,
       run: async () => snapshotDailyStats(db),

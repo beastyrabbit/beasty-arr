@@ -64,6 +64,7 @@ describe("app skeleton", () => {
       aiProvider: "codex",
       aiModel: "gpt-5.6-terra",
       fixerParallelism: 5,
+      fixerAutoRun: false,
     });
   });
 });
@@ -81,6 +82,7 @@ describe("settings persistence", () => {
       aiModel: "gpt-5.6-sol",
       aiThinkingLevel: "xhigh",
       fixerParallelism: 8,
+      fixerAutoRun: true,
       aiMaxChecksPerDay: 42,
     });
     await first.app.close();
@@ -95,9 +97,40 @@ describe("settings persistence", () => {
       aiModel: "gpt-5.6-sol",
       aiThinkingLevel: "xhigh",
       fixerParallelism: 8,
+      fixerAutoRun: true,
       aiMaxChecksPerDay: 42,
     });
     await reopened.app.close();
+    rmSync(dataDir, { recursive: true, force: true });
+  });
+});
+
+describe("automatic Fixer scheduling", () => {
+  it("registers the job and starts a skip-analyzed cycle when enabled", async () => {
+    const dataDir = mkdtempSync(path.join(tmpdir(), "beasty-arr-fixer-auto-"));
+    const scheduled = await buildApp({
+      env: {
+        NODE_ENV: "test",
+        LOG_LEVEL: "error",
+        SONARR_URL: undefined,
+        SONARR_API_KEY: undefined,
+        RADARR_URL: undefined,
+        RADARR_API_KEY: undefined,
+      },
+      dataDir,
+      serveStatic: false,
+      registerJobs: true,
+    });
+    scheduled.ctx.settings.update({ fixerAutoRun: true });
+
+    expect(scheduled.ctx.scheduler.status().map((job) => job.name)).toContain("fixer.auto");
+    expect(await scheduled.ctx.scheduler.trigger("fixer.auto")).toBe(true);
+    expect(scheduled.ctx.services.fixerBulk.getStatus()).toMatchObject({
+      running: false,
+      total: 0,
+    });
+
+    await scheduled.app.close();
     rmSync(dataDir, { recursive: true, force: true });
   });
 });

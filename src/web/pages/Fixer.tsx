@@ -1,5 +1,13 @@
 import { Link } from "@tanstack/react-router";
-import { ChevronDown, ChevronRight, Loader2, OctagonX, RefreshCw, Sparkles } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  Loader2,
+  OctagonX,
+  Play,
+  RefreshCw,
+  Sparkles,
+} from "lucide-react";
 import { useMemo, useState } from "react";
 import type { FixerAnalysisDto, FixerQueueItemDto } from "../../shared/api-types.js";
 import type { ResolverEvent } from "../../shared/fixer-types.js";
@@ -41,8 +49,11 @@ export function FixerPage() {
   const [activeKey, setActiveKey] = useState<ItemKey | null>(null);
 
   const dryRun = config.data?.settings.dryRun ?? true;
+  const autoRun = config.data?.settings.fixerAutoRun ?? false;
   const autoApply = config.data?.settings.fixerAutoApply ?? false;
   const items = useMemo(() => uniqueQueueItems(queue.data?.items ?? []), [queue.data?.items]);
+  const selectedItems = items.filter((item) => selected.has(keyOf(item)));
+  const pendingItems = items.filter((item) => item.analysisState === null);
   const activeItem = items.find((i) => keyOf(i) === activeKey) ?? null;
   const activeAnalyses = bulkStatus.data?.activeItemIds.length ?? 0;
   const waitingReviews = items.filter(waitsForReview).length;
@@ -69,7 +80,7 @@ export function FixerPage() {
 
   return (
     <div className="mx-auto flex max-w-[1500px] flex-col gap-3">
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <h1 className="text-[15px] font-semibold text-ink">Fixer</h1>
         <Link
           to="/fixer/history"
@@ -90,14 +101,23 @@ export function FixerPage() {
           <Button
             variant="outline"
             size="sm"
-            disabled={selected.size === 0 || bulkStatus.data?.running}
+            disabled={selectedItems.length === 0 || bulkStatus.data?.running}
             onClick={() => {
-              analyzeItems(items.filter((i) => selected.has(keyOf(i))));
+              analyzeItems(selectedItems);
               setSelected(new Set());
             }}
           >
             <Sparkles size={12} />
             Analyze selected
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={pendingItems.length === 0 || bulkStatus.data?.running}
+            onClick={() => bulk.mutate({ action: "start", body: { skipAnalyzed: true } })}
+          >
+            <Play size={12} />
+            Run all
           </Button>
           <span className="font-mono text-[10px] text-faint">
             {activeAnalyses} running · {waitingReviews} waiting review
@@ -111,6 +131,27 @@ export function FixerPage() {
             <OctagonX size={12} />
             Stop all
           </Button>
+          <Tip content="Automatically analyze each new stuck download once. Existing proposals waiting for review are skipped.">
+            <span className="flex items-center gap-2 text-[12px] text-muted">
+              auto-run
+              <Switch
+                checked={autoRun}
+                disabled={updateConfig.isPending}
+                onCheckedChange={(value) =>
+                  updateConfig.mutate(
+                    { fixerAutoRun: value },
+                    {
+                      onSuccess: () => {
+                        if (value && !bulkStatus.data?.running) {
+                          bulk.mutate({ action: "start", body: { skipAnalyzed: true } });
+                        }
+                      },
+                    },
+                  )
+                }
+              />
+            </span>
+          </Tip>
           <Tip
             content={
               dryRun
@@ -148,6 +189,23 @@ export function FixerPage() {
             groups.map(([issueType, groupItems]) => (
               <div key={issueType}>
                 <div className="flex h-8 items-center gap-2 border-b border-line bg-raised/50 px-3">
+                  <input
+                    type="checkbox"
+                    aria-label={`Select all ${issueType} items`}
+                    className="accent-[#f0a63a]"
+                    checked={groupItems.every((item) => selected.has(keyOf(item)))}
+                    onChange={(event) => {
+                      setSelected((current) => {
+                        const next = new Set(current);
+                        for (const item of groupItems) {
+                          const key = keyOf(item);
+                          if (event.target.checked) next.add(key);
+                          else next.delete(key);
+                        }
+                        return next;
+                      });
+                    }}
+                  />
                   <span className="microlabel">{issueType}</span>
                   <span className="font-mono text-[11px] text-muted">{groupItems.length}</span>
                   <Button

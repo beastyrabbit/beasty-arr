@@ -280,13 +280,33 @@ export class FixerService {
     if (!this.queueCache) {
       return;
     }
-    const items = this.queueCache.items.filter(
-      (item) => !(item.service === service && item.id === queueItemId),
+    const removed = this.queueCache.items.find(
+      (item) => item.service === service && item.id === queueItemId,
     );
+    const items = this.queueCache.items.filter((item) => {
+      if (item.service !== service) return true;
+      if (item.id === queueItemId) return false;
+      return !removed?.downloadId || item.downloadId !== removed.downloadId;
+    });
     if (items.length !== this.queueCache.items.length) {
       this.queueCache = { ...this.queueCache, items };
       this.emitQueueChanged();
     }
+  }
+
+  /** Whether this exact download already has any saved analysis outcome. */
+  hasAnalysis(item: FixerQueueItem): boolean {
+    const identity = item.downloadId
+      ? eq(fixerAnalyses.downloadId, item.downloadId)
+      : eq(fixerAnalyses.queueItemId, item.id);
+    return (
+      this.db
+        .select({ id: fixerAnalyses.id })
+        .from(fixerAnalyses)
+        .where(and(eq(fixerAnalyses.service, item.service), identity))
+        .orderBy(desc(fixerAnalyses.createdAt))
+        .get() !== undefined
+    );
   }
 
   private requireClient(service: MediaService): FixerClientPort {

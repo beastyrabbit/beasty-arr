@@ -268,6 +268,14 @@ describe("auto-apply gates", () => {
     ];
     expect(uniqueQueueItemsByDownload(items).map((i) => i.id)).toEqual([1, 3, 4]);
   });
+
+  it("does not dedupe equal download ids across Sonarr and Radarr", () => {
+    const items = [
+      makeQueueItem(1, { service: "sonarr", downloadId: "shared" }),
+      makeQueueItem(2, { service: "radarr", downloadId: "shared" }),
+    ];
+    expect(uniqueQueueItemsByDownload(items)).toHaveLength(2);
+  });
 });
 
 describe("FixerBulk", () => {
@@ -344,6 +352,24 @@ describe("FixerBulk", () => {
     expect(started.total).toBe(1);
     await bulk.wait();
     expect(calls.map((call) => `${call.service}:${call.queueItemId}`)).toEqual(["sonarr:2"]);
+  });
+
+  it("automatic runs skip downloads that already have an analysis", async () => {
+    const { sonarr, bulk, calls } = makeHarness(() => needsReviewProposal());
+    sonarr.queue = [makeQueueItem(1)];
+    sonarr.candidatesByItem.set(1, [makeCandidate("candidate_1", [101])]);
+
+    await bulk.start();
+    await bulk.wait();
+    expect(calls).toHaveLength(1);
+
+    const automatic = await bulk.start({ skipAnalyzed: true });
+    expect(automatic).toMatchObject({ ok: true, total: 0 });
+    expect(calls).toHaveLength(1);
+
+    await bulk.start({ targets: [{ service: "sonarr", queueItemId: 1 }] });
+    await bulk.wait();
+    expect(calls).toHaveLength(2);
   });
 
   it("treats an explicit empty target list as no work", async () => {
