@@ -297,19 +297,21 @@ export function useMovieList(query: LibraryQuery, enabled = true) {
   });
 }
 
-export function useSeriesDetail(id: number, live = false) {
+export function useSeriesDetail(id: number, live = false, enabled = true) {
   return useQuery({
     queryKey: keys.seriesDetail(id),
     queryFn: () => api.get<SeriesDetail>(`/api/library/series/${id}`),
     refetchInterval: live ? 2_000 : false,
+    enabled,
   });
 }
 
-export function useMovieDetail(id: number, live = false) {
+export function useMovieDetail(id: number, live = false, enabled = true) {
   return useQuery({
     queryKey: keys.movieDetail(id),
     queryFn: () => api.get<MovieDetail>(`/api/library/movies/${id}`),
     refetchInterval: live ? 2_000 : false,
+    enabled,
   });
 }
 

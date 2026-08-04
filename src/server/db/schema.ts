@@ -131,6 +131,7 @@ export const huntState = sqliteTable(
     awaitingImportSince: integer("awaiting_import_since"), // grab seen, import pending
     manualPriority: integer("manual_priority").notNull().default(0), // >0 = jumped queue
     userPaused: integer("user_paused", { mode: "boolean" }).notNull().default(false),
+    userPausedAt: integer("user_paused_at"),
     userPausedUntil: integer("user_paused_until"),
     userPausedNote: text("user_paused_note"),
     aiVerdictId: integer("ai_verdict_id"),
@@ -185,6 +186,7 @@ export const indexers = sqliteTable("indexers", {
   id: integer("id").primaryKey(), // Prowlarr indexer id
   name: text("name").notNull(),
   enabled: integer("enabled", { mode: "boolean" }).notNull(),
+  priority: integer("priority").notNull().default(25),
   queryLimit: integer("query_limit"), // NULL = unlimited
   grabLimit: integer("grab_limit"),
   supportsTv: integer("supports_tv", { mode: "boolean" }).notNull().default(true),
@@ -212,6 +214,11 @@ export const budgetBuckets = sqliteTable(
     observedQueries: integer("observed_queries").notNull().default(0),
     observedGrabs: integer("observed_grabs").notNull().default(0),
     huntQueries: integer("hunt_queries").notNull().default(0), // our attributed share
+    huntSonarrQueries: integer("hunt_sonarr_queries").notNull().default(0),
+    huntRadarrQueries: integer("hunt_radarr_queries").notNull().default(0),
+    sonarrQueries: integer("sonarr_queries").notNull().default(0),
+    radarrQueries: integer("radarr_queries").notNull().default(0),
+    otherQueries: integer("other_queries").notNull().default(0),
   },
   (t) => [primaryKey({ columns: [t.indexerId, t.hourUtc] })],
 );

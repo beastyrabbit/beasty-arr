@@ -97,6 +97,8 @@ export type WinItem = {
   targetId: number;
   seriesId?: number | null;
   title: string;
+  posterUrl: string | null;
+  reason: string;
   /** e.g. "S02E04 · Der Anschlag" or "2019 · BluRay-1080p". */
   label: string;
   quality?: string | null;
@@ -128,14 +130,23 @@ export type IndexerBudget = {
   id: number;
   name: string;
   enabled: boolean;
+  priority: number;
   /** Daily query cap; null = unlimited. */
   cap: number | null;
   grabLimit: number | null;
+  trailing24hGrabs: number;
   trailing24h: number;
   /** Our attributed hunt share of trailing24h. */
   huntShare: number;
   /** Observed minus hunt attribution (floored at 0). */
   organicShare: number;
+  attribution: {
+    observedSonarr: number;
+    observedRadarr: number;
+    observedOther: number;
+    huntSonarr: number;
+    huntRadarr: number;
+  };
   forecastNextHorizon: number;
   target: number | null;
   huntRatePerHour: number | null;
@@ -424,6 +435,7 @@ export type PausedItem = {
   targetId: number;
   title: string;
   label: string;
+  targetCount: number;
   since: number | null;
   until: number | null;
   note: string | null;
@@ -434,10 +446,12 @@ export type AiDormantItem = {
   kind: ItemSubjectKind;
   targetId: number;
   title: string;
+  targetCount: number;
   verdictId: number;
   verdict: AiVerdictValue;
   confidence: number;
   evidence: string[];
+  checkedAt: number;
   wakeAt: number;
 };
 

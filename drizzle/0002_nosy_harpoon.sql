@@ -1,0 +1,1 @@
+ALTER TABLE `hunt_state` ADD `user_paused_at` integer;

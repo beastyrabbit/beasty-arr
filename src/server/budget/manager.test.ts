@@ -8,6 +8,7 @@ import { createDb, type Db, type SqliteHandle } from "../db/index.js";
 import { budgetBuckets, indexerSnapshots, indexers, pendingSelfEstimates } from "../db/schema.js";
 import { EventBus } from "../events/bus.js";
 import type {
+  ProwlarrHistoryRecord,
   ProwlarrIndexer,
   ProwlarrIndexerStats,
   ProwlarrIndexerStatus,
@@ -35,6 +36,8 @@ class FakeProwlarr implements ProwlarrBudgetApi {
   indexers: ProwlarrIndexer[] = [];
   stats: ProwlarrIndexerStats[] = [];
   statuses: ProwlarrIndexerStatus[] = [];
+  history: ProwlarrHistoryRecord[] = [];
+  getHistorySince?: (since: number) => Promise<ProwlarrHistoryRecord[]>;
   async getIndexers() {
     return this.indexers;
   }
@@ -51,6 +54,7 @@ function ix(id: number, name: string, over: Partial<ProwlarrIndexer> = {}): Prow
     id,
     name,
     enable: true,
+    priority: 25,
     protocol: "usenet",
     queryLimit: 240,
     grabLimit: null,
@@ -183,7 +187,18 @@ describe("BudgetManager.refresh — snapshot diffing", () => {
     await mgr.refresh();
     const buckets = db.select().from(budgetBuckets).all();
     expect(buckets).toEqual([
-      { indexerId: 1, hourUtc: H0 + 1, observedQueries: 35, observedGrabs: 1, huntQueries: 0 },
+      {
+        indexerId: 1,
+        hourUtc: H0 + 1,
+        observedQueries: 35,
+        observedGrabs: 1,
+        huntQueries: 0,
+        huntSonarrQueries: 0,
+        huntRadarrQueries: 0,
+        sonarrQueries: 0,
+        radarrQueries: 0,
+        otherQueries: 0,
+      },
     ]);
   });
 
@@ -202,7 +217,18 @@ describe("BudgetManager.refresh — snapshot diffing", () => {
     prowlarr.stats = [stat(1, 30, 0, 0, 2)]; // diffed from the new baseline
     await mgr.refresh();
     expect(db.select().from(budgetBuckets).all()).toEqual([
-      { indexerId: 1, hourUtc: H0 + 2, observedQueries: 20, observedGrabs: 2, huntQueries: 0 },
+      {
+        indexerId: 1,
+        hourUtc: H0 + 2,
+        observedQueries: 20,
+        observedGrabs: 2,
+        huntQueries: 0,
+        huntSonarrQueries: 0,
+        huntRadarrQueries: 0,
+        sonarrQueries: 0,
+        radarrQueries: 0,
+        otherQueries: 0,
+      },
     ]);
   });
 
@@ -231,7 +257,7 @@ describe("BudgetManager attribution and pending estimates", () => {
     await mgr.refresh();
 
     clock.ms = T0 + 60_000;
-    mgr.recordDispatch(new Map([[1, 6]]), 42);
+    mgr.recordDispatch(new Map([[1, 6]]), 42, "radarr");
     const pendings = db.select().from(pendingSelfEstimates).all();
     expect(pendings).toHaveLength(1);
     expect(pendings[0]).toMatchObject({ indexerId: 1, queries: 6, attemptId: 42 });
@@ -246,6 +272,32 @@ describe("BudgetManager attribution and pending estimates", () => {
     expect(status.trailing24h).toBe(10); // observed only, pending cleared
     expect(status.huntShare).toBe(6); // bucket attribution survives
     expect(status.organicShare).toBe(4); // 10 observed - 6 hunt
+  });
+
+  it("attributes Prowlarr history by Arr source while keeping Hunt as a subset", async () => {
+    const { prowlarr, clock, mgr } = makeHarness();
+    prowlarr.indexers = [ix(1, "Alpha", { priority: 1 })];
+    prowlarr.stats = [stat(1, 100, 0, 0, 10)];
+    prowlarr.history = [
+      { id: 1, indexerId: 1, at: clock.ms - 1_000, eventType: "indexerQuery", source: "Sonarr" },
+      { id: 2, indexerId: 1, at: clock.ms - 2_000, eventType: "indexerRss", source: "Radarr" },
+      { id: 3, indexerId: 1, at: clock.ms - 3_000, eventType: "indexerAuth", source: "Lidarr" },
+      { id: 4, indexerId: 1, at: clock.ms - 4_000, eventType: "releaseGrabbed", source: "Radarr" },
+    ];
+    prowlarr.getHistorySince = async (since) =>
+      prowlarr.history.filter((record) => record.at >= since);
+    await mgr.refresh();
+    mgr.recordDispatch(new Map([[1, 4]]), 7, "sonarr");
+
+    const status = statusOf(mgr, 1);
+    expect(status.attribution).toEqual({
+      observedSonarr: 1,
+      observedRadarr: 1,
+      observedOther: 1,
+      huntSonarr: 4,
+      huntRadarr: 0,
+    });
+    expect(status.trailing24hGrabs).toBe(1);
   });
 });
 
@@ -348,7 +400,7 @@ describe("BudgetManager.mayDispatch — ALL-rule gating", () => {
     const { db, mgr } = makeHarness();
     seedIndexerRow(db, { id: 1, name: "Alpha", queryLimit: 240 });
     // rate = clamp(2, (216-18)/6, 20) = 20; hunt spend this hour 18 + est 6 > 20
-    mgr.recordDispatch(new Map([[1, 18]]), 7);
+    mgr.recordDispatch(new Map([[1, 18]]), 7, "sonarr");
     const decision = mgr.mayDispatch(new Map([[1, 6]]));
     expect(decision.ok).toBe(false);
     if (!decision.ok) expect(decision.holdReason).toContain("hunt spend this hour");

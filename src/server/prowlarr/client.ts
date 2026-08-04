@@ -12,6 +12,7 @@ export type ProwlarrIndexer = {
   id: number;
   name: string;
   enable: boolean;
+  priority: number;
   protocol: string; // usenet|torrent
   /** Daily query limit from 'baseSettings.queryLimit'; null/0/empty = unlimited. */
   queryLimit: number | null;
@@ -36,6 +37,14 @@ export type ProwlarrIndexerStatus = {
   disabledTill: number | null;
 };
 
+export type ProwlarrHistoryRecord = {
+  id: number;
+  indexerId: number;
+  at: number;
+  eventType: "indexerQuery" | "indexerRss" | "indexerAuth" | "releaseGrabbed";
+  source: string;
+};
+
 export type ProwlarrSystemStatus = {
   appName: string;
   version: string;
@@ -47,6 +56,7 @@ type RawIndexer = {
   id: number;
   name: string;
   enable?: boolean;
+  priority?: number;
   protocol?: string;
   fields?: RawField[];
   capabilities?: { categories?: RawCategory[] };
@@ -62,6 +72,16 @@ type RawIndexerStats = {
   }[];
 };
 type RawIndexerStatus = { indexerId?: number; disabledTill?: string | null };
+type RawHistoryRecord = {
+  id?: number;
+  indexerId?: number;
+  date?: string;
+  eventType?: string;
+  data?: { source?: string };
+};
+type RawHistoryPage = {
+  records?: RawHistoryRecord[];
+};
 type RawSystemStatus = { appName?: string; version?: string };
 
 function parseLimit(fields: RawField[] | undefined, name: string): number | null {
@@ -87,6 +107,7 @@ function parseIndexer(raw: RawIndexer): ProwlarrIndexer {
     id: raw.id,
     name: raw.name,
     enable: raw.enable ?? false,
+    priority: raw.priority ?? 25,
     protocol: raw.protocol ?? "unknown",
     queryLimit: parseLimit(raw.fields, "baseSettings.queryLimit"),
     grabLimit: parseLimit(raw.fields, "baseSettings.grabLimit"),
@@ -136,6 +157,45 @@ export class ProwlarrClient {
           disabledTill: Number.isFinite(till) ? till : null,
         };
       });
+  }
+
+  /** Query/RSS/auth events for source attribution; request URLs and credentials are discarded. */
+  async getHistorySince(since: number): Promise<ProwlarrHistoryRecord[]> {
+    const pageSize = 1_000;
+    const out: ProwlarrHistoryRecord[] = [];
+    for (let page = 1; page <= 50; page++) {
+      const raw = await this.fetchJson<RawHistoryPage>(
+        `/api/v1/history?page=${page}&pageSize=${pageSize}&sortKey=date&sortDirection=descending`,
+      );
+      const records = raw.records ?? [];
+      let reachedCutoff = false;
+      for (const record of records) {
+        const at = record.date ? Date.parse(record.date) : Number.NaN;
+        if (!Number.isFinite(at)) continue;
+        if (at < since) {
+          reachedCutoff = true;
+          continue;
+        }
+        if (
+          record.eventType !== "indexerQuery" &&
+          record.eventType !== "indexerRss" &&
+          record.eventType !== "indexerAuth" &&
+          record.eventType !== "releaseGrabbed"
+        ) {
+          continue;
+        }
+        if (record.id == null || record.indexerId == null) continue;
+        out.push({
+          id: record.id,
+          indexerId: record.indexerId,
+          at,
+          eventType: record.eventType,
+          source: record.data?.source ?? "Unknown",
+        });
+      }
+      if (reachedCutoff || records.length < pageSize) break;
+    }
+    return out;
   }
 
   async getSystemStatus(): Promise<ProwlarrSystemStatus> {

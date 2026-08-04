@@ -1,0 +1,1 @@
+ALTER TABLE `indexers` ADD `priority` integer DEFAULT 25 NOT NULL;

@@ -201,15 +201,22 @@ export function registerStatusRoutes(app: FastifyInstance, ctx: AppContext): voi
       if (d.kind === "episode") epIds.push(d.targetId);
       else if (d.kind === "movie") movieIds.push(d.targetId);
     }
-    const epById = new Map<number, typeof episodes.$inferSelect & { seriesTitle: string | null }>();
+    const epById = new Map<
+      number,
+      typeof episodes.$inferSelect & { seriesTitle: string | null; posterUrl: string | null }
+    >();
     if (epIds.length > 0) {
       for (const row of ctx.db
-        .select({ ep: episodes, seriesTitle: series.title })
+        .select({ ep: episodes, seriesTitle: series.title, posterUrl: series.posterUrl })
         .from(episodes)
         .innerJoin(series, eq(episodes.seriesId, series.id))
         .where(inArray(episodes.id, epIds))
         .all()) {
-        epById.set(row.ep.id, { ...row.ep, seriesTitle: row.seriesTitle });
+        epById.set(row.ep.id, {
+          ...row.ep,
+          seriesTitle: row.seriesTitle,
+          posterUrl: row.posterUrl,
+        });
       }
     }
     const movieById = new Map<number, typeof movies.$inferSelect>();
@@ -225,6 +232,7 @@ export function registerStatusRoutes(app: FastifyInstance, ctx: AppContext): voi
         kind?: string;
         targetId?: number;
         seriesId?: number | null;
+        previousState?: string;
       };
       const source = d.source === "radarr" ? "radarr" : "sonarr";
       const fallbackLabel = r.message.replace(/^German achieved:\s*/, "");
@@ -238,6 +246,11 @@ export function registerStatusRoutes(app: FastifyInstance, ctx: AppContext): voi
           targetId: d.targetId,
           seriesId: null,
           title: m?.title ?? fallbackLabel,
+          posterUrl: m?.posterUrl ?? null,
+          reason:
+            d.previousState === "missing"
+              ? "Filled a missing movie with German audio"
+              : "Replaced a non-German movie with German audio",
           label: m
             ? [m.year, m.quality].filter(Boolean).join(" · ") || fallbackLabel
             : fallbackLabel,
@@ -257,6 +270,11 @@ export function registerStatusRoutes(app: FastifyInstance, ctx: AppContext): voi
         targetId: d.targetId ?? 0,
         seriesId: d.seriesId ?? ep?.seriesId ?? null,
         title: ep?.seriesTitle ?? fallbackLabel,
+        posterUrl: ep?.posterUrl ?? null,
+        reason:
+          d.previousState === "missing"
+            ? "Filled a missing episode with German audio"
+            : "Replaced a non-German episode with German audio",
         label: ep ? [code, ep.title].filter(Boolean).join(" · ") : fallbackLabel,
         quality: ep?.quality ?? null,
         languages: langNames(ep?.fileLanguages),

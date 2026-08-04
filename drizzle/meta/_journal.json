@@ -15,6 +15,27 @@
       "when": 1784893596804,
       "tag": "0001_nervous_guardsmen",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1785845257317,
+      "tag": "0002_nosy_harpoon",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1785845589502,
+      "tag": "0003_fluffy_squadron_sinister",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1785845769026,
+      "tag": "0004_careless_spacker_dave",
+      "breakpoints": true
     }
   ]
 }

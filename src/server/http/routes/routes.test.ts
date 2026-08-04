@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../../app.js";
@@ -331,6 +332,69 @@ describe("hunt + engine", () => {
     const item = res.json().items.find((i: { targetId: number }) => i.targetId === 21);
     expect(item).toBeDefined();
     expect(item.reason).toBe("forced");
+  });
+
+  it("reports manual pause timing and groups a series AI verdict", async () => {
+    const checkedAt = now - 60_000;
+    const wakeAt = now + 30 * 86_400_000;
+    const verdict = b.ctx.db
+      .insert(aiVerdicts)
+      .values({
+        subjectKind: "series",
+        subjectKey: "sonarr:2",
+        title: "Beta",
+        verdict: "unlikely",
+        confidence: 0.91,
+        evidence: ["No German dub listing."],
+        provider: "codex",
+        model: "test",
+        promptVersion: "test",
+        checkedAt,
+        recheckAfter: wakeAt,
+      })
+      .returning({ id: aiVerdicts.id })
+      .get();
+    b.ctx.db
+      .update(huntState)
+      .set({ state: "ai_paused", aiVerdictId: verdict.id, nextEligibleAt: wakeAt })
+      .where(sql`${huntState.targetId} in (21, 22)`)
+      .run();
+
+    await post(b.app, "/api/items/sonarr/episode/31/pause", {
+      until: wakeAt,
+      note: "wait for release",
+    });
+    const response = (await get(b.app, "/api/hunt/paused")).json();
+    expect(response.userPaused).toContainEqual(
+      expect.objectContaining({
+        targetId: 31,
+        since: expect.any(Number),
+        until: wakeAt,
+        note: "wait for release",
+        targetCount: 1,
+      }),
+    );
+    expect(response.aiDormant).toContainEqual(
+      expect.objectContaining({
+        kind: "series",
+        targetId: 2,
+        targetCount: 2,
+        checkedAt,
+        wakeAt,
+      }),
+    );
+
+    await post(b.app, "/api/items/sonarr/episode/31/resume", {});
+    b.ctx.db
+      .update(huntState)
+      .set({ state: "missing", aiVerdictId: null, nextEligibleAt: null })
+      .where(eq(huntState.targetId, 21))
+      .run();
+    b.ctx.db
+      .update(huntState)
+      .set({ state: "german", aiVerdictId: null, nextEligibleAt: null })
+      .where(eq(huntState.targetId, 22))
+      .run();
   });
 });
 

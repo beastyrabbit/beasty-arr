@@ -68,7 +68,7 @@ export type BudgetManagerPort = {
     anime?: boolean;
   }): Map<number, number>;
   mayDispatch(estimates: Map<number, number>): { ok: true } | { ok: false; holdReason: string };
-  recordDispatch(estimates: Map<number, number>, attemptId: number): void;
+  recordDispatch(estimates: Map<number, number>, attemptId: number, source: ArrSource): void;
 };
 
 /** Mirrors src/server/sync/service.ts SyncService targeted refresh. */
@@ -141,6 +141,7 @@ export type PausedEntryView = {
   huntStateId: number;
   label: string;
   source: ArrSource;
+  since: number | null;
   until: number | null;
   note: string | null;
 };
@@ -371,7 +372,7 @@ export class HuntEngine {
             this.completeDryRun(cmd, trigger, attemptId, estimates);
             continue;
           }
-          this.budget?.recordDispatch(estimates as Map<number, number>, attemptId);
+          this.budget?.recordDispatch(estimates as Map<number, number>, attemptId, cmd.source);
           const client = clientBySource.get(cmd.source);
           if (!client) continue; // unreachable source: never planned, defensive only
           chains.set(cmd.source, this.dispatchAndTrack(cmd, trigger, attemptId, client, signal));
@@ -698,7 +699,12 @@ export class HuntEngine {
     const now = this.now();
     this.db
       .update(huntState)
-      .set({ userPaused: false, userPausedUntil: null, userPausedNote: null })
+      .set({
+        userPaused: false,
+        userPausedAt: null,
+        userPausedUntil: null,
+        userPausedNote: null,
+      })
       .where(
         and(
           eq(huntState.userPaused, true),
@@ -1190,12 +1196,14 @@ export class HuntEngine {
   }
 
   pauseSubject(req: PauseSubjectRequest): { pausedTargets: number } {
+    const now = this.now();
     const targets = this.resolveSubjectTargets(req, { wideExclusions: false });
     for (const row of targets) {
       this.db
         .update(huntState)
         .set({
           userPaused: true,
+          userPausedAt: now,
           userPausedUntil: req.until ?? null,
           userPausedNote: req.note ?? null,
           // The manual queue ignores user_paused, so a queued entry must be dropped.
@@ -1218,6 +1226,7 @@ export class HuntEngine {
     for (const row of targets) {
       const patch: Partial<typeof huntState.$inferInsert> = {
         userPaused: false,
+        userPausedAt: null,
         userPausedUntil: null,
         userPausedNote: null,
       };
@@ -1517,6 +1526,7 @@ export class HuntEngine {
         huntStateId: r.id,
         label: labels.get(r.id) ?? `${r.source} ${r.targetKind} ${r.targetId}`,
         source: r.source,
+        since: r.userPausedAt,
         until: r.userPausedUntil,
         note: r.userPausedNote,
       })),

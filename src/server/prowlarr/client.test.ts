@@ -25,6 +25,7 @@ const indexerFixture = [
     id: 1,
     name: "NZBGeek",
     enable: true,
+    priority: 1,
     protocol: "usenet",
     fields: [
       { name: "baseSettings.queryLimit", value: 1000 },
@@ -78,6 +79,7 @@ describe("ProwlarrClient.getIndexers", () => {
       id: 1,
       name: "NZBGeek",
       enable: true,
+      priority: 1,
       protocol: "usenet",
       queryLimit: 1000,
       grabLimit: 200, // string value coerced
@@ -99,6 +101,55 @@ describe("ProwlarrClient.getIndexers", () => {
     expect(torrentTv).toMatchObject({ supportsTv: true, supportsMovies: false });
     // 2045 lives in a subCategory of the (non-movie) 8000 category
     expect(zeroLimit).toMatchObject({ supportsTv: false, supportsMovies: true });
+  });
+});
+
+describe("ProwlarrClient.getHistorySince", () => {
+  it("keeps query/grab events in the window and retains source without request URLs", async () => {
+    const since = Date.parse("2026-06-15T12:00:00Z");
+    const { client } = makeClient({
+      "/api/v1/history": {
+        records: [
+          {
+            id: 9,
+            indexerId: 1,
+            date: "2026-06-15T12:05:00Z",
+            eventType: "indexerQuery",
+            data: { source: "Sonarr", url: "https://example.invalid/?apikey=secret" },
+          },
+          {
+            id: 8,
+            indexerId: 1,
+            date: "2026-06-15T12:04:00Z",
+            eventType: "releaseGrabbed",
+            data: { source: "Radarr" },
+          },
+          {
+            id: 7,
+            indexerId: 2,
+            date: "2026-06-15T11:59:00Z",
+            eventType: "indexerRss",
+            data: { source: "Radarr" },
+          },
+        ],
+      },
+    });
+    await expect(client.getHistorySince(since)).resolves.toEqual([
+      {
+        id: 9,
+        indexerId: 1,
+        at: Date.parse("2026-06-15T12:05:00Z"),
+        eventType: "indexerQuery",
+        source: "Sonarr",
+      },
+      {
+        id: 8,
+        indexerId: 1,
+        at: Date.parse("2026-06-15T12:04:00Z"),
+        eventType: "releaseGrabbed",
+        source: "Radarr",
+      },
+    ]);
   });
 });
 

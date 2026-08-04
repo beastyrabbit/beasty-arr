@@ -85,16 +85,18 @@ function describeHuntStates(ctx: AppContext, ids: number[]) {
     describe(id: number): {
       kind: ItemSubjectKind;
       targetId: number;
+      seriesId: number | null;
       title: string;
       scopeLabel: string;
     } {
       const row = rowById.get(id);
-      if (!row) return { kind: "episode", targetId: 0, title: "", scopeLabel: "" };
+      if (!row) return { kind: "episode", targetId: 0, seriesId: null, title: "", scopeLabel: "" };
       if (row.targetKind === "movie") {
         const info = movieInfo.get(row.targetId);
         return {
           kind: "movie",
           targetId: row.targetId,
+          seriesId: null,
           title: info?.title ?? "",
           scopeLabel: info?.year ? String(info.year) : "",
         };
@@ -103,11 +105,71 @@ function describeHuntStates(ctx: AppContext, ids: number[]) {
       return {
         kind: "episode",
         targetId: row.targetId,
+        seriesId: row.seriesId,
         title: info?.seriesTitle ?? "",
         scopeLabel: info ? padCode(info.seasonNumber, info.episodeNumber) : "",
       };
     },
   };
+}
+
+type PausedViewData = ReturnType<AppContext["services"]["engine"]["pausedView"]>;
+type HuntDescriber = ReturnType<typeof describeHuntStates>;
+
+function manualPauseItems(view: PausedViewData, descriptors: HuntDescriber): PausedItem[] {
+  return view.manual.map((entry) => {
+    const item = descriptors.describe(entry.huntStateId);
+    return {
+      source: entry.source,
+      kind: item.kind,
+      targetId: item.targetId,
+      title: item.title || entry.label,
+      label: entry.label,
+      targetCount: 1,
+      since: entry.since,
+      until: entry.until,
+      note: entry.note,
+    };
+  });
+}
+
+function aiPauseItems(
+  view: PausedViewData,
+  descriptors: HuntDescriber,
+  evidenceById: Map<number, string[]>,
+): AiDormantItem[] {
+  const grouped = new Map<string, AiDormantItem>();
+  for (const entry of view.aiPaused) {
+    const item = descriptors.describe(entry.huntStateId);
+    const groupedSeries = entry.source === "sonarr" && item.seriesId != null;
+    const kind = groupedSeries ? "series" : item.kind;
+    const targetId = groupedSeries ? (item.seriesId as number) : item.targetId;
+    const verdictId = entry.verdict?.id ?? 0;
+    const key = `${entry.source}:${kind}:${targetId}:${verdictId}`;
+    const existing = grouped.get(key);
+    if (existing) {
+      existing.targetCount += 1;
+      const wakeAt = entry.nextEligibleAt ?? entry.verdict?.recheckAfter ?? 0;
+      if (wakeAt > 0) existing.wakeAt = Math.min(existing.wakeAt, wakeAt);
+      continue;
+    }
+    grouped.set(key, {
+      source: entry.source,
+      kind,
+      targetId,
+      title: item.title || entry.label,
+      targetCount: 1,
+      verdictId,
+      verdict: entry.verdict?.verdict ?? "unlikely",
+      confidence: entry.verdict?.confidence ?? 0,
+      evidence: entry.verdict ? (evidenceById.get(entry.verdict.id) ?? []) : [],
+      checkedAt: entry.verdict?.checkedAt ?? 0,
+      wakeAt: entry.nextEligibleAt ?? entry.verdict?.recheckAfter ?? 0,
+    });
+  }
+  return [...grouped.values()].sort(
+    (left, right) => left.wakeAt - right.wakeAt || left.title.localeCompare(right.title),
+  );
 }
 
 async function queueSize(
@@ -266,33 +328,8 @@ export function registerHuntRoutes(app: FastifyInstance, ctx: AppContext): void 
       }
     }
 
-    const userPaused: PausedItem[] = view.manual.map((e) => {
-      const d = desc_.describe(e.huntStateId);
-      return {
-        source: e.source,
-        kind: d.kind,
-        targetId: d.targetId,
-        title: d.title || e.label,
-        label: e.label,
-        since: null,
-        until: e.until,
-        note: e.note,
-      };
-    });
-    const aiDormant: AiDormantItem[] = view.aiPaused.map((e) => {
-      const d = desc_.describe(e.huntStateId);
-      return {
-        source: e.source,
-        kind: d.kind,
-        targetId: d.targetId,
-        title: d.title || e.label,
-        verdictId: e.verdict?.id ?? 0,
-        verdict: e.verdict?.verdict ?? "unlikely",
-        confidence: e.verdict?.confidence ?? 0,
-        evidence: e.verdict ? (evidenceById.get(e.verdict.id) ?? []) : [],
-        wakeAt: e.nextEligibleAt ?? e.verdict?.recheckAfter ?? 0,
-      };
-    });
+    const userPaused = manualPauseItems(view, desc_);
+    const aiDormant = aiPauseItems(view, desc_, evidenceById);
     const response: HuntPausedResponse = { userPaused, aiDormant };
     return response;
   });

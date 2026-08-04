@@ -53,11 +53,12 @@ export function registerBudgetRoutes(app: FastifyInstance, ctx: AppContext): voi
     // enabled + grabLimit are not in the controller status; pull them from the mirror.
     const extras = new Map<
       number,
-      { enabled: boolean; grabLimit: number | null; lastSyncedAt: number }
+      { enabled: boolean; priority: number; grabLimit: number | null; lastSyncedAt: number }
     >();
     for (const ix of ctx.db.select().from(indexers).all()) {
       extras.set(ix.id, {
         enabled: ix.enabled,
+        priority: ix.priority,
         grabLimit: ix.grabLimit,
         lastSyncedAt: ix.lastSyncedAt,
       });
@@ -68,11 +69,14 @@ export function registerBudgetRoutes(app: FastifyInstance, ctx: AppContext): voi
         id: s.id,
         name: s.name,
         enabled: extra?.enabled ?? true,
+        priority: extra?.priority ?? 25,
         cap: s.cap,
         grabLimit: extra?.grabLimit ?? null,
+        trailing24hGrabs: s.trailing24hGrabs,
         trailing24h: s.trailing24h,
         huntShare: s.huntShare,
         organicShare: s.organicShare,
+        attribution: s.attribution,
         forecastNextHorizon: s.forecastNextHorizon,
         target: s.target,
         huntRatePerHour: s.huntRatePerHour,

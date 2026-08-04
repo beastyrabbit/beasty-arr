@@ -952,6 +952,7 @@ describe("force / pause / resume", () => {
     });
     expect(huntRow(db, hs)).toMatchObject({
       userPaused: true,
+      userPausedAt: T0,
       userPausedUntil: T0 + DAY_MS,
       userPausedNote: "later",
       manualPriority: 0,
@@ -959,7 +960,11 @@ describe("force / pause / resume", () => {
     expect(engine.queueView()).toHaveLength(0);
 
     engine.resumeSubject({ source: "sonarr", kind: "episode", id: 11 });
-    expect(huntRow(db, hs)).toMatchObject({ userPaused: false, userPausedUntil: null });
+    expect(huntRow(db, hs)).toMatchObject({
+      userPaused: false,
+      userPausedAt: null,
+      userPausedUntil: null,
+    });
   });
 
   it("resume with overrideAi + force lifts ai pause and eligibility backoff", () => {

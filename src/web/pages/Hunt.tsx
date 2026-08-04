@@ -1,9 +1,15 @@
 import { useNavigate } from "@tanstack/react-router";
-import { ArrowUpToLine, ChevronDown, ChevronRight, Play, X, Zap } from "lucide-react";
-import { useState } from "react";
-import type { SearchResult } from "../../shared/api-types.js";
-import { LedDot } from "../components/LedDot.js";
-import { DataTable, EmptyState, Panel, SkeletonRows, Td, Th } from "../components/Shell.js";
+import { ArrowRight, Clock3, Pause, Play, Search, Sparkles, X, Zap } from "lucide-react";
+import { useMemo, useState } from "react";
+import type {
+  AiDormantItem,
+  MovieDetail,
+  PausedItem,
+  SearchResult,
+  SeriesDetail,
+} from "../../shared/api-types.js";
+import type { ArrSource } from "../../shared/domain.js";
+import { EmptyState, Panel, Skeleton } from "../components/Shell.js";
 import { StateBadge } from "../components/StateBadge.js";
 import { Button } from "../components/ui/button.js";
 import { Input } from "../components/ui/input.js";
@@ -12,499 +18,470 @@ import {
   useEngineAction,
   useForceSearch,
   useHuntPaused,
-  useHuntQueue,
   useHuntStatus,
-  useQueueBump,
-  useQueueRemove,
+  useMovieDetail,
   useResumeItem,
+  useSeriesDetail,
   useTypeahead,
 } from "../lib/queries.js";
 import { STATE_META } from "../lib/states.js";
 
-const REASON_STYLES: Record<string, { label: string; color: string }> = {
-  forced: { label: "FORCED", color: "#f0a63a" },
-  scheduled: { label: "SCHEDULED", color: "#94a3b8" },
-  retry: { label: "RETRY", color: "#7dd3fc" },
-};
+type SubjectDetail = SeriesDetail | MovieDetail;
 
 export function HuntPage() {
   const status = useHuntStatus();
-  const queue = useHuntQueue();
+  const paused = useHuntPaused();
   const engine = useEngineAction();
 
   return (
-    <div className="mx-auto flex max-w-[1100px] flex-col gap-3">
-      <ForceBar />
+    <div className="mx-auto flex max-w-[1200px] flex-col gap-3">
+      <HuntInspector />
 
-      {/* now hunting */}
       <Panel
-        title="Now hunting"
+        title="Hunt overview"
         actions={
           <div className="flex items-center gap-1.5">
+            <span className="mr-2 font-mono text-[10px] text-faint">
+              {status.data?.engine === "paused"
+                ? "engine paused"
+                : status.data?.current
+                  ? `searching ${status.data.current.source}`
+                  : `next check ${relTime(status.data?.nextTickAt ?? null)}`}
+            </span>
             <Button variant="ghost" size="sm" onClick={() => engine.mutate("cycle")}>
-              Run cycle
+              Run now
             </Button>
             {status.data?.engine === "paused" ? (
               <Button variant="primary" size="sm" onClick={() => engine.mutate("resume")}>
-                Resume engine
+                <Play size={12} /> Resume
               </Button>
             ) : (
               <Button variant="ghost" size="sm" onClick={() => engine.mutate("pause")}>
-                Pause engine
+                <Pause size={12} /> Pause
               </Button>
             )}
           </div>
         }
       >
-        <div className="flex items-center gap-3 p-3">
-          {status.data?.current ? (
-            <>
-              <LedDot state="live" />
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-[13px] text-ink">{status.data.current.label}</div>
-                <div className="font-mono text-[11px] text-muted">
-                  {status.data.current.commandName} · started{" "}
-                  {relTime(status.data.current.startedAt)}
-                  {status.data.current.dryRun ? " · dry" : ""}
-                </div>
-              </div>
-              <span className="microlabel">{status.data.current.status}</span>
-            </>
-          ) : (
-            <>
-              <LedDot state={status.data?.engine === "paused" ? "down" : "off"} />
-              <span className="text-[12px] text-muted">
-                {status.data?.engine === "paused"
-                  ? "Engine paused."
-                  : status.data?.holdReason
-                    ? `Held ${relTime(status.data.heldSince)} — ${status.data.holdReason}`
-                    : `Idle — next tick ${relTime(status.data?.nextTickAt ?? null)}`}
-              </span>
-              {status.data ? (
-                <span className="ml-auto font-mono text-[11px] text-faint">
-                  queue gate S:{status.data.queueGate.sonarr.size} R:
-                  {status.data.queueGate.radarr.size} / {status.data.queueGate.threshold}
-                </span>
-              ) : null}
-            </>
-          )}
-        </div>
+        {paused.isPending || status.isPending ? (
+          <div className="grid grid-cols-1 gap-px bg-line lg:grid-cols-2">
+            <Skeleton className="h-52 rounded-none" />
+            <Skeleton className="h-52 rounded-none" />
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-px bg-line lg:grid-cols-2">
+            <SourcePauseOverview
+              source="sonarr"
+              manual={paused.data?.userPaused ?? []}
+              ai={paused.data?.aiDormant ?? []}
+              gateOpen={status.data?.queueGate.sonarr.open ?? false}
+              health={status.data?.arrHealth.sonarr ?? "unknown"}
+            />
+            <SourcePauseOverview
+              source="radarr"
+              manual={paused.data?.userPaused ?? []}
+              ai={paused.data?.aiDormant ?? []}
+              gateOpen={status.data?.queueGate.radarr.open ?? false}
+              health={status.data?.arrHealth.radarr ?? "unknown"}
+            />
+          </div>
+        )}
       </Panel>
-
-      {/* up next */}
-      <Panel title="Up next">
-        <DataTable
-          head={
-            <>
-              <Th className="w-10">#</Th>
-              <Th>Title / scope</Th>
-              <Th>Reason</Th>
-              <Th>Est. queries</Th>
-              <Th className="text-right">Actions</Th>
-            </>
-          }
-        >
-          {queue.isPending ? (
-            <SkeletonRows rows={5} cols={5} />
-          ) : queue.data && queue.data.items.length > 0 ? (
-            queue.data.items.map((item) => <QueueRow key={item.id} item={item} />)
-          ) : (
-            <tr>
-              <td colSpan={5}>
-                <EmptyState
-                  message="Queue is empty."
-                  hint="Scheduled candidates appear here each tick."
-                />
-              </td>
-            </tr>
-          )}
-        </DataTable>
-      </Panel>
-
-      <PausedSections />
     </div>
   );
 }
 
-function ForceBar() {
+function HuntInspector() {
   const navigate = useNavigate();
   const [q, setQ] = useState("");
   const [selected, setSelected] = useState<SearchResult | null>(null);
   const [season, setSeason] = useState("");
   const typeahead = useTypeahead(q);
   const force = useForceSearch();
+  const seriesDetail = useSeriesDetail(
+    selected?.kind === "series" ? selected.id : 0,
+    false,
+    selected?.kind === "series",
+  );
+  const movieDetail = useMovieDetail(
+    selected?.kind === "movie" ? selected.id : 0,
+    false,
+    selected?.kind === "movie",
+  );
+  const detail = selected?.kind === "series" ? seriesDetail.data : movieDetail.data;
+  const detailPending = selected
+    ? selected.kind === "series"
+      ? seriesDetail.isPending
+      : movieDetail.isPending
+    : false;
+
+  const openDetail = (target: SearchResult, live = false) => {
+    if (target.kind === "series") {
+      void navigate({
+        to: "/library/series/$seriesId",
+        params: { seriesId: String(target.id) },
+        search: {
+          season: season === "" ? undefined : Number(season),
+          live: live || undefined,
+        },
+      });
+      return;
+    }
+    void navigate({
+      to: "/library/movies/$movieId",
+      params: { movieId: String(target.id) },
+      search: { live: live || undefined },
+    });
+  };
 
   const dispatch = () => {
     if (!selected) return;
-    const seasonNumber = season === "" ? undefined : Number(season);
     const target = selected;
+    const seasonNumber = season === "" ? undefined : Number(season);
     force.mutate(
       {
         ref: { source: target.source, kind: target.kind, id: target.id },
-        body: seasonNumber !== undefined ? { scope: { seasonNumber } } : {},
-      },
-      {
-        onSuccess: () => {
-          if (target.kind === "series") {
-            void navigate({
-              to: "/library/series/$seriesId",
-              params: { seriesId: String(target.id) },
-              search: { season: seasonNumber, live: true },
-            });
-          } else {
-            void navigate({
-              to: "/library/movies/$movieId",
-              params: { movieId: String(target.id) },
-              search: { live: true },
-            });
-          }
+        body: {
+          ...(seasonNumber !== undefined ? { scope: { seasonNumber } } : {}),
+          withAiRecheck: detail?.state === "ai_paused",
         },
       },
+      { onSuccess: () => openDetail(target, true) },
     );
+  };
+
+  const clear = () => {
     setSelected(null);
     setQ("");
     setSeason("");
   };
 
   return (
-    <Panel className="p-4">
-      <div className="microlabel mb-2">Force a hunt</div>
-      <div className="relative">
-        {selected ? (
-          <div className="flex h-9 items-center gap-2 rounded-[6px] border border-accent/60 bg-bg px-3">
-            <span className="microlabel">{selected.kind}</span>
-            <span className="flex-1 truncate text-[13px] text-ink">
-              {selected.title}
-              {selected.year ? (
-                <span className="ml-1.5 font-mono text-[11px] text-muted">{selected.year}</span>
-              ) : null}
-            </span>
-            <StateBadge state={selected.state} />
+    <Panel title="Find or force a title">
+      <div className="p-3">
+        <div className="relative">
+          <Search className="pointer-events-none absolute top-2.5 left-3 text-faint" size={14} />
+          <Input
+            value={selected ? selected.title : q}
+            onChange={(event) => {
+              if (selected) clear();
+              setQ(event.target.value);
+            }}
+            placeholder="Search a movie or series…"
+            className="h-9 pr-9 pl-9 text-[13px]"
+          />
+          {selected ? (
             <button
               type="button"
-              className="cursor-pointer text-muted hover:text-ink"
-              onClick={() => setSelected(null)}
-              title="Clear"
+              className="absolute top-2.5 right-3 cursor-pointer text-muted hover:text-ink"
+              onClick={clear}
+              title="Clear selection"
             >
-              <X size={13} />
+              <X size={14} />
             </button>
-          </div>
-        ) : (
-          <>
-            <Input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Search series or movies to force…"
-              className="h-9 text-[13px]"
+          ) : null}
+          {!selected && q.trim().length >= 2 && typeahead.data ? (
+            <div className="absolute top-10 right-0 left-0 z-20 max-h-[280px] overflow-y-auto rounded-[6px] border border-line bg-surface p-1 shadow-lg">
+              {typeahead.data.items.length === 0 ? (
+                <div className="px-3 py-4 text-center text-[12px] text-faint">No matches.</div>
+              ) : (
+                typeahead.data.items.map((item) => (
+                  <button
+                    key={`${item.source}:${item.id}`}
+                    type="button"
+                    className="flex h-9 w-full cursor-pointer items-center gap-2 rounded-[4px] px-2 text-left hover:bg-raised"
+                    onClick={() => {
+                      setSelected(item);
+                      setQ("");
+                    }}
+                  >
+                    <span className="microlabel w-12">
+                      {item.source === "sonarr" ? "series" : "movie"}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-[13px] text-ink">
+                      {item.title}
+                      {item.year ? (
+                        <span className="ml-1.5 font-mono text-[10px] text-muted">{item.year}</span>
+                      ) : null}
+                    </span>
+                    <StateBadge state={item.state} />
+                  </button>
+                ))
+              )}
+            </div>
+          ) : null}
+        </div>
+
+        {selected ? (
+          detailPending ? (
+            <Skeleton className="mt-3 h-24 w-full" />
+          ) : detail ? (
+            <SubjectInspection
+              selected={selected}
+              detail={detail}
+              season={season}
+              setSeason={setSeason}
+              onOpen={() => openDetail(selected)}
+              onForce={dispatch}
+              forcing={force.isPending}
             />
-            {q.trim().length >= 2 && typeahead.data ? (
-              <div className="absolute top-10 right-0 left-0 z-20 max-h-[260px] overflow-y-auto rounded-[6px] border border-line bg-surface p-1">
-                {typeahead.data.items.length === 0 ? (
-                  <div className="px-2 py-3 text-center text-[12px] text-faint">No matches.</div>
-                ) : (
-                  typeahead.data.items.map((item) => (
-                    <button
-                      key={`${item.source}:${item.id}`}
-                      type="button"
-                      className="flex h-8 w-full cursor-pointer items-center gap-2 rounded-[4px] px-2 text-left hover:bg-raised"
-                      onClick={() => setSelected(item)}
-                    >
-                      <span className="microlabel w-12">{item.kind}</span>
-                      <span className="flex-1 truncate text-[13px] text-ink">{item.title}</span>
-                      <StateBadge state={item.state} />
-                    </button>
-                  ))
-                )}
-              </div>
-            ) : null}
-          </>
+          ) : null
+        ) : (
+          <p className="mt-2 text-[11px] text-faint">
+            Select a title to see why it is waiting, when it wakes, its AI verdict, and its recent
+            hunt state before forcing a search.
+          </p>
         )}
-      </div>
-      {/* scope row */}
-      <div className="mt-2 flex items-center gap-2">
-        {selected?.kind === "series" ? (
-          <Input
-            value={season}
-            onChange={(e) => setSeason(e.target.value.replace(/[^0-9]/g, ""))}
-            placeholder="Season # (blank = whole series)"
-            className="w-[220px] font-mono"
-          />
-        ) : null}
-        <Button
-          variant="primary"
-          size="lg"
-          disabled={!selected || force.isPending}
-          onClick={dispatch}
-        >
-          <Zap size={14} />
-          Force now
-        </Button>
-        <span className="text-[11px] text-faint">
-          Jumps to queue position 1 with a{" "}
-          <span style={{ color: STATE_META.non_german.color }}>FORCED</span> tag. Ctrl+K works
-          anywhere.
-        </span>
       </div>
     </Panel>
   );
 }
 
-function QueueRow({
-  item,
+function SubjectInspection({
+  selected,
+  detail,
+  season,
+  setSeason,
+  onOpen,
+  onForce,
+  forcing,
 }: {
-  item: {
-    id: number;
-    position: number;
-    title: string;
-    scopeLabel: string;
-    reason: string;
-    estimatedQueries: number | null;
-  };
+  selected: SearchResult;
+  detail: SubjectDetail;
+  season: string;
+  setSeason: (value: string) => void;
+  onOpen: () => void;
+  onForce: () => void;
+  forcing: boolean;
 }) {
-  const bump = useQueueBump();
-  const remove = useQueueRemove();
-  const reason = REASON_STYLES[item.reason] ?? REASON_STYLES.scheduled;
+  const waitUntil = detail.pause.paused
+    ? detail.pause.until
+    : detail.state === "ai_paused"
+      ? (detail.verdict?.recheckAfter ?? detail.nextSearchAt)
+      : detail.nextSearchAt;
+  const reason = detail.pause.paused
+    ? (detail.pause.note ?? "Manually paused")
+    : detail.state === "ai_paused"
+      ? `AI: ${detail.verdict?.verdict ?? "paused"}${detail.verdict ? ` (${detail.verdict.confidence.toFixed(2)})` : ""}`
+      : waitUntil && waitUntil > Date.now()
+        ? "Hunt backoff"
+        : "Eligible for the next hunt";
+
   return (
-    <tr className="h-8 border-b border-line last:border-b-0">
-      <Td>
-        <span className="font-mono text-[11px] text-muted">{item.position}</span>
-      </Td>
-      <Td>
-        <span className="text-[13px] text-ink">{item.title}</span>
-        <span className="ml-2 font-mono text-[11px] text-muted">{item.scopeLabel}</span>
-      </Td>
-      <Td>
-        <span
-          className="rounded-[4px] border px-1.5 py-px text-[10px] font-semibold tracking-[0.08em]"
-          style={{
-            color: reason.color,
-            borderColor: `color-mix(in srgb, ${reason.color} 55%, transparent)`,
-          }}
-        >
-          {reason.label}
-        </span>
-      </Td>
-      <Td>
-        <span className="font-mono text-[11px] text-muted">{item.estimatedQueries ?? "—"}</span>
-      </Td>
-      <Td>
-        <span className="flex items-center justify-end gap-0.5">
-          <Button
-            variant="ghost"
-            size="icon"
-            title="Bump to top"
-            onClick={() => bump.mutate(item.id)}
-          >
-            <ArrowUpToLine size={13} />
+    <div className="mt-3 border-t border-line pt-3">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[14px] font-medium text-ink">{detail.title}</span>
+            <StateBadge state={detail.state} />
+            <span className="microlabel">{selected.source}</span>
+          </div>
+          <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted">
+            <span>{reason}</span>
+            <span className="font-mono">
+              {waitUntil
+                ? `${waitUntil > Date.now() ? "wakes" : "eligible"} ${relTime(waitUntil)} · ${fmtDate(waitUntil)}`
+                : "no wake date"}
+            </span>
+            <span className="font-mono">last search {relTime(detail.lastSearchAt)}</span>
+          </div>
+          {detail.verdict ? (
+            <div className="mt-1.5 flex items-center gap-1.5 text-[11px] text-muted">
+              <Sparkles size={12} style={{ color: STATE_META.ai_paused.color }} />
+              AI checked {relTime(detail.verdict.checkedAt)}; recheck{" "}
+              {relTime(detail.verdict.recheckAfter)}
+            </div>
+          ) : null}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {selected.kind === "series" ? (
+            <Input
+              value={season}
+              onChange={(event) => setSeason(event.target.value.replace(/[^0-9]/g, ""))}
+              placeholder="Season (optional)"
+              className="w-40 font-mono"
+            />
+          ) : null}
+          <Button variant="ghost" size="sm" onClick={onOpen}>
+            Details <ArrowRight size={12} />
           </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            title="Remove from queue"
-            onClick={() => remove.mutate(item.id)}
-          >
-            <X size={13} />
+          <Button variant="primary" size="sm" disabled={forcing} onClick={onForce}>
+            <Zap size={13} /> Force now
           </Button>
-        </span>
-      </Td>
-    </tr>
+        </div>
+      </div>
+    </div>
   );
 }
 
-function PausedSections() {
-  const paused = useHuntPaused();
+function SourcePauseOverview({
+  source,
+  manual,
+  ai,
+  gateOpen,
+  health,
+}: {
+  source: ArrSource;
+  manual: PausedItem[];
+  ai: AiDormantItem[];
+  gateOpen: boolean;
+  health: "up" | "down" | "unknown";
+}) {
+  const navigate = useNavigate();
   const resume = useResumeItem();
-  const [openPaused, setOpenPaused] = useState(false);
-  const [openDormant, setOpenDormant] = useState(false);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const sourceManual = useMemo(
+    () => manual.filter((item) => item.source === source),
+    [manual, source],
+  );
+  const sourceAi = useMemo(() => ai.filter((item) => item.source === source), [ai, source]);
+  const title = source === "sonarr" ? "Sonarr · series" : "Radarr · movies";
 
-  const dormant = paused.data?.aiDormant ?? [];
-  const userPaused = paused.data?.userPaused ?? [];
-
-  const keyOf = (d: { source: string; kind: string; targetId: number }) =>
-    `${d.source}:${d.kind}:${d.targetId}`;
-
-  const resumeSelected = () => {
-    for (const d of dormant) {
-      if (selected.has(keyOf(d))) {
-        resume.mutate({
-          ref: { source: d.source, kind: d.kind, id: d.targetId },
-          body: { overrideAi: true },
+  const openItem = (kind: PausedItem["kind"] | AiDormantItem["kind"], id: number) => {
+    if (source === "sonarr") {
+      if (kind === "series") {
+        void navigate({
+          to: "/library/series/$seriesId",
+          params: { seriesId: String(id) },
+          search: {},
         });
       }
+      return;
     }
-    setSelected(new Set());
+    void navigate({
+      to: "/library/movies/$movieId",
+      params: { movieId: String(id) },
+      search: {},
+    });
   };
 
   return (
-    <>
-      <Panel>
-        <button
-          type="button"
-          className="flex h-9 w-full cursor-pointer items-center gap-2 px-3 text-left"
-          onClick={() => setOpenPaused((o) => !o)}
-        >
-          {openPaused ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-          <span className="microlabel">Manually paused</span>
-          <span className="font-mono text-[11px] text-muted">{userPaused.length}</span>
-        </button>
-        {openPaused ? (
-          <div className="border-t border-line">
-            {userPaused.length === 0 ? (
-              <EmptyState message="Nothing manually paused." />
-            ) : (
-              <DataTable
-                head={
-                  <>
-                    <Th>Title</Th>
-                    <Th>Note</Th>
-                    <Th>Since</Th>
-                    <Th>Until</Th>
-                    <Th className="text-right">Resume</Th>
-                  </>
-                }
-              >
-                {userPaused.map((p) => (
-                  <tr key={keyOf(p)} className="h-8 border-b border-line last:border-b-0">
-                    <Td>
-                      <span className="text-ink">{p.title}</span>
-                      <span className="ml-2 font-mono text-[11px] text-muted">{p.label}</span>
-                    </Td>
-                    <Td>
-                      <span className="text-[12px] text-muted">{p.note ?? "—"}</span>
-                    </Td>
-                    <Td>
-                      <span className="font-mono text-[11px] text-muted">{fmtDate(p.since)}</span>
-                    </Td>
-                    <Td>
-                      <span className="font-mono text-[11px] text-muted">
-                        {p.until ? fmtDate(p.until) : "indefinite"}
-                      </span>
-                    </Td>
-                    <Td>
-                      <span className="flex justify-end">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          title="Resume"
-                          onClick={() =>
-                            resume.mutate({
-                              ref: { source: p.source, kind: p.kind, id: p.targetId },
-                            })
-                          }
-                        >
-                          <Play size={13} />
-                        </Button>
-                      </span>
-                    </Td>
-                  </tr>
-                ))}
-              </DataTable>
-            )}
-          </div>
-        ) : null}
-      </Panel>
-
-      <Panel>
-        <div className="flex h-9 items-center gap-2 px-3">
-          <button
-            type="button"
-            className="flex flex-1 cursor-pointer items-center gap-2 text-left"
-            onClick={() => setOpenDormant((o) => !o)}
-          >
-            {openDormant ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-            <span className="microlabel" style={{ color: STATE_META.ai_paused.color }}>
-              AI-dormant
-            </span>
-            <span className="font-mono text-[11px] text-muted">{dormant.length}</span>
-          </button>
-          {openDormant && selected.size > 0 ? (
-            <Button variant="outline" size="sm" onClick={resumeSelected}>
-              Override AI & resume {selected.size} selected
-            </Button>
-          ) : null}
+    <section className="min-w-0 bg-surface">
+      <header className="flex min-h-14 items-center gap-3 border-b border-line px-4 py-2.5">
+        <div className="min-w-0 flex-1">
+          <h2 className="text-[13px] font-semibold text-ink">{title}</h2>
+          <p className="mt-0.5 text-[10px] text-faint">
+            {health !== "up"
+              ? `${health} connection`
+              : gateOpen
+                ? "ready to search"
+                : "waiting for active downloads"}
+          </p>
         </div>
-        {openDormant ? (
-          <div className="border-t border-line">
-            {dormant.length === 0 ? (
-              <EmptyState message="No AI-dormant items." />
-            ) : (
-              <DataTable
-                head={
-                  <>
-                    <Th className="w-8" />
-                    <Th>Title</Th>
-                    <Th>Confidence</Th>
-                    <Th>Wake date</Th>
-                    <Th className="text-right">Resume</Th>
-                  </>
+        <div className="flex items-baseline gap-3 text-right">
+          <div>
+            <div className="font-mono text-lg text-ink">{sourceManual.length}</div>
+            <div className="microlabel">manual</div>
+          </div>
+          <div>
+            <div className="font-mono text-lg" style={{ color: STATE_META.ai_paused.color }}>
+              {sourceAi.length}
+            </div>
+            <div className="microlabel">AI</div>
+          </div>
+        </div>
+      </header>
+
+      <div>
+        {sourceAi.map((item) => (
+          <div
+            key={`ai:${item.kind}:${item.targetId}`}
+            className="border-b border-line px-4 py-3 last:border-b-0"
+          >
+            <div className="flex items-start gap-3">
+              <Sparkles
+                className="mt-0.5 shrink-0"
+                size={13}
+                style={{ color: STATE_META.ai_paused.color }}
+              />
+              <div className="min-w-0 flex-1">
+                <button
+                  type="button"
+                  className="max-w-full cursor-pointer truncate text-left text-[12px] font-medium text-ink hover:underline"
+                  onClick={() => openItem(item.kind, item.targetId)}
+                >
+                  {item.title}
+                </button>
+                <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-muted">
+                  <span style={{ color: STATE_META.ai_paused.color }}>
+                    {item.verdict} · {item.confidence.toFixed(2)}
+                  </span>
+                  {item.targetCount > 1 ? <span>{item.targetCount} episodes</span> : null}
+                  <span>checked {relTime(item.checkedAt)}</span>
+                </div>
+                <div className="mt-1.5 flex items-center gap-1.5 font-mono text-[10px] text-muted">
+                  <Clock3 size={11} />
+                  wakes {relTime(item.wakeAt)} · {fmtDate(item.wakeAt)}
+                </div>
+                {item.evidence[0] ? (
+                  <p
+                    className="mt-1.5 line-clamp-2 text-[10px] leading-4 text-faint"
+                    title={item.evidence.join("\n")}
+                  >
+                    {item.evidence[0]}
+                  </p>
+                ) : null}
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                title="Override AI and resume"
+                onClick={() =>
+                  resume.mutate({
+                    ref: { source: item.source, kind: item.kind, id: item.targetId },
+                    body: { overrideAi: true },
+                  })
                 }
               >
-                {dormant.map((d) => {
-                  const k = keyOf(d);
-                  return (
-                    <tr key={k} className="h-8 border-b border-line last:border-b-0">
-                      <Td>
-                        <input
-                          type="checkbox"
-                          className="accent-[#f0a63a]"
-                          checked={selected.has(k)}
-                          onChange={(e) => {
-                            setSelected((prev) => {
-                              const next = new Set(prev);
-                              if (e.target.checked) next.add(k);
-                              else next.delete(k);
-                              return next;
-                            });
-                          }}
-                        />
-                      </Td>
-                      <Td>
-                        <span className="text-ink">{d.title}</span>
-                        <span
-                          className="ml-2 text-[11px]"
-                          style={{ color: STATE_META.ai_paused.color }}
-                          title={d.evidence.join("\n")}
-                        >
-                          {d.verdict}
-                        </span>
-                      </Td>
-                      <Td>
-                        <span className="font-mono text-[11px] text-muted">
-                          {d.confidence.toFixed(2)}
-                        </span>
-                      </Td>
-                      <Td>
-                        <span className="font-mono text-[11px] text-muted">
-                          {fmtDate(d.wakeAt)}
-                        </span>
-                      </Td>
-                      <Td>
-                        <span className="flex justify-end">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            title="Override AI & resume"
-                            onClick={() =>
-                              resume.mutate({
-                                ref: { source: d.source, kind: d.kind, id: d.targetId },
-                                body: { overrideAi: true },
-                              })
-                            }
-                          >
-                            <Play size={12} />
-                            Override
-                          </Button>
-                        </span>
-                      </Td>
-                    </tr>
-                  );
-                })}
-              </DataTable>
-            )}
+                <Play size={12} />
+              </Button>
+            </div>
           </div>
+        ))}
+
+        {sourceManual.map((item) => (
+          <div
+            key={`manual:${item.kind}:${item.targetId}`}
+            className="border-b border-line px-4 py-3 last:border-b-0"
+          >
+            <div className="flex items-start gap-3">
+              <Pause className="mt-0.5 shrink-0 text-userpaused" size={13} />
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-[12px] font-medium text-ink">{item.title}</div>
+                <div className="mt-0.5 text-[10px] text-muted">
+                  {item.note ?? "Manually paused"}
+                </div>
+                <div className="mt-1.5 flex flex-wrap gap-x-3 font-mono text-[10px] text-muted">
+                  <span>paused {relTime(item.since)}</span>
+                  <span>
+                    {item.until
+                      ? `wakes ${relTime(item.until)} · ${fmtDate(item.until)}`
+                      : "indefinite"}
+                  </span>
+                </div>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                title="Resume"
+                onClick={() =>
+                  resume.mutate({
+                    ref: { source: item.source, kind: item.kind, id: item.targetId },
+                  })
+                }
+              >
+                <Play size={12} />
+              </Button>
+            </div>
+          </div>
+        ))}
+
+        {sourceAi.length === 0 && sourceManual.length === 0 ? (
+          <EmptyState
+            message="No paused titles."
+            hint="Everything is eligible or already resolved."
+          />
         ) : null}
-      </Panel>
-    </>
+      </div>
+    </section>
   );
 }

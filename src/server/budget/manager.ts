@@ -19,7 +19,8 @@ const RETENTION_MS = 30 * 24 * HOUR_MS;
 export type ProwlarrBudgetApi = Pick<
   ProwlarrClient,
   "getIndexers" | "getIndexerStats" | "getIndexerStatus"
->;
+> &
+  Partial<Pick<ProwlarrClient, "getHistorySince">>;
 
 export type EstimateInput = { kind: "tv" | "movie"; searchOps: number; anime?: boolean };
 
@@ -40,6 +41,14 @@ export type IndexerBudgetStatus = {
   forecastNextHorizon: number;
   target: number | null;
   huntRatePerHour: number | null;
+  trailing24hGrabs: number;
+  attribution: {
+    observedSonarr: number;
+    observedRadarr: number;
+    observedOther: number;
+    huntSonarr: number;
+    huntRadarr: number;
+  };
   canHuntNow: boolean;
   inBackoff: boolean;
   excluded: boolean;
@@ -56,6 +65,8 @@ type ControllerState = {
   /** Null for unlimited indexers (never gated). */
   target: number | null;
   huntRatePerHour: number | null;
+  trailing24hGrabs: number;
+  attribution: IndexerBudgetStatus["attribution"];
 };
 
 /**
@@ -100,6 +111,7 @@ export class BudgetManager {
       const values = {
         name: ix.name,
         enabled: ix.enable,
+        priority: ix.priority,
         queryLimit: ix.queryLimit,
         grabLimit: ix.grabLimit,
         supportsTv: ix.supportsTv,
@@ -182,6 +194,14 @@ export class BudgetManager {
       .where(lt(budgetBuckets.hourUtc, hourUtc - FORECAST_WINDOW_HOURS - 24))
       .run();
 
+    if (this.prowlarr.getHistorySince) {
+      try {
+        await this.refreshSourceAttribution(now);
+      } catch (err) {
+        this.log.warn({ err }, "prowlarr history attribution refresh failed; keeping prior data");
+      }
+    }
+
     this.bus.emit("budget.updated", { indexers: this.getStatus() });
   }
 
@@ -240,7 +260,11 @@ export class BudgetManager {
   }
 
   /** Record a dispatched command: pending self-estimates + hunt attribution in the current bucket. */
-  recordDispatch(estimates: Map<number, number>, attemptId: number): void {
+  recordDispatch(
+    estimates: Map<number, number>,
+    attemptId: number,
+    source: "sonarr" | "radarr",
+  ): void {
     const now = this.now();
     const hourUtc = Math.floor(now / HOUR_MS);
     for (const [indexerId, queries] of estimates) {
@@ -248,10 +272,27 @@ export class BudgetManager {
       this.db.insert(pendingSelfEstimates).values({ indexerId, at: now, queries, attemptId }).run();
       this.db
         .insert(budgetBuckets)
-        .values({ indexerId, hourUtc, observedQueries: 0, observedGrabs: 0, huntQueries: queries })
+        .values({
+          indexerId,
+          hourUtc,
+          observedQueries: 0,
+          observedGrabs: 0,
+          huntQueries: queries,
+          huntSonarrQueries: source === "sonarr" ? queries : 0,
+          huntRadarrQueries: source === "radarr" ? queries : 0,
+        })
         .onConflictDoUpdate({
           target: [budgetBuckets.indexerId, budgetBuckets.hourUtc],
-          set: { huntQueries: sql`${budgetBuckets.huntQueries} + ${queries}` },
+          set: {
+            huntQueries: sql`${budgetBuckets.huntQueries} + ${queries}`,
+            ...(source === "sonarr"
+              ? {
+                  huntSonarrQueries: sql`${budgetBuckets.huntSonarrQueries} + ${queries}`,
+                }
+              : {
+                  huntRadarrQueries: sql`${budgetBuckets.huntRadarrQueries} + ${queries}`,
+                }),
+          },
         })
         .run();
     }
@@ -283,6 +324,8 @@ export class BudgetManager {
           forecastNextHorizon: c.forecast,
           target: c.target,
           huntRatePerHour: c.huntRatePerHour,
+          trailing24hGrabs: c.trailing24hGrabs,
+          attribution: c.attribution,
           canHuntNow,
           inBackoff: ix.inBackoff,
           excluded: excluded.has(ix.id),
@@ -300,9 +343,23 @@ export class BudgetManager {
     let observed24 = 0;
     let hunt24 = 0;
     let huntHourSpend = 0;
+    let trailing24hGrabs = 0;
+    const attribution: IndexerBudgetStatus["attribution"] = {
+      observedSonarr: 0,
+      observedRadarr: 0,
+      observedOther: 0,
+      huntSonarr: 0,
+      huntRadarr: 0,
+    };
     for (const b of buckets24) {
       observed24 += b.observedQueries;
+      trailing24hGrabs += b.observedGrabs;
       hunt24 += b.huntQueries;
+      attribution.observedSonarr += b.sonarrQueries;
+      attribution.observedRadarr += b.radarrQueries;
+      attribution.observedOther += b.otherQueries;
+      attribution.huntSonarr += b.huntSonarrQueries;
+      attribution.huntRadarr += b.huntRadarrQueries;
       if (b.hourUtc === currentHour) huntHourSpend = b.huntQueries;
     }
     const pending = this.db
@@ -328,6 +385,8 @@ export class BudgetManager {
         forecast,
         target: null,
         huntRatePerHour: null,
+        trailing24hGrabs,
+        attribution,
       };
     }
     const cap = ix.queryLimit;
@@ -346,7 +405,85 @@ export class BudgetManager {
       forecast,
       target,
       huntRatePerHour,
+      trailing24hGrabs,
+      attribution,
     };
+  }
+
+  private async refreshSourceAttribution(now: number): Promise<void> {
+    if (!this.prowlarr.getHistorySince) return;
+    const since = now - 24 * HOUR_MS;
+    const startHour = Math.floor(since / HOUR_MS);
+    const records = await this.prowlarr.getHistorySince(since);
+    const grouped = new Map<
+      string,
+      {
+        indexerId: number;
+        hourUtc: number;
+        sonarr: number;
+        radarr: number;
+        other: number;
+        grabs: number;
+      }
+    >();
+    for (const record of records) {
+      const hourUtc = Math.floor(record.at / HOUR_MS);
+      const key = `${record.indexerId}:${hourUtc}`;
+      const bucket = grouped.get(key) ?? {
+        indexerId: record.indexerId,
+        hourUtc,
+        sonarr: 0,
+        radarr: 0,
+        other: 0,
+        grabs: 0,
+      };
+      if (record.eventType === "releaseGrabbed") {
+        bucket.grabs += 1;
+        grouped.set(key, bucket);
+        continue;
+      }
+      const source = record.source.toLowerCase();
+      if (source === "sonarr") bucket.sonarr += 1;
+      else if (source === "radarr") bucket.radarr += 1;
+      else bucket.other += 1;
+      grouped.set(key, bucket);
+    }
+
+    this.db
+      .update(budgetBuckets)
+      .set({
+        observedQueries: 0,
+        observedGrabs: 0,
+        sonarrQueries: 0,
+        radarrQueries: 0,
+        otherQueries: 0,
+      })
+      .where(gte(budgetBuckets.hourUtc, startHour))
+      .run();
+    for (const bucket of grouped.values()) {
+      this.db
+        .insert(budgetBuckets)
+        .values({
+          indexerId: bucket.indexerId,
+          hourUtc: bucket.hourUtc,
+          observedQueries: bucket.sonarr + bucket.radarr + bucket.other,
+          observedGrabs: bucket.grabs,
+          sonarrQueries: bucket.sonarr,
+          radarrQueries: bucket.radarr,
+          otherQueries: bucket.other,
+        })
+        .onConflictDoUpdate({
+          target: [budgetBuckets.indexerId, budgetBuckets.hourUtc],
+          set: {
+            observedQueries: bucket.sonarr + bucket.radarr + bucket.other,
+            observedGrabs: bucket.grabs,
+            sonarrQueries: bucket.sonarr,
+            radarrQueries: bucket.radarr,
+            otherQueries: bucket.other,
+          },
+        })
+        .run();
+    }
   }
 
   /**
