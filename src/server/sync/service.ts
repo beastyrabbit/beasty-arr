@@ -443,6 +443,7 @@ export class SyncService {
         seasonNumber: ep.seasonNumber,
         derived,
         hasFile: ep.hasFile,
+        fileImportedAt: ep.fileImportedAt,
         label: `${meta.title} ${episodeCode(ep.seasonNumber, ep.episodeNumber)}`,
         now,
       });
@@ -579,6 +580,7 @@ export class SyncService {
         seasonNumber: ep.seasonNumber,
         derived,
         hasFile: row.hasFile,
+        fileImportedAt: row.fileImportedAt ?? null,
         label: `${meta.title} ${episodeCode(ep.seasonNumber, ep.episodeNumber)}`,
         now,
       });
@@ -599,6 +601,7 @@ export class SyncService {
       seasonNumber: null,
       derived,
       hasFile: row.hasFile,
+      fileImportedAt: row.fileImportedAt ?? null,
       label,
       now,
     });
@@ -618,11 +621,22 @@ export class SyncService {
     seasonNumber: number | null;
     derived: HuntState;
     hasFile: boolean;
+    fileImportedAt: number | null;
     label: string;
     now: number;
   }): void {
-    const { source, targetKind, targetId, seriesId, seasonNumber, derived, hasFile, label, now } =
-      args;
+    const {
+      source,
+      targetKind,
+      targetId,
+      seriesId,
+      seasonNumber,
+      derived,
+      hasFile,
+      fileImportedAt,
+      label,
+      now,
+    } = args;
     const existing = this.getHuntStateRow(source, targetKind, targetId);
     if (!existing) {
       this.db
@@ -646,8 +660,17 @@ export class SyncService {
       patch.seriesId = seriesId;
       patch.seasonNumber = seasonNumber;
     }
-    // A mirrored file means any pending grab has landed (or is moot).
-    if (hasFile && existing.awaitingImportSince != null) patch.awaitingImportSince = null;
+    // Only a file imported after the grab proves that the pending download
+    // landed. Upgrade targets already have an older file, which must not clear
+    // the guard while the replacement is still downloading.
+    if (
+      hasFile &&
+      existing.awaitingImportSince != null &&
+      fileImportedAt != null &&
+      fileImportedAt >= existing.awaitingImportSince
+    ) {
+      patch.awaitingImportSince = null;
+    }
     if (stateChanged) {
       patch.state = next;
       patch.stateChangedAt = now;

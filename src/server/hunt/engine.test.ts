@@ -100,6 +100,7 @@ class FakeSync implements SyncRefreshPort {
   seriesRefreshes: number[] = [];
   movieRefreshes: number[] = [];
   onSeriesRefresh: ((seriesId: number) => void) | null = null;
+  onMovieRefresh: ((movieId: number) => void) | null = null;
 
   async targetedRefreshSeries(seriesId: number): Promise<void> {
     this.seriesRefreshes.push(seriesId);
@@ -107,6 +108,7 @@ class FakeSync implements SyncRefreshPort {
   }
   async targetedRefreshMovie(movieId: number): Promise<void> {
     this.movieRefreshes.push(movieId);
+    this.onMovieRefresh?.(movieId);
   }
 }
 
@@ -528,6 +530,36 @@ describe("runCycle — live dispatch", () => {
     });
     await manual.engine.runCycle();
     expect(manualCalls).toEqual([{ keys: ["sonarr:2"], force: true }]);
+  });
+
+  it("requests selective AI for a movie group even when one target was grabbed", async () => {
+    const { db, engine, settings, sync } = makeHarness();
+    settings.update({ dryRun: false });
+    const huntIds = [13_100, 13_866, 13_556].map((id) => seedMovie(db, { id }));
+    const calls: { keys: string[]; force: boolean }[] = [];
+    engine.onAiCheckRequested = (keys, force) => calls.push({ keys, force });
+    sync.onMovieRefresh = (movieId) => {
+      if (movieId !== 13_100) return;
+      db.update(huntState)
+        .set({ awaitingImportSince: T0 })
+        .where(eq(huntState.id, huntIds[0]))
+        .run();
+      const attempt = db.select().from(searchAttempts).get();
+      if (!attempt) throw new Error("search attempt missing");
+      db.update(searchAttempts)
+        .set({ result: "grabbed" })
+        .where(eq(searchAttempts.id, attempt.id))
+        .run();
+    };
+
+    await engine.runCycle();
+
+    expect(db.select().from(searchAttempts).get()?.result).toBe("grabbed");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.force).toBe(false);
+    expect(new Set(calls[0]?.keys)).toEqual(
+      new Set(["radarr:13100", "radarr:13866", "radarr:13556"]),
+    );
   });
 
   it("consumes one forced AI recheck only once across a multi-command series request", async () => {

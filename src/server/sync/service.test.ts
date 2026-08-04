@@ -400,6 +400,60 @@ describe("incrementalSync", () => {
     expect(h.cursor("sonarr.lastHistoryId")).toBe("41");
   });
 
+  it("keeps a pending upgrade grab while Radarr still mirrors the older file", async () => {
+    const h = makeHarness();
+    const movieId = 13_100;
+    const oldImportAt = Date.UTC(2026, 6, 1, 12, 0, 0);
+    const grabAt = Date.UTC(2026, 7, 4, 9, 36, 3);
+    h.clock.now = grabAt + 7_000;
+    h.radarr.profiles = [{ id: 20, name: "Movie German", upgradeAllowed: true }];
+    h.radarr.moviesList = [
+      movieDto({
+        id: movieId,
+        title: "Wayne's World 2",
+        year: 1993,
+        hasFile: true,
+        movieFileId: 8_500,
+        movieFile: { id: 8_500, languages: [ENGLISH], dateAdded: iso(oldImportAt) },
+      }),
+    ];
+    await h.svc.fullReconcile();
+    expect(h.huntRow("radarr", "movie", movieId)?.state).toBe("non_german");
+
+    h.radarr.history.push({
+      id: 24_544,
+      eventType: "grabbed",
+      movieId,
+      date: iso(grabAt),
+    });
+    await h.svc.incrementalSync();
+    expect(h.huntRow("radarr", "movie", movieId)?.awaitingImportSince).toBe(grabAt);
+
+    // This is the production race: the post-search refresh still sees the old
+    // English file while the German replacement is downloading.
+    await h.svc.targetedRefreshMovie(movieId);
+    expect(h.huntRow("radarr", "movie", movieId)?.awaitingImportSince).toBe(grabAt);
+    expect(h.huntRow("radarr", "movie", movieId)?.state).toBe("non_german");
+
+    h.radarr.moviesList = [
+      movieDto({
+        id: movieId,
+        title: "Wayne's World 2",
+        year: 1993,
+        hasFile: true,
+        movieFileId: 8_501,
+        movieFile: {
+          id: 8_501,
+          languages: [GERMAN, ENGLISH],
+          dateAdded: iso(grabAt + HOUR),
+        },
+      }),
+    ];
+    await h.svc.targetedRefreshMovie(movieId);
+    expect(h.huntRow("radarr", "movie", movieId)?.awaitingImportSince).toBeNull();
+    expect(h.huntRow("radarr", "movie", movieId)?.state).toBe("german");
+  });
+
   it("import event triggers a targeted refresh and emits a german-achieved win", async () => {
     const h = makeHarness();
     seedStandardFixture(h);

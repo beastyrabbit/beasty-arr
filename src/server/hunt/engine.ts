@@ -681,7 +681,7 @@ export class HuntEngine {
     if (trigger === "forced") this.markManualRequestsDone(now);
     const subjectKeys = this.subjectKeysFor(cmd.covered);
     if (forcedAiRecheck) this.onAiCheckRequested?.(subjectKeys, true);
-    else if (result === "no_grab" && !manualAiPending) {
+    else if (result !== "error" && !manualAiPending) {
       this.onAiCheckRequested?.(subjectKeys, false);
     }
     this.bus.emit("queue.updated", { attemptId });
