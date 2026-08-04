@@ -180,6 +180,8 @@ describe("status + dashboard", () => {
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body.engine.state).toBe("running");
+    expect(body.engine.holdReason).toBeNull();
+    expect(body.engine.heldSince).toBeNull();
     expect(body.counts.total.german).toBe(4); // ep11, ep12, ep22, movie102
     expect(body.counts.sonarr.german).toBe(3);
     expect(body.arrHealth).toEqual({ sonarr: "unknown", radarr: "unknown", prowlarr: "unknown" });
@@ -293,6 +295,8 @@ describe("hunt + engine", () => {
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body.engine).toBe("running");
+    expect(body.holdReason).toBeNull();
+    expect(body.heldSince).toBeNull();
     expect(body.queueGate.threshold).toBe(10);
     expect(body.current).toBeNull();
   });

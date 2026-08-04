@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import type { FastifyBaseLogger } from "fastify";
 import { afterEach, describe, expect, it } from "vitest";
 import { type AppSettings, SettingsService } from "../config/settings.js";
@@ -226,6 +226,7 @@ function makeOracle(
 ) {
   return new OracleService(ctx.db, ctx.settings, runner, ctx.bus, noopLog, {
     now: () => NOW,
+    sleep: async () => undefined,
     ...opts,
   });
 }
@@ -300,6 +301,20 @@ describe("OracleService.selectSubjects (trigger policy)", () => {
       .run();
     const oracle = makeOracle(ctx, scriptedRunner().runner);
     expect(oracle.selectSubjects().map((subject) => subject.subjectKey)).not.toContain("sonarr:1");
+  });
+
+  it("skips subjects while a matching grab is awaiting import", () => {
+    const ctx = setup();
+    seedSeriesSubject(ctx.db, 1, { searchCount: 1 });
+    seedMovieSubject(ctx.db, 2, { searchCount: 1 });
+    ctx.db
+      .update(huntState)
+      .set({ awaitingImportSince: NOW - 30_000 })
+      .where(inArray(huntState.targetId, [101, 2]))
+      .run();
+
+    const oracle = makeOracle(ctx, scriptedRunner().runner);
+    expect(oracle.selectSubjects()).toEqual([]);
   });
 
   it("scopes a series check to seasons that have actually failed", () => {
@@ -502,14 +517,20 @@ describe("OracleService.runDailyBatch", () => {
 });
 
 describe("OracleService.checkAfterFailedSearch", () => {
-  it("checks only the failed subject immediately and respects dry-run", async () => {
+  it("waits for import reconciliation, checks only the failed subject, and respects dry-run", async () => {
     const live = setup();
     seedSeriesSubject(live.db, 1, { searchCount: 1 });
     seedSeriesSubject(live.db, 2, { searchCount: 1 });
     const liveRunner = scriptedRunner(reportVerdict({ verdict: "exists" }));
-    const liveOracle = makeOracle(live, liveRunner.runner);
+    const waits: number[] = [];
+    const liveOracle = makeOracle(live, liveRunner.runner, {
+      sleep: async (ms) => {
+        waits.push(ms);
+      },
+    });
     const result = await liveOracle.checkAfterFailedSearch(["sonarr:2"]);
     expect(result).toMatchObject({ selected: 1, checked: 1, failed: 0 });
+    expect(waits).toEqual([2 * 60 * 1000]);
     expect(live.db.select().from(aiVerdicts).all()).toHaveLength(1);
     expect(live.db.select().from(aiVerdicts).get()?.subjectKey).toBe("sonarr:2");
 
@@ -521,6 +542,28 @@ describe("OracleService.checkAfterFailedSearch", () => {
       skippedReason: "dry_run",
     });
     expect(dryRunner.calls).toHaveLength(0);
+  });
+
+  it("does not spend an AI check when a delayed grab appears during the grace period", async () => {
+    const ctx = setup();
+    seedSeriesSubject(ctx.db, 1, { searchCount: 1 });
+    const runner = scriptedRunner(reportVerdict());
+    const oracle = makeOracle(ctx, runner.runner, {
+      sleep: async () => {
+        ctx.db
+          .update(huntState)
+          .set({ awaitingImportSince: NOW })
+          .where(eq(huntState.targetId, 101))
+          .run();
+      },
+    });
+
+    expect(await oracle.checkAfterFailedSearch(["sonarr:1"])).toMatchObject({
+      selected: 0,
+      checked: 0,
+      failed: 0,
+    });
+    expect(runner.calls).toHaveLength(0);
   });
 });
 

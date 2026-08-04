@@ -24,6 +24,7 @@ import type { PiRunner, ProviderId } from "./providers.js";
 export type AiVerdictRow = typeof aiVerdicts.$inferSelect;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_POST_SEARCH_GRACE_MS = 2 * 60 * 1000;
 /** Sentinel for manual invalidation: non-null "superseded" without a successor row. */
 export const INVALIDATED_SENTINEL = 0;
 
@@ -58,6 +59,8 @@ export type OracleBatchResult = {
 
 export type OracleServiceOptions = {
   now?: () => number;
+  sleep?: (ms: number) => Promise<void>;
+  postSearchGraceMs?: number;
   searxngUrl?: string;
   /** Injected into the fetch_url tool (tests use fakes; prod omits). */
   fetchImpl?: typeof fetch;
@@ -69,6 +72,8 @@ export class OracleService {
   onVerdict?: (row: AiVerdictRow) => void;
 
   private readonly now: () => number;
+  private readonly sleep: (ms: number) => Promise<void>;
+  private readonly postSearchGraceMs: number;
   private readonly automaticChecksInFlight = new Set<string>();
   private automaticCheckChain: Promise<void> = Promise.resolve();
 
@@ -81,6 +86,8 @@ export class OracleService {
     private readonly opts: OracleServiceOptions = {},
   ) {
     this.now = opts.now ?? Date.now;
+    this.sleep = opts.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+    this.postSearchGraceMs = opts.postSearchGraceMs ?? DEFAULT_POST_SEARCH_GRACE_MS;
   }
 
   /**
@@ -196,6 +203,7 @@ export class OracleService {
           eq(huntState.source, "sonarr"),
           eq(huntState.targetKind, "episode"),
           inArray(huntState.state, [...HUNTABLE_STATES]),
+          isNull(huntState.awaitingImportSince),
         ),
       )
       .all();
@@ -252,6 +260,7 @@ export class OracleService {
           eq(huntState.source, "radarr"),
           eq(huntState.targetKind, "movie"),
           inArray(huntState.state, [...HUNTABLE_STATES]),
+          isNull(huntState.awaitingImportSince),
         ),
       )
       .all();
@@ -310,9 +319,19 @@ export class OracleService {
    * never spends AI tokens; explicit human rechecks use recheckSubject instead.
    */
   async checkAfterFailedSearch(subjectKeys: string[]): Promise<OracleBatchResult> {
-    const task = this.automaticCheckChain.then(() =>
-      this.runAutomaticChecksAfterFailure(subjectKeys),
-    );
+    const settings = this.settings.get();
+    if (settings.aiProvider === "off") {
+      return { selected: 0, checked: 0, failed: 0, skippedReason: "provider_off" };
+    }
+    if (settings.dryRun) {
+      return { selected: 0, checked: 0, failed: 0, skippedReason: "dry_run" };
+    }
+    const graceEndsAt = this.now() + this.postSearchGraceMs;
+    const task = this.automaticCheckChain.then(async () => {
+      const remainingGraceMs = graceEndsAt - this.now();
+      if (remainingGraceMs > 0) await this.sleep(remainingGraceMs);
+      return this.runAutomaticChecksAfterFailure(subjectKeys);
+    });
     this.automaticCheckChain = task.then(
       () => undefined,
       () => undefined,

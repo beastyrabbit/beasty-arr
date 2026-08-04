@@ -148,6 +148,8 @@ export function registerStatusRoutes(app: FastifyInstance, ctx: AppContext): voi
         state: isEnginePaused(ctx) ? "paused" : "running",
         nextTickAt: engineView.nextTickAt ?? null,
         lastTickAt: engineView.lastCycleAt ?? null,
+        holdReason: engineView.holdReason ?? null,
+        heldSince: engineView.heldSince ?? null,
       },
       counts,
       germanPct: germanPct(counts.total),

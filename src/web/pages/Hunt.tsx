@@ -76,7 +76,9 @@ export function HuntPage() {
               <span className="text-[12px] text-muted">
                 {status.data?.engine === "paused"
                   ? "Engine paused."
-                  : `Idle — next tick ${relTime(status.data?.nextTickAt ?? null)}`}
+                  : status.data?.holdReason
+                    ? `Held ${relTime(status.data.heldSince)} — ${status.data.holdReason}`
+                    : `Idle — next tick ${relTime(status.data?.nextTickAt ?? null)}`}
               </span>
               {status.data ? (
                 <span className="ml-auto font-mono text-[11px] text-faint">

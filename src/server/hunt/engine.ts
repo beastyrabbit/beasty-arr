@@ -125,6 +125,7 @@ export type EngineStatusView = {
   nextTickAt?: number;
   lastCycleAt?: number;
   holdReason?: string;
+  heldSince?: number;
   inFlight: { label: string; source: ArrSource; startedAt: number }[];
 };
 
@@ -250,6 +251,9 @@ export class HuntEngine {
   private cycleRunning = false;
   private lastCycleAt: number | null = null;
   private holdReason: string | null = null;
+  private holdKey: string | null = null;
+  private heldSince: number | null = null;
+  private holdObservedThisCycle = false;
   private nextTickAtOverride: number | null = null;
   private warnedNoBudget = false;
   private readonly inFlight = new Map<
@@ -283,7 +287,7 @@ export class HuntEngine {
     if (this.cycleRunning) return;
     this.cycleRunning = true;
     const cycleStart = this.now();
-    this.holdReason = null;
+    this.holdObservedThisCycle = false;
     try {
       const cfg = this.settings.get();
       this.expireUserPauses();
@@ -313,23 +317,7 @@ export class HuntEngine {
         return;
       }
 
-      let queueTotal = 0;
-      let queueGate = false;
-      for (const { source, client } of reachable) {
-        try {
-          queueTotal += (await client.getQueueStats()).totalRecords;
-        } catch (err) {
-          this.log.warn({ err, source }, "queue stats failed — gating scheduled hunts");
-          queueGate = true;
-        }
-      }
-      if (queueTotal > cfg.queueGateThreshold) queueGate = true;
-      if (queueGate) {
-        this.setHold(
-          `download queue gate: ${queueTotal} items > threshold ${cfg.queueGateThreshold}`,
-          { type: "hunt.search", level: "info" },
-        );
-      }
+      const scheduledSources = await this.openScheduledSources(reachable, cfg.queueGateThreshold);
 
       if (this.budget) {
         try {
@@ -345,7 +333,7 @@ export class HuntEngine {
       const reachableSources = new Set(reachable.map((r) => r.source));
       const nowMs = this.now();
       const manual = this.loadManualBatch(reachableSources, cfg, nowMs);
-      const scheduled = queueGate ? [] : this.loadScheduledCandidates(reachableSources, cfg, nowMs);
+      const scheduled = this.loadScheduledCandidates(scheduledSources, cfg, nowMs);
       const plan: { cmd: PlannedCommand; trigger: SearchTrigger }[] = [
         ...groupCommands(manual).map((cmd) => ({ cmd, trigger: "forced" as const })),
         ...groupCommands(scheduled).map((cmd) => ({ cmd, trigger: "scheduled" as const })),
@@ -392,12 +380,43 @@ export class HuntEngine {
         await Promise.all(chains.values());
       }
     } finally {
+      if (!this.holdObservedThisCycle) {
+        this.holdReason = null;
+        this.holdKey = null;
+        this.heldSince = null;
+      }
       this.lastCycleAt = cycleStart;
       this.cycleRunning = false;
     }
   }
 
   // ============ dispatch + polling ============
+
+  private async openScheduledSources(
+    reachable: ReachableClient[],
+    threshold: number,
+  ): Promise<Set<ArrSource>> {
+    const open = new Set<ArrSource>();
+    const gated: string[] = [];
+    for (const { source, client } of reachable) {
+      try {
+        const size = (await client.getQueueStats()).totalRecords;
+        if (size <= threshold) open.add(source);
+        else gated.push(`${source} ${size} > ${threshold}`);
+      } catch (err) {
+        this.log.warn({ err, source }, "queue stats failed — gating this arr's scheduled hunts");
+        gated.push(`${source} queue unavailable`);
+      }
+    }
+    if (gated.length > 0) {
+      this.setHold(`download queue gate: ${gated.join(", ")}`, {
+        type: "hunt.search",
+        level: "info",
+        key: "queue_gate",
+      });
+    }
+    return open;
+  }
 
   private insertAttempt(
     cmd: PlannedCommand,
@@ -1439,6 +1458,7 @@ export class HuntEngine {
       nextTickAt: nextTickAt ?? undefined,
       lastCycleAt: this.lastCycleAt ?? undefined,
       holdReason: this.holdReason ?? undefined,
+      heldSince: this.heldSince ?? undefined,
       inFlight: [...this.inFlight.values()],
     };
   }
@@ -1615,9 +1635,13 @@ export class HuntEngine {
 
   private setHold(
     reason: string,
-    opts: { type?: string; level?: "info" | "warn"; logActivity?: boolean } = {},
+    opts: { type?: string; level?: "info" | "warn"; logActivity?: boolean; key?: string } = {},
   ): void {
+    const key = opts.key ?? reason;
+    if (this.holdKey !== key || this.heldSince === null) this.heldSince = this.now();
+    this.holdKey = key;
     this.holdReason = reason;
+    this.holdObservedThisCycle = true;
     this.log.info({ reason }, "hunt cycle held");
     if (opts.logActivity !== false) {
       this.logActivity(opts.level ?? "warn", opts.type ?? "budget", `Hunt held: ${reason}`, {

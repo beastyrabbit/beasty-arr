@@ -195,6 +195,8 @@ export function registerHuntRoutes(app: FastifyInstance, ctx: AppContext): void 
       dryRun: cfg.dryRun,
       nextTickAt: view.nextTickAt ?? null,
       lastTickAt: view.lastCycleAt ?? null,
+      holdReason: view.holdReason ?? null,
+      heldSince: view.heldSince ?? null,
       current: currentHunt(ctx),
       queueGate: {
         threshold,

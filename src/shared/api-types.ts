@@ -64,7 +64,13 @@ export type ArrHealthValue = "up" | "down" | "unknown";
 
 export type DashboardSummary = {
   dryRun: boolean;
-  engine: { state: EngineState; nextTickAt: number | null; lastTickAt: number | null };
+  engine: {
+    state: EngineState;
+    nextTickAt: number | null;
+    lastTickAt: number | null;
+    holdReason: string | null;
+    heldSince: number | null;
+  };
   counts: { total: StateCounts; sonarr: StateCounts; radarr: StateCounts };
   /** german / (total − unreleased − ai_paused − unmonitored − ignored), 0..100. */
   germanPct: number;
@@ -387,6 +393,8 @@ export type HuntStatusResponse = {
   dryRun: boolean;
   nextTickAt: number | null;
   lastTickAt: number | null;
+  holdReason: string | null;
+  heldSince: number | null;
   current: NowHunting | null;
   queueGate: {
     threshold: number;

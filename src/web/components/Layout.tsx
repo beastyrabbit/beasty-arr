@@ -54,6 +54,10 @@ export function AppLayout() {
   }, []);
 
   useEffect(() => {
+    document.title = `beasty-arr v${__APP_VERSION__}`;
+  }, []);
+
+  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
@@ -87,6 +91,7 @@ export function AppLayout() {
           <Link to="/" className="text-[15px] font-semibold tracking-tight text-ink">
             beasty<span className="text-accent">-arr</span>
           </Link>
+          <span className="font-mono text-[10px] text-faint">v{__APP_VERSION__}</span>
           <button
             type="button"
             onClick={() => setPaletteOpen(true)}

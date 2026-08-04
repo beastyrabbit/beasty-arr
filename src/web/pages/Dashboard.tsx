@@ -140,7 +140,10 @@ export function DashboardPage() {
               </div>
             ) : (
               <div className="flex items-center gap-2 text-[12px] text-muted">
-                <LedDot state="off" /> Idle — next tick {relTime(s?.engine.nextTickAt ?? null)}
+                <LedDot state="off" />
+                {s?.engine.holdReason
+                  ? `Held ${relTime(s.engine.heldSince)} — ${s.engine.holdReason}`
+                  : `Idle — next tick ${relTime(s?.engine.nextTickAt ?? null)}`}
               </div>
             )}
             <ul className="mt-2 space-y-1">

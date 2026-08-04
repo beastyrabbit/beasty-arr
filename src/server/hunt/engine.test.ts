@@ -648,6 +648,37 @@ describe("runCycle — gates and holds", () => {
     expect(engine.engineStatus().holdReason).toContain("queue gate");
   });
 
+  it("gates scheduled hunts per arr and preserves the hold start across queue-size changes", async () => {
+    const { db, engine, settings, sonarr, radarr, clock } = makeHarness();
+    settings.update({ dryRun: false, maxCommandsPerCycle: 2 });
+    sonarr.queueTotal = 20;
+    seedSeries(db, { id: 1 });
+    seedEpisode(db, { id: 11, seriesId: 1 });
+    seedMovie(db, { id: 9 });
+
+    await engine.runCycle();
+    expect(sonarr.sent).toHaveLength(0);
+    expect(radarr.sent).toEqual([{ name: "MoviesSearch", movieIds: [9] }]);
+    expect(db.select().from(searchAttempts).all()).toMatchObject([{ trigger: "scheduled" }]);
+    const firstHold = engine.engineStatus();
+    expect(firstHold.holdReason).toContain("sonarr 20 > 10");
+    expect(firstHold.heldSince).toBe(T0);
+
+    sonarr.queueTotal = 30;
+    await engine.runCycle();
+    expect(engine.engineStatus()).toMatchObject({
+      holdReason: "download queue gate: sonarr 30 > 10",
+      heldSince: T0,
+    });
+
+    sonarr.queueTotal = 0;
+    await engine.runCycle();
+    expect(sonarr.sent).toEqual([{ name: "EpisodeSearch", episodeIds: [11] }]);
+    expect(engine.engineStatus().holdReason).toBeUndefined();
+    expect(engine.engineStatus().heldSince).toBeUndefined();
+    expect(clock.ms).toBeGreaterThan(T0);
+  });
+
   it("skips the cycle when all configured arrs are unreachable", async () => {
     const { db, engine, settings, sonarr, radarr } = makeHarness();
     settings.update({ dryRun: false });
