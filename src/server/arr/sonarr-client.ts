@@ -79,6 +79,7 @@ export type SonarrHistoryRecord = {
 
 type SonarrQueueRecord = {
   id: number;
+  episodeId?: number;
   title?: string;
   size?: number;
   sizeLeft?: number;
@@ -581,18 +582,34 @@ export class SonarrClient {
   }
 
   async getQueueDownloadIds(): Promise<Set<string>> {
-    const ids = new Set<string>();
+    return (await this.getQueueSnapshot()).downloadIds;
+  }
+
+  async getQueueSnapshot(): Promise<{ downloadIds: Set<string>; targetIds: Set<number> }> {
+    const downloadIds = new Set<string>();
+    const targetIds = new Set<number>();
     const pageSize = 1_000;
     for (let page = 1; ; page += 1) {
       const response = await this.request<ArrPaged<SonarrQueueRecord>>(
-        appendQuery("/api/v3/queue", { page, pageSize }),
+        appendQuery("/api/v3/queue", {
+          page,
+          pageSize,
+          includeUnknownSeriesItems: true,
+          includeSeries: true,
+          includeEpisode: true,
+        }),
       );
       for (const record of response.records ?? []) {
-        if (record.downloadId) ids.add(record.downloadId);
+        if (record.downloadId) downloadIds.add(record.downloadId);
+        if (record.episodeId !== undefined) targetIds.add(record.episodeId);
+        if (record.episode?.id !== undefined) targetIds.add(record.episode.id);
+        for (const episode of record.episodes ?? []) {
+          if (episode.id !== undefined) targetIds.add(episode.id);
+        }
       }
       if (page * pageSize >= (response.totalRecords ?? 0)) break;
     }
-    return ids;
+    return { downloadIds, targetIds };
   }
 
   /** EpisodeSearch/SeasonSearch/SeriesSearch payloads etc. */

@@ -539,6 +539,34 @@ describe("SonarrClient", () => {
     );
   });
 
+  it("collects queued download and episode ids across pages", async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      const page = new URL(url).searchParams.get("page");
+      return jsonResponse({
+        totalRecords: 1_001,
+        records:
+          page === "1"
+            ? [{ id: 1, downloadId: "download-1", episodeId: 101, episode: { id: 102 } }]
+            : [{ id: 2, downloadId: "download-2", episodes: [{ id: 103 }, { id: 104 }] }],
+      });
+    });
+
+    const snapshot = await client(fetchMock).getQueueSnapshot();
+
+    expect([...snapshot.downloadIds]).toEqual(["download-1", "download-2"]);
+    expect([...snapshot.targetIds]).toEqual([101, 102, 103, 104]);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "http://sonarr.local/api/v3/queue?page=1&pageSize=1000&includeUnknownSeriesItems=true&includeSeries=true&includeEpisode=true",
+      expect.any(Object),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "http://sonarr.local/api/v3/queue?page=2&pageSize=1000&includeUnknownSeriesItems=true&includeSeries=true&includeEpisode=true",
+      expect.any(Object),
+    );
+  });
+
   it("sends and polls search commands", async () => {
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
       if (url.endsWith("/api/v3/command") && init?.method === "POST") {

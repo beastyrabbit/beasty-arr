@@ -47,6 +47,7 @@ import type {
   ArrHistoryPager,
   ArrHistoryRecordDto,
   ArrImageDto,
+  ArrQueueSnapshotDto,
   QualityProfileDto,
   RadarrMovieDto,
   RadarrSyncPort,
@@ -483,28 +484,30 @@ export class SyncService {
       )
       .all();
     if (rows.length === 0) return;
-    const queueIds = new Map<ArrSource, Set<string> | null>();
+    const queueSnapshots = new Map<ArrSource, ArrQueueSnapshotDto | null>();
     const sources = new Set(rows.map((row) => row.source));
     await Promise.all(
       [...sources].map(async (source) => {
         const port = source === "sonarr" ? this.sonarr : this.radarr;
         if (!port) {
-          queueIds.set(source, null);
+          queueSnapshots.set(source, null);
           return;
         }
         try {
-          queueIds.set(source, await port.getQueueDownloadIds());
+          queueSnapshots.set(source, await port.getQueueSnapshot());
         } catch (error) {
-          queueIds.set(source, null);
+          queueSnapshots.set(source, null);
           this.log.warn({ err: error, source }, "queue lookup failed — retaining import holds");
         }
       }),
     );
     for (const row of rows) {
-      const activeIds = queueIds.get(row.source);
-      if (activeIds === null || activeIds === undefined) continue;
+      const queue = queueSnapshots.get(row.source);
+      if (queue === null || queue === undefined) continue;
       if (row.awaitingImportDownloadId) {
-        if (activeIds.has(row.awaitingImportDownloadId)) continue;
+        if (queue.downloadIds.has(row.awaitingImportDownloadId)) continue;
+      } else if (queue.targetIds.has(row.targetId)) {
+        continue;
       }
       this.db
         .update(huntState)

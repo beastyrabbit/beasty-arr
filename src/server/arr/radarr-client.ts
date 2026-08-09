@@ -390,18 +390,30 @@ export class RadarrClient {
   }
 
   async getQueueDownloadIds(): Promise<Set<string>> {
-    const ids = new Set<string>();
+    return (await this.getQueueSnapshot()).downloadIds;
+  }
+
+  async getQueueSnapshot(): Promise<{ downloadIds: Set<string>; targetIds: Set<number> }> {
+    const downloadIds = new Set<string>();
+    const targetIds = new Set<number>();
     const pageSize = 1_000;
     for (let page = 1; ; page += 1) {
       const response = await this.request<ArrPaged<RadarrQueueRecord>>(
-        appendQuery("/api/v3/queue", { page, pageSize }),
+        appendQuery("/api/v3/queue", {
+          page,
+          pageSize,
+          includeUnknownMovieItems: true,
+          includeMovie: true,
+        }),
       );
       for (const record of response.records ?? []) {
-        if (record.downloadId) ids.add(record.downloadId);
+        if (record.downloadId) downloadIds.add(record.downloadId);
+        const movieId = record.movieId ?? record.movie?.id;
+        if (movieId !== undefined) targetIds.add(movieId);
       }
       if (page * pageSize >= (response.totalRecords ?? 0)) break;
     }
-    return ids;
+    return { downloadIds, targetIds };
   }
 
   /** MoviesSearch payloads etc. */

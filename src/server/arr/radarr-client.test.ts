@@ -306,6 +306,34 @@ describe("RadarrClient", () => {
     );
   });
 
+  it("collects queued download and movie ids across pages", async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      const page = new URL(url).searchParams.get("page");
+      return jsonResponse({
+        totalRecords: 1_001,
+        records:
+          page === "1"
+            ? [{ id: 1, downloadId: "download-1", movieId: 41 }]
+            : [{ id: 2, downloadId: "download-2", movie: { id: 42 } }],
+      });
+    });
+
+    const snapshot = await client(fetchMock).getQueueSnapshot();
+
+    expect([...snapshot.downloadIds]).toEqual(["download-1", "download-2"]);
+    expect([...snapshot.targetIds]).toEqual([41, 42]);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "http://radarr.local/api/v3/queue?page=1&pageSize=1000&includeUnknownMovieItems=true&includeMovie=true",
+      expect.any(Object),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "http://radarr.local/api/v3/queue?page=2&pageSize=1000&includeUnknownMovieItems=true&includeMovie=true",
+      expect.any(Object),
+    );
+  });
+
   it("reads queue depth, commands, and wanted totals", async () => {
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
       if (url.includes("/api/v3/queue?")) {

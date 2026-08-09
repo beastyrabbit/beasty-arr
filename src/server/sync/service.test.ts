@@ -52,12 +52,16 @@ class FakeSonarr implements SonarrSyncPort {
   history: ArrHistoryRecordDto[] = [];
   calls: string[] = [];
   queueDownloadIds = new Set<string>();
+  queueTargetIds = new Set<number>();
   queueError: Error | null = null;
 
-  async getQueueDownloadIds(): Promise<Set<string>> {
-    this.calls.push("getQueueDownloadIds");
+  async getQueueSnapshot(): Promise<{ downloadIds: Set<string>; targetIds: Set<number> }> {
+    this.calls.push("getQueueSnapshot");
     if (this.queueError) throw this.queueError;
-    return new Set(this.queueDownloadIds);
+    return {
+      downloadIds: new Set(this.queueDownloadIds),
+      targetIds: new Set(this.queueTargetIds),
+    };
   }
 
   async getSeries(): Promise<SonarrSeriesDto[]> {
@@ -95,12 +99,16 @@ class FakeRadarr implements RadarrSyncPort {
   history: ArrHistoryRecordDto[] = [];
   calls: string[] = [];
   queueDownloadIds = new Set<string>();
+  queueTargetIds = new Set<number>();
   queueError: Error | null = null;
 
-  async getQueueDownloadIds(): Promise<Set<string>> {
-    this.calls.push("getQueueDownloadIds");
+  async getQueueSnapshot(): Promise<{ downloadIds: Set<string>; targetIds: Set<number> }> {
+    this.calls.push("getQueueSnapshot");
     if (this.queueError) throw this.queueError;
-    return new Set(this.queueDownloadIds);
+    return {
+      downloadIds: new Set(this.queueDownloadIds),
+      targetIds: new Set(this.queueTargetIds),
+    };
   }
 
   async getMovies(): Promise<RadarrMovieDto[]> {
@@ -679,6 +687,25 @@ describe("incrementalSync", () => {
     await h.svc.incrementalSync();
 
     expect(h.huntRow("sonarr", "episode", 103)?.awaitingImportSince).toBeNull();
+  });
+
+  it("retains a legacy hold without a download id while the same target is queued", async () => {
+    const h = makeHarness();
+    seedStandardFixture(h);
+    await h.svc.fullReconcile();
+    h.db
+      .update(huntState)
+      .set({ awaitingImportSince: T0, awaitingImportDownloadId: null })
+      .where(and(eq(huntState.targetKind, "episode"), eq(huntState.targetId, 103)))
+      .run();
+    h.sonarr.queueTargetIds.add(103);
+    h.clock.now = T0 + AWAITING_IMPORT_TIMEOUT_MS + HOUR;
+
+    await h.svc.incrementalSync();
+
+    const row = h.huntRow("sonarr", "episode", 103);
+    expect(row?.awaitingImportSince).toBe(T0);
+    expect(row?.awaitingImportDownloadId).toBeNull();
   });
 
   it("retains an expired import hold while its exact download is still queued", async () => {
