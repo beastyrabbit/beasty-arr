@@ -41,7 +41,7 @@
     "drizzle-orm": "^0.45.2",
     "fastify": "^5.11.0",
     "lucide-react": "^1.28.0",
-    "nanoid": "^6.0.0",
+    "nanoid": "^6.0.1",
     "radix-ui": "^1.6.7",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
