@@ -137,6 +137,18 @@ export type QueueEntryView = {
   score: number;
 };
 
+export type QueueSnapshotView = {
+  entries: QueueEntryView[];
+  total: number;
+  counts: {
+    sonarr: number;
+    radarr: number;
+    forced: number;
+    scheduled: number;
+    retry: number;
+  };
+};
+
 export type PausedEntryView = {
   huntStateId: number;
   label: string;
@@ -318,7 +330,11 @@ export class HuntEngine {
         return;
       }
 
-      const scheduledSources = await this.openScheduledSources(reachable, cfg.queueGateThreshold);
+      const scheduledSources = await this.openScheduledSources(
+        reachable,
+        cfg.queueGateEnabled,
+        cfg.queueGateThreshold,
+      );
 
       if (this.budget) {
         try {
@@ -347,6 +363,7 @@ export class HuntEngine {
 
       const clientBySource = new Map(reachable.map((r) => [r.source, r.client]));
       const chains = new Map<ArrSource, Promise<void>>();
+      const budgetHolds = new Set<string>();
       let dispatched = 0;
       try {
         for (const { cmd, trigger } of plan) {
@@ -362,8 +379,13 @@ export class HuntEngine {
             });
             const decision = this.budget.mayDispatch(estimates);
             if (!decision.ok) {
-              this.setHold(decision.holdReason, { type: "budget", level: "warn" });
-              break;
+              if (!budgetHolds.has(decision.holdReason)) {
+                budgetHolds.add(decision.holdReason);
+                this.setHold(decision.holdReason, { type: "budget", level: "warn" });
+              }
+              // A later, smaller command or the other arr may still fit. Budget
+              // rejection is command-scoped, not a reason to abandon the plan.
+              continue;
             }
           }
           dispatched += 1;
@@ -395,8 +417,10 @@ export class HuntEngine {
 
   private async openScheduledSources(
     reachable: ReachableClient[],
+    enabled: boolean,
     threshold: number,
   ): Promise<Set<ArrSource>> {
+    if (!enabled) return new Set(reachable.map(({ source }) => source));
     const open = new Set<ArrSource>();
     const gated: string[] = [];
     for (const { source, client } of reachable) {
@@ -1478,12 +1502,16 @@ export class HuntEngine {
   }
 
   queueView(limit = DEFAULT_QUEUE_VIEW_LIMIT): QueueEntryView[] {
+    return this.queueSnapshot(limit).entries;
+  }
+
+  queueSnapshot(limit = DEFAULT_QUEUE_VIEW_LIMIT): QueueSnapshotView {
     const cfg = this.settings.get();
     const now = this.now();
     const both = new Set<ArrSource>(["sonarr", "radarr"]);
-    const entries: QueueEntryView[] = [];
+    const all: QueueEntryView[] = [];
     for (const c of this.loadManualBatch(both, cfg, now)) {
-      entries.push({
+      all.push({
         huntStateId: c.huntStateId,
         label: candidateLabel(c),
         source: c.source,
@@ -1492,8 +1520,7 @@ export class HuntEngine {
       });
     }
     for (const c of this.loadScheduledCandidates(both, cfg, now)) {
-      if (entries.length >= limit) break;
-      entries.push({
+      all.push({
         huntStateId: c.huntStateId,
         label: candidateLabel(c),
         source: c.source,
@@ -1501,7 +1528,14 @@ export class HuntEngine {
         score: c.score,
       });
     }
-    return entries.slice(0, limit);
+    const counts = {
+      sonarr: all.filter((entry) => entry.source === "sonarr").length,
+      radarr: all.filter((entry) => entry.source === "radarr").length,
+      forced: all.filter((entry) => entry.reason === "FORCED").length,
+      scheduled: all.filter((entry) => entry.reason === "SCHEDULED").length,
+      retry: all.filter((entry) => entry.reason === "RETRY").length,
+    };
+    return { entries: all.slice(0, limit), total: all.length, counts };
   }
 
   pausedView(): PausedView {

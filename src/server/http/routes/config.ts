@@ -86,6 +86,10 @@ export function registerConfigRoutes(app: FastifyInstance, ctx: AppContext): voi
     const b = parse(reply, configPatchSchema, request.body);
     if (!b.ok) return;
     ctx.settings.update(b.data);
+    if (b.data.huntTickMinutes !== undefined) {
+      ctx.scheduler.updateInterval("hunt.cycle", b.data.huntTickMinutes * 60_000);
+    }
+    ctx.bus.emit("queue.updated", { reason: "hunt_settings" });
     return configResponse(ctx);
   });
 

@@ -261,9 +261,10 @@ export function registerHuntRoutes(app: FastifyInstance, ctx: AppContext): void 
       heldSince: view.heldSince ?? null,
       current: currentHunt(ctx),
       queueGate: {
+        enabled: cfg.queueGateEnabled,
         threshold,
-        sonarr: { size: sonarrSize, open: sonarrSize <= threshold },
-        radarr: { size: radarrSize, open: radarrSize <= threshold },
+        sonarr: { size: sonarrSize, open: !cfg.queueGateEnabled || sonarrSize <= threshold },
+        radarr: { size: radarrSize, open: !cfg.queueGateEnabled || radarrSize <= threshold },
       },
       arrHealth: health,
     };
@@ -271,7 +272,8 @@ export function registerHuntRoutes(app: FastifyInstance, ctx: AppContext): void 
   });
 
   app.get("/api/hunt/queue", async () => {
-    const entries = ctx.services.engine.queueView();
+    const snapshot = ctx.services.engine.queueSnapshot();
+    const entries = snapshot.entries;
     const desc_ = describeHuntStates(
       ctx,
       entries.map((e) => e.huntStateId),
@@ -284,13 +286,15 @@ export function registerHuntRoutes(app: FastifyInstance, ctx: AppContext): void 
         source: e.source,
         kind: d.kind,
         targetId: d.targetId,
+        seriesId: d.seriesId,
         title: d.title || e.label,
         scopeLabel: d.scopeLabel,
         reason: reasonToTrigger(e.reason),
+        score: e.score,
         estimatedQueries: null,
       };
     });
-    const response: HuntQueueResponse = { items };
+    const response: HuntQueueResponse = { items, total: snapshot.total, counts: snapshot.counts };
     return response;
   });
 

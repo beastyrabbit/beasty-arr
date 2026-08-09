@@ -75,6 +75,7 @@ class FakeBudget implements BudgetManagerPort {
   recorded: { estimates: Map<number, number>; attemptId: number }[] = [];
   /** Number of mayDispatch calls allowed before holding. */
   holdAfter = Number.POSITIVE_INFINITY;
+  maxQueriesPerCommand = Number.POSITIVE_INFINITY;
   private decisions = 0;
 
   async refresh(): Promise<void> {
@@ -84,8 +85,11 @@ class FakeBudget implements BudgetManagerPort {
     this.estimateCalls.push(input);
     return new Map([[1, input.searchOps * (input.anime ? 2 : 1)]]);
   }
-  mayDispatch(_estimates: Map<number, number>) {
+  mayDispatch(estimates: Map<number, number>) {
     this.decisions++;
+    if ([...estimates.values()].some((queries) => queries > this.maxQueriesPerCommand)) {
+      return { ok: false as const, holdReason: "ix1: command too large (test)" };
+    }
     if (this.decisions > this.holdAfter) {
       return { ok: false as const, holdReason: "ix1: budget hold (test)" };
     }
@@ -666,6 +670,22 @@ describe("runCycle — gates and holds", () => {
     expect(holds[0].level).toBe("warn");
   });
 
+  it("continues with a smaller command after a command-scoped budget rejection", async () => {
+    const { db, engine, settings, sonarr, radarr, budget } = makeHarness();
+    settings.update({ dryRun: false });
+    budget.maxQueriesPerCommand = 1;
+    seedSeries(db, { id: 1, seriesType: "anime" });
+    seedEpisode(db, { id: 11, seriesId: 1, episodeNumber: 1 });
+    seedEpisode(db, { id: 12, seriesId: 1, episodeNumber: 2 });
+    seedMovie(db, { id: 9 });
+
+    await engine.runCycle();
+
+    expect(sonarr.sent).toHaveLength(0);
+    expect(radarr.sent).toEqual([{ name: "MoviesSearch", movieIds: [9] }]);
+    expect(engine.engineStatus().holdReason).toContain("command too large");
+  });
+
   it("download queue gate skips scheduled hunts but still runs manual", async () => {
     const { db, engine, settings, sonarr, radarr } = makeHarness();
     settings.update({ dryRun: false });
@@ -678,6 +698,20 @@ describe("runCycle — gates and holds", () => {
     expect(sonarr.sent).toHaveLength(0);
     expect(radarr.sent).toEqual([{ name: "MoviesSearch", movieIds: [9] }]);
     expect(engine.engineStatus().holdReason).toContain("queue gate");
+  });
+
+  it("can disable queue protection without changing the saved threshold", async () => {
+    const { db, engine, settings, sonarr } = makeHarness();
+    settings.update({ dryRun: false, queueGateEnabled: false, queueGateThreshold: 10 });
+    sonarr.queueTotal = 500;
+    seedSeries(db, { id: 1 });
+    seedEpisode(db, { id: 11, seriesId: 1 });
+
+    await engine.runCycle();
+
+    expect(sonarr.sent).toEqual([{ name: "EpisodeSearch", episodeIds: [11] }]);
+    expect(settings.get().queueGateThreshold).toBe(10);
+    expect(engine.engineStatus().holdReason).toBeUndefined();
   });
 
   it("gates scheduled hunts per arr and preserves the hold start across queue-size changes", async () => {

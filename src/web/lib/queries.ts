@@ -728,6 +728,9 @@ export function useUpdateConfig() {
     onSuccess: (data) => {
       toast.success("Settings saved");
       qc.setQueryData(keys.config, data);
+      qc.invalidateQueries({ queryKey: keys.huntStatus });
+      qc.invalidateQueries({ queryKey: keys.huntQueue });
+      qc.invalidateQueries({ queryKey: keys.budget });
     },
     onError: toastError,
   });

@@ -200,6 +200,7 @@ function HuntTab({ settings }: { settings: AppSettingsDto }) {
   const [form, setForm] = useState({
     huntTickMinutes: settings.huntTickMinutes,
     maxCommandsPerCycle: settings.maxCommandsPerCycle,
+    queueGateEnabled: settings.queueGateEnabled,
     queueGateThreshold: settings.queueGateThreshold,
     missingToUpgradeRatio: settings.missingToUpgradeRatio,
     dubLagDaysDefault: settings.dubLagDaysDefault,
@@ -250,14 +251,27 @@ function HuntTab({ settings }: { settings: AppSettingsDto }) {
           </Field>
         </SettingRow>
         <SettingRow
+          label="Download queue protection"
+          description="Keep scheduled hunts behind the per-arr download queue guard. Forced hunts always bypass it."
+        >
+          <div className="flex min-h-9 items-center gap-3 text-[13px] text-ink">
+            <Switch
+              checked={form.queueGateEnabled}
+              onCheckedChange={(v) => setForm((f) => ({ ...f, queueGateEnabled: v }))}
+            />
+            {form.queueGateEnabled ? "Protection on" : "Protection off"}
+          </div>
+        </SettingRow>
+        <SettingRow
           label="Download queue gate"
-          description="Scheduled hunting pauses when the combined arr queue is above this size. Human-forced checks still run."
+          description="Scheduled hunting pauses independently for each arr above this size. Human-forced checks still run."
         >
           <Field label="Queued items">
             <Input
               type="number"
               value={form.queueGateThreshold}
               onChange={num("queueGateThreshold")}
+              disabled={!form.queueGateEnabled}
               className="font-mono"
             />
           </Field>

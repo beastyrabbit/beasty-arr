@@ -298,6 +298,7 @@ describe("hunt + engine", () => {
     expect(body.engine).toBe("running");
     expect(body.holdReason).toBeNull();
     expect(body.heldSince).toBeNull();
+    expect(body.queueGate.enabled).toBe(true);
     expect(body.queueGate.threshold).toBe(10);
     expect(body.current).toBeNull();
   });
@@ -329,9 +330,14 @@ describe("hunt + engine", () => {
     b.ctx.services.sonarr = { getSystemStatus: async () => ({}) } as never;
     await post(b.app, "/api/items/sonarr/episode/21/force", {});
     const res = await get(b.app, "/api/hunt/queue");
-    const item = res.json().items.find((i: { targetId: number }) => i.targetId === 21);
+    const body = res.json();
+    const item = body.items.find((i: { targetId: number }) => i.targetId === 21);
     expect(item).toBeDefined();
     expect(item.reason).toBe("forced");
+    expect(item.score).toEqual(expect.any(Number));
+    expect(item.seriesId).toBe(2);
+    expect(body.total).toBeGreaterThanOrEqual(body.items.length);
+    expect(body.counts.forced).toBeGreaterThanOrEqual(1);
   });
 
   it("reports manual pause timing and groups a series AI verdict", async () => {

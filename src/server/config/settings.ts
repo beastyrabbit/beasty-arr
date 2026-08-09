@@ -6,7 +6,8 @@ import { settings } from "../db/schema.js";
 const settingValidators = {
   dryRun: z.boolean(),
   huntTickMinutes: z.number().int().min(1).max(120),
-  maxCommandsPerCycle: z.number().int().min(1).max(10),
+  maxCommandsPerCycle: z.number().int().min(1).max(50),
+  queueGateEnabled: z.boolean(),
   queueGateThreshold: z.number().int().min(1),
   missingToUpgradeRatio: z.string(),
   huntSpecials: z.boolean(),
@@ -45,10 +46,11 @@ export const settingsPatchSchema = z.object(settingValidators).partial().strict(
 /** Behavior settings live in the DB (GUI-editable). Identity/secrets/endpoints are env-only. */
 export const settingsSchema = z.object({
   dryRun: settingValidators.dryRun.default(true), // default ON at first boot — flip in GUI (type "live")
-  // Large-library profile: four commands/hour, split evenly between missing
-  // media and German upgrades. Season/movie grouping keeps useful throughput high.
+  // Budget decides the actual pace; this is only a safety ceiling. A higher
+  // ceiling lets the adaptive controller consume expiring indexer headroom.
   huntTickMinutes: settingValidators.huntTickMinutes.default(30),
-  maxCommandsPerCycle: settingValidators.maxCommandsPerCycle.default(2),
+  maxCommandsPerCycle: settingValidators.maxCommandsPerCycle.default(20),
+  queueGateEnabled: settingValidators.queueGateEnabled.default(true),
   queueGateThreshold: settingValidators.queueGateThreshold.default(10),
   missingToUpgradeRatio: settingValidators.missingToUpgradeRatio.default("1:1"),
   huntSpecials: settingValidators.huntSpecials.default(false),

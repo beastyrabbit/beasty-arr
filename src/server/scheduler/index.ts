@@ -59,6 +59,18 @@ export class Scheduler {
     }));
   }
 
+  /** Apply a user-edited cadence without requiring an application restart. */
+  updateInterval(name: string, intervalMs: number): boolean {
+    const state = this.jobs.get(name);
+    if (!state) return false;
+    state.def = { ...state.def, intervalMs };
+    if (state.timer) clearTimeout(state.timer);
+    state.timer = null;
+    // A running job schedules itself in `finally`, using the updated definition.
+    if (!state.running) this.schedule(state, this.jittered(intervalMs, state.def));
+    return true;
+  }
+
   stop(): void {
     this.stopped = true;
     this.abort.abort();

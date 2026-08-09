@@ -47,10 +47,11 @@ describe("app skeleton", () => {
     expect(built.ctx.settings.get().dryRun).toBe(true);
   });
 
-  it("uses the conservative large-library hunt profile by default", () => {
+  it("uses the adaptive large-library hunt profile by default", () => {
     expect(built.ctx.settings.get()).toMatchObject({
       huntTickMinutes: 30,
-      maxCommandsPerCycle: 2,
+      maxCommandsPerCycle: 20,
+      queueGateEnabled: true,
       queueGateThreshold: 10,
       missingToUpgradeRatio: "1:1",
       dubLagDaysDefault: 14,

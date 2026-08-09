@@ -409,6 +409,7 @@ export type HuntStatusResponse = {
   heldSince: number | null;
   current: NowHunting | null;
   queueGate: {
+    enabled: boolean;
     threshold: number;
     sonarr: { size: number; open: boolean };
     radarr: { size: number; open: boolean };
@@ -422,13 +423,25 @@ export type HuntQueueItem = {
   source: ArrSource;
   kind: ItemSubjectKind;
   targetId: number;
+  seriesId: number | null;
   title: string;
   /** e.g. "Season 2" / "S02E04" / "Whole series". */
   scopeLabel: string;
   reason: SearchTrigger;
+  score: number;
   estimatedQueries: number | null;
 };
-export type HuntQueueResponse = { items: HuntQueueItem[] };
+export type HuntQueueResponse = {
+  items: HuntQueueItem[];
+  total: number;
+  counts: {
+    sonarr: number;
+    radarr: number;
+    forced: number;
+    scheduled: number;
+    retry: number;
+  };
+};
 
 export type PausedItem = {
   source: ArrSource;
@@ -651,6 +664,7 @@ export type ConnectionInfo = {
 export type HuntSettingsDto = {
   huntTickMinutes: number;
   maxCommandsPerCycle: number;
+  queueGateEnabled: boolean;
   queueGateThreshold: number;
   missingToUpgradeRatio: string;
   huntSpecials: boolean;
