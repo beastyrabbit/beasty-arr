@@ -1,6 +1,6 @@
 {
   "name": "beasty-arr",
-  "version": "0.2.13",
+  "version": "0.2.14",
   "description": "German-hunting companion for Sonarr/Radarr: budget-aware forced searches until everything has German audio",
   "main": "dist/server/server/index.js",
   "scripts": {
