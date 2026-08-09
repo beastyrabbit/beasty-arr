@@ -49,6 +49,7 @@ class FakeArrClient {
   applyCalls: Array<{ queueItem: QueueItem; proposal: ResolutionProposal }> = [];
   removeCalls: Array<{ queueItemId: number; options: QueueRemovalOptions }> = [];
   preflightResult: ApplyResult = { ok: true, message: "preflight passed" };
+  verifyImportApplied?: (queueItem: QueueItem, result: ApplyResult) => Promise<ApplyResult>;
   episodes: SonarrEpisodeRecord[] = [];
   async listQueue(): Promise<QueueItem[]> {
     return this.queue;
@@ -674,6 +675,37 @@ describe("FixerService apply", () => {
     expect(entry?.dryRun).toBe(false);
     const queue = await svc.getQueue();
     expect(queue.items).toHaveLength(0);
+  });
+
+  it("records success only after Arr confirms completion and refreshes the queue", async () => {
+    const { svc, sonarr, settings, analysisId } = await analyzedHarness();
+    settings.update({ dryRun: false });
+    sonarr.verifyImportApplied = async (queueItem, result) => {
+      sonarr.queue = sonarr.queue.filter((item) => item.downloadId !== queueItem.downloadId);
+      return { ...result, message: "Sonarr completed the import." };
+    };
+
+    const result = await svc.apply(analysisId);
+
+    expect(result).toMatchObject({ ok: true, message: "Sonarr completed the import." });
+    expect((await svc.getQueue()).items).toHaveLength(0);
+    expect(svc.listHistory().items[0]?.result).toBe("ok");
+  });
+
+  it("keeps the queue item visible when Arr cannot verify the import", async () => {
+    const { svc, sonarr, settings, analysisId } = await analyzedHarness();
+    settings.update({ dryRun: false });
+    sonarr.verifyImportApplied = async (_queueItem, result) => ({
+      ...result,
+      ok: false,
+      message: "ManualImport failed.",
+    });
+
+    const result = await svc.apply(analysisId);
+
+    expect(result).toMatchObject({ ok: false, message: "ManualImport failed." });
+    expect((await svc.getQueue()).items).toHaveLength(1);
+    expect(svc.listHistory().items[0]?.result).toBe("error");
   });
 
   it("drops every cached queue row belonging to the applied season-pack download", async () => {

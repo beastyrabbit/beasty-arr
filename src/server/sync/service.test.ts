@@ -51,6 +51,14 @@ class FakeSonarr implements SonarrSyncPort {
   profiles: QualityProfileDto[] = [];
   history: ArrHistoryRecordDto[] = [];
   calls: string[] = [];
+  queueDownloadIds = new Set<string>();
+  queueError: Error | null = null;
+
+  async getQueueDownloadIds(): Promise<Set<string>> {
+    this.calls.push("getQueueDownloadIds");
+    if (this.queueError) throw this.queueError;
+    return new Set(this.queueDownloadIds);
+  }
 
   async getSeries(): Promise<SonarrSeriesDto[]> {
     this.calls.push("getSeries");
@@ -86,6 +94,14 @@ class FakeRadarr implements RadarrSyncPort {
   profiles: QualityProfileDto[] = [];
   history: ArrHistoryRecordDto[] = [];
   calls: string[] = [];
+  queueDownloadIds = new Set<string>();
+  queueError: Error | null = null;
+
+  async getQueueDownloadIds(): Promise<Set<string>> {
+    this.calls.push("getQueueDownloadIds");
+    if (this.queueError) throw this.queueError;
+    return new Set(this.queueDownloadIds);
+  }
 
   async getMovies(): Promise<RadarrMovieDto[]> {
     this.calls.push("getMovies");
@@ -393,6 +409,7 @@ describe("incrementalSync", () => {
       episodeId: 103,
       seriesId: 1,
       date: iso(grabAt),
+      downloadId: "grab-103",
     });
     h.sonarr.history.push({
       id: 42,
@@ -400,11 +417,14 @@ describe("incrementalSync", () => {
       episodeId: 102,
       seriesId: 1,
       date: iso(grabAt + 1_000),
+      downloadId: "grab-102",
     });
     await h.svc.incrementalSync();
 
     expect(h.huntRow("sonarr", "episode", 103)?.awaitingImportSince).toBe(grabAt);
     expect(h.huntRow("sonarr", "episode", 102)?.awaitingImportSince).toBe(grabAt + 1_000);
+    expect(h.huntRow("sonarr", "episode", 103)?.awaitingImportDownloadId).toBe("grab-103");
+    expect(h.huntRow("sonarr", "episode", 102)?.awaitingImportDownloadId).toBe("grab-102");
     const attempt = h.db.select().from(searchAttempts).all()[0];
     expect(attempt?.result).toBe("grabbed");
     expect(
@@ -642,5 +662,58 @@ describe("incrementalSync", () => {
     expect(row?.nextEligibleAt).toBe(h.clock.now + AWAITING_IMPORT_RETRY_DELAY_MS);
     const warn = h.db.select().from(activityLog).where(eq(activityLog.level, "warn")).all();
     expect(warn.length).toBeGreaterThan(0);
+  });
+
+  it("releases legacy holds without download ids even when unrelated downloads are queued", async () => {
+    const h = makeHarness();
+    seedStandardFixture(h);
+    await h.svc.fullReconcile();
+    h.db
+      .update(huntState)
+      .set({ awaitingImportSince: T0, awaitingImportDownloadId: null })
+      .where(and(eq(huntState.targetKind, "episode"), eq(huntState.targetId, 103)))
+      .run();
+    h.sonarr.queueDownloadIds.add("some-other-download");
+    h.clock.now = T0 + AWAITING_IMPORT_TIMEOUT_MS + HOUR;
+
+    await h.svc.incrementalSync();
+
+    expect(h.huntRow("sonarr", "episode", 103)?.awaitingImportSince).toBeNull();
+  });
+
+  it("retains an expired import hold while its exact download is still queued", async () => {
+    const h = makeHarness();
+    seedStandardFixture(h);
+    await h.svc.fullReconcile();
+    h.db
+      .update(huntState)
+      .set({ awaitingImportSince: T0, awaitingImportDownloadId: "active-download" })
+      .where(and(eq(huntState.targetKind, "episode"), eq(huntState.targetId, 103)))
+      .run();
+    h.sonarr.queueDownloadIds.add("active-download");
+    h.clock.now = T0 + AWAITING_IMPORT_TIMEOUT_MS + HOUR;
+
+    await h.svc.incrementalSync();
+
+    const row = h.huntRow("sonarr", "episode", 103);
+    expect(row?.awaitingImportSince).toBe(T0);
+    expect(row?.awaitingImportDownloadId).toBe("active-download");
+  });
+
+  it("retains expired import holds when the queue cannot be checked", async () => {
+    const h = makeHarness();
+    seedStandardFixture(h);
+    await h.svc.fullReconcile();
+    h.db
+      .update(huntState)
+      .set({ awaitingImportSince: T0, awaitingImportDownloadId: "unknown-download" })
+      .where(and(eq(huntState.targetKind, "episode"), eq(huntState.targetId, 103)))
+      .run();
+    h.sonarr.queueError = new Error("Sonarr unavailable");
+    h.clock.now = T0 + AWAITING_IMPORT_TIMEOUT_MS + HOUR;
+
+    await h.svc.incrementalSync();
+
+    expect(h.huntRow("sonarr", "episode", 103)?.awaitingImportSince).toBe(T0);
   });
 });

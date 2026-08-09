@@ -12,7 +12,9 @@ import {
   resolveImportEpisodeIds,
   validateProposalForImport,
 } from "../fixer/validation.js";
+import { animeTitleConflict } from "./anime-title-match.js";
 import { type ArrClientOptions, arrFetch } from "./http-util.js";
+import { verifyManualImport } from "./import-verification.js";
 import { detectLikelySample } from "./sample.js";
 import { episodeLabel } from "./sonarr-format.js";
 
@@ -91,6 +93,7 @@ type SonarrQueueRecord = {
   series?: {
     id?: number;
     title?: string;
+    seriesType?: string;
   };
   episode?: SonarrEpisodeRecord;
   episodes?: SonarrEpisodeRecord[];
@@ -208,7 +211,7 @@ type SonarrManualImportRecord = {
   folderName?: string;
   name?: string;
   size?: number;
-  series?: { id?: number; title?: string };
+  series?: { id?: number; title?: string; seriesType?: string };
   seasonNumber?: number;
   episodes?: SonarrEpisodeRecord[];
   quality?: unknown;
@@ -409,6 +412,7 @@ function normalizeQueueRecord(record: SonarrQueueRecord): QueueItem {
     title: record.title ?? record.series?.title ?? `Queue item ${record.id}`,
     seriesId: record.seriesId ?? record.series?.id,
     seriesTitle: record.series?.title,
+    seriesType: record.series?.seriesType,
     downloadId: record.downloadId,
     status,
     trackedDownloadStatus,
@@ -458,6 +462,7 @@ function normalizeManualImportRecord(
     size: record.size,
     seriesId: record.series?.id,
     seriesTitle: record.series?.title,
+    seriesType: record.series?.seriesType,
     seasonNumber: record.seasonNumber,
     episodeIds,
     absoluteEpisodeNumbers,
@@ -573,6 +578,21 @@ export class SonarrClient {
       appendQuery("/api/v3/queue", { page: 1, pageSize: 1 }),
     );
     return { totalRecords: response?.totalRecords ?? 0 };
+  }
+
+  async getQueueDownloadIds(): Promise<Set<string>> {
+    const ids = new Set<string>();
+    const pageSize = 1_000;
+    for (let page = 1; ; page += 1) {
+      const response = await this.request<ArrPaged<SonarrQueueRecord>>(
+        appendQuery("/api/v3/queue", { page, pageSize }),
+      );
+      for (const record of response.records ?? []) {
+        if (record.downloadId) ids.add(record.downloadId);
+      }
+      if (page * pageSize >= (response.totalRecords ?? 0)) break;
+    }
+    return ids;
   }
 
   /** EpisodeSearch/SeasonSearch/SeriesSearch payloads etc. */
@@ -776,6 +796,16 @@ export class SonarrClient {
     };
   }
 
+  async verifyImportApplied(queueItem: QueueItem, result: ApplyResult): Promise<ApplyResult> {
+    return verifyManualImport({
+      serviceName: "Sonarr",
+      commandId: result.commandId,
+      downloadId: queueItem.downloadId,
+      getCommand: (id) => this.getCommand(id),
+      getQueueDownloadIds: () => this.getQueueDownloadIds(),
+    });
+  }
+
   async preflightImportProposal(
     queueItem: QueueItem,
     candidates: ManualImportCandidate[],
@@ -804,11 +834,67 @@ export class SonarrClient {
     }
 
     const byId = new Map(candidates.map((candidate) => [candidate.id, candidate]));
+    const titleConflicts = await this.findAnimeTitleConflicts(queueItem, normalizedProposal, byId);
+    if (titleConflicts.length > 0) {
+      return { ok: false, message: titleConflicts.join(" ") };
+    }
     const languageDowngrades = await this.findGermanAudioDowngrades(normalizedProposal, byId);
     if (languageDowngrades.length > 0) {
       return { ok: false, message: languageDowngrades.join(" ") };
     }
     return { ok: true, message: "Sonarr import proposal passed preflight." };
+  }
+
+  private async findAnimeTitleConflicts(
+    queueItem: QueueItem,
+    proposal: ResolutionProposal,
+    candidatesById: Map<string, ManualImportCandidate>,
+  ): Promise<string[]> {
+    const isAnime =
+      queueItem.seriesType?.toLowerCase() === "anime" ||
+      proposal.selectedImports.some(
+        (selectedImport) =>
+          candidatesById.get(selectedImport.candidateId)?.seriesType?.toLowerCase() === "anime",
+      );
+    if (!isAnime) return [];
+    const seriesId =
+      queueItem.seriesId ??
+      proposal.selectedImports
+        .map((selectedImport) => candidatesById.get(selectedImport.candidateId)?.seriesId)
+        .find((id): id is number => typeof id === "number");
+    if (!seriesId) {
+      return ["Could not verify anime episode titles because the series id is missing."];
+    }
+    let episodes: SonarrEpisodeRecord[];
+    try {
+      episodes = await this.getEpisodes({ seriesId });
+    } catch (error) {
+      throw new Error("Could not verify anime episode titles; refusing the import.", {
+        cause: error,
+      });
+    }
+    const byEpisodeId = new Map(
+      episodes
+        .filter((episode): episode is SonarrEpisodeRecord & { id: number } =>
+          Number.isSafeInteger(episode.id),
+        )
+        .map((episode) => [episode.id, episode]),
+    );
+    const conflicts: string[] = [];
+    for (const selectedImport of proposal.selectedImports) {
+      const candidate = candidatesById.get(selectedImport.candidateId);
+      if (!candidate) continue;
+      for (const episodeId of selectedImport.episodeIds) {
+        const selectedEpisode = byEpisodeId.get(episodeId);
+        if (!selectedEpisode) {
+          conflicts.push(`Could not verify selected anime episode id ${episodeId}.`);
+          continue;
+        }
+        const conflict = animeTitleConflict(candidate, selectedEpisode, episodes);
+        if (conflict) conflicts.push(conflict);
+      }
+    }
+    return conflicts;
   }
 
   private async findGermanAudioDowngrades(

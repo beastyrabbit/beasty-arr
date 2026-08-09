@@ -1,3 +1,4 @@
+import { hasGermanAudio } from "../../shared/domain.js";
 import type {
   AnalysisResult,
   FixerDubVerdictContext,
@@ -31,7 +32,8 @@ export type SonarrFixerClientPort = Pick<
   | "getEpisodes"
   | "getQualityProfiles"
   | "getCustomFormats"
->;
+> &
+  Partial<Pick<SonarrClient, "verifyImportApplied">>;
 
 export type RadarrFixerClientPort = Pick<
   RadarrClient,
@@ -43,7 +45,8 @@ export type RadarrFixerClientPort = Pick<
   | "getMovie"
   | "getQualityProfiles"
   | "getCustomFormats"
->;
+> &
+  Partial<Pick<RadarrClient, "verifyImportApplied">>;
 
 export type FixerClientPort = SonarrFixerClientPort | RadarrFixerClientPort;
 
@@ -62,6 +65,71 @@ const RADARR_TOOL_NAMES = [
   "radarr_get_upgrade_context",
   "propose_radarr_resolution",
 ];
+
+const FEATURE_SIZED_BYTES = 500 * 1024 * 1024;
+const SAMPLE_UNCERTAINTY = /unable to determine if (?:the )?file is a sample/i;
+
+async function promoteClearRadarrSampleReview(
+  client: RadarrFixerClientPort,
+  queueItem: QueueItem,
+  candidates: ManualImportCandidate[],
+  proposal: ResolutionProposal,
+  dubVerdict?: FixerDubVerdictContext,
+): Promise<ResolutionProposal> {
+  if (queueItem.service !== "radarr" || proposal.action !== "needs_review") return proposal;
+  if (candidates.length !== 1) return proposal;
+  const candidate = candidates[0];
+  if (!candidate || candidate.isLikelySample || (candidate.size ?? 0) < FEATURE_SIZED_BYTES) {
+    return proposal;
+  }
+  if (!candidate.quality || candidate.languages.length === 0) return proposal;
+  if (
+    !candidate.rejections.length ||
+    !candidate.rejections.every((r) => SAMPLE_UNCERTAINTY.test(r))
+  ) {
+    return proposal;
+  }
+  const movieId = queueItem.movieId;
+  if (!movieId || candidate.movieId !== movieId) {
+    return proposal;
+  }
+  try {
+    const movie = await client.getMovie(movieId);
+    if (movie.hasFile !== false) return proposal;
+  } catch {
+    return proposal;
+  }
+  if (
+    dubVerdict?.verdict === "exists" &&
+    dubVerdict.confidence > 0.6 &&
+    !hasGermanAudio(candidate.languages)
+  ) {
+    return proposal;
+  }
+  return {
+    action: "import_candidates",
+    confidence: Math.max(0.97, proposal.confidence),
+    selectedCandidateIds: [candidate.id],
+    selectedImports: [
+      {
+        candidateId: candidate.id,
+        episodeIds: [],
+        movieId,
+        reason:
+          "The only candidate is a feature-sized file mapped to the queued movie and the local sample heuristic explicitly classifies it as non-sample.",
+      },
+    ],
+    sampleCandidateIds: [],
+    reason: "Import the feature-sized movie file; Radarr's sample uncertainty is not credible.",
+    issueSummary:
+      "Radarr could not determine whether the file is a sample, but the sole candidate is feature-sized, maps to the queued movie, and is not sample-like by filename or size.",
+    evidence: [
+      ...proposal.evidence,
+      `Candidate ${candidate.id} is ${candidate.size} bytes and passed the deterministic sample heuristic.`,
+    ],
+    warnings: ["Radarr's advisory sample-detection rejection was overridden deterministically."],
+  };
+}
 
 // ============ fixer decision contract ============
 
@@ -94,6 +162,7 @@ function buildSonarrSystemPrompt(): string {
     "A multi-file Season Pack may be imported only when the selected files include the queued target episode. Never import unrelated episodes while leaving the target unresolved.",
     "If a download does not contain the queued target episode, treat it as the wrong release and use remove_queue_item with removeFromClient=true, blocklist=true, skipRedownload=false, changeCategory=false so Sonarr can search again.",
     "Use sonarr_find_episodes to verify anime absolute numbers, scene numbers, season/episode mapping, and titles before resolving unexpected-episode warnings.",
+    "For anime, an SxxExx or absolute number alone is never enough when the filename contains an episode title. The filename title must agree with the selected Sonarr episode title; if it names another known episode, remove and blocklist the release instead of importing it.",
     "Sonarr's candidate episode ids are Sonarr's current guess; you may override them in selectedImports when the warning and Sonarr episode lookup show the file should import as different episode ids.",
     "If a file visibly matches the queued episode's absolute number/title after lookup, select that file and map it to the correct Sonarr episode ids.",
     "If the file identity, target episode ids, or episode mapping remain uncertain after lookup, use needs_review.",
@@ -117,6 +186,7 @@ ${JSON.stringify(
     id: queueItem.id,
     title: queueItem.title,
     seriesTitle: queueItem.seriesTitle,
+    seriesType: queueItem.seriesType,
     targetEpisodeIds: queueItem.episodeIds,
     targetAbsoluteEpisodeNumbers: queueItem.absoluteEpisodeNumbers,
     seasonEpisode: queueItem.seasonEpisode,
@@ -143,6 +213,7 @@ Rules:
 - Always call sonarr_get_upgrade_context before the proposal tool, even when the only warning is sample detection. The initial payload does not say whether a library file already exists.
 - Use sonarr_find_episodes when Sonarr mentions an unexpected episode, anime absolute numbers, or scene numbering.
 - Compare Sonarr's target episode ids, the queue folder/title, the candidate filename/title, and Sonarr's episode lookup before deciding.
+- For anime, never trust numbering alone when the filename contains a recognizable episode title. The filename title must match the selected Sonarr episode title; if it matches another episode, remove and blocklist instead of importing.
 - Prefer candidates whose languages include German when several usable candidates exist. Candidates with known non-German language metadata are acceptable fallbacks only when the mapped target does not already have German audio.
 - Do not propose remove_queue_item only because no candidate includes German.
 - If the Active Dub Oracle context has confidence greater than 0.6, use only the exact perSeason verdict for each candidate's season when perSeason is non-empty; that season verdict overrides the global series verdict. If perSeason has no entry for the target season, treat the Oracle as unavailable for that season and never fall back to the global verdict. A relevant exists verdict means German audio is obtainable.
@@ -177,6 +248,7 @@ function buildRadarrSystemPrompt(): string {
     "Return that decision through selectedImports using candidateId and movieId.",
     "Always call radarr_get_upgrade_context before the proposal tool, for every queue item. The initial queue/candidate payload does not show whether the movie already has a library file. This requirement also applies when the only warning is sample detection.",
     "Never select candidates marked as likely samples.",
+    "A sole movie candidate larger than 500 MiB that maps to the queued movie and isLikelySample=false is not ambiguous merely because Radarr says it was unable to determine whether the file is a sample. Treat that warning as advisory and import when the other identity, language, and upgrade rules pass.",
     "German audio is preferred but not required. When several usable candidates exist, prefer one whose languages include German.",
     "Candidates without German, such as English or original-language releases, are acceptable fallbacks only when the movie does not already have German audio. A German version may arrive later through the normal upgrade flow.",
     "Never remove or blocklist a queue item only because its languages lack German.",
@@ -240,6 +312,7 @@ Rules:
 - If candidate language metadata is absent, use needs_review; absence of metadata does not prove absence of German audio.
 - Map the chosen candidate to the exact queue/candidate movie id in selectedImports.movieId.
 - Select only the main movie file; never select samples, extras, or Blu-ray disc structure chunks.
+- When the sole mapped movie file is larger than 500 MiB and isLikelySample=false, Radarr's “Unable to determine if file is a sample” rejection is advisory rather than blocking. Import it when the remaining identity, language, and upgrade rules pass.
 - If the existing file is better, remove without blocklisting. If the release is unsuitable or the wrong movie, remove and blocklist so Radarr searches again.
 - If Radarr rejections are blocking or the movie mapping is unclear, use needs_review.
 - Call propose_radarr_resolution now.`;
@@ -401,16 +474,26 @@ export async function resolveQueueItem(input: ResolveQueueItemInput): Promise<An
     log.push(...runResult.log);
   }
 
-  const proposal = capturedProposal ?? fallbackProposal("Pi did not return a typed proposal.");
-  const validation = validateProposalForImport(currentCandidates, proposal, queueItem, [
+  const finalProposal =
+    service === "radarr"
+      ? await promoteClearRadarrSampleReview(
+          input.client as RadarrFixerClientPort,
+          queueItem,
+          currentCandidates,
+          capturedProposal ?? fallbackProposal("Pi did not return a typed proposal."),
+          input.dubVerdict,
+        )
+      : (capturedProposal ?? fallbackProposal("Pi did not return a typed proposal."));
+  const validation = validateProposalForImport(currentCandidates, finalProposal, queueItem, [
     ...knownEpisodeIds,
   ]);
-  const status = proposal.action === "needs_review" || !validation.ok ? "needs_review" : "proposal";
+  const status =
+    finalProposal.action === "needs_review" || !validation.ok ? "needs_review" : "proposal";
 
   return {
     queueItemId: queueItem.id,
     candidates: currentCandidates,
-    proposal,
+    proposal: finalProposal,
     validation,
     status,
     log,

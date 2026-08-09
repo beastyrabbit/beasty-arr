@@ -39,6 +39,7 @@ export interface QueueItem {
   title: string;
   seriesId?: number;
   seriesTitle?: string;
+  seriesType?: string;
   downloadId?: string;
   status?: string;
   trackedDownloadStatus?: string;
@@ -68,6 +69,7 @@ export interface ManualImportCandidate {
   size?: number;
   seriesId?: number;
   seriesTitle?: string;
+  seriesType?: string;
   seasonNumber?: number;
   movieId?: number;
   movieTitle?: string;

@@ -300,6 +300,41 @@ describe("SonarrClient", () => {
     };
   }
 
+  it("blocks an anime import when the filename names a different known episode", async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (String(url).includes("/api/v3/episode?")) {
+        return jsonResponse([
+          { id: 9, seriesId: 5, title: "Jamming with Edward" },
+          { id: 22, seriesId: 5, title: "Cowboy Funk" },
+        ]);
+      }
+      return new Response("not found", { status: 404, statusText: "Not Found" });
+    });
+    const proposal: ResolutionProposal = {
+      ...importProposal(),
+      selectedImports: [{ candidateId: "candidate_1", episodeIds: [22] }],
+    };
+
+    const result = await client(fetchMock).preflightImportProposal(
+      queueItem({ episodeIds: [22], seriesId: 5 }),
+      [
+        importCandidate({
+          path: "/downloads/Cowboy.Bebop.S01E09.Jamming.with.Edward.mkv",
+          seriesType: "anime",
+          episodeIds: [22],
+          episodeLabels: ["S01E22"],
+          languages: [{ name: "German" }],
+          languageLabels: ["German"],
+        }),
+      ],
+      proposal,
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("Jamming with Edward");
+    expect(result.message).toContain("Cowboy Funk");
+  });
+
   it("blocks imports that would replace a German-audio file with a non-German candidate", async () => {
     const fetchMock = vi.fn(async (url: string) => {
       if (String(url).includes("/api/v3/episode?")) {

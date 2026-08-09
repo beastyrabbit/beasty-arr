@@ -304,6 +304,12 @@ export class FixerBulk {
       );
       if (applied.ok) {
         this.status.autoImported += 1;
+      } else {
+        this.status.failed += 1;
+        this.log.warn(
+          { service: item.service, queueItemId: item.id, message: applied.message },
+          "fixer bulk auto-import failed",
+        );
       }
       return;
     }
@@ -316,6 +322,12 @@ export class FixerBulk {
       });
       if (removed.ok) {
         this.status.autoRemoved += 1;
+      } else {
+        this.status.failed += 1;
+        this.log.warn(
+          { service: item.service, queueItemId: item.id, message: removed.message },
+          "fixer bulk auto-removal failed",
+        );
       }
     }
   }

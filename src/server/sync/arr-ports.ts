@@ -128,10 +128,12 @@ export interface SonarrSyncPort extends ArrHistoryPager {
   getEpisodes(seriesId: number): Promise<SonarrEpisodeDto[]>;
   getEpisodeFiles(seriesId: number): Promise<SonarrEpisodeFileDto[]>;
   getQualityProfiles(): Promise<QualityProfileDto[]>;
+  getQueueDownloadIds(): Promise<Set<string>>;
 }
 
 export interface RadarrSyncPort extends ArrHistoryPager {
   getMovies(): Promise<RadarrMovieDto[]>;
   getMovie(id: number): Promise<RadarrMovieDto>;
   getQualityProfiles(): Promise<QualityProfileDto[]>;
+  getQueueDownloadIds(): Promise<Set<string>>;
 }

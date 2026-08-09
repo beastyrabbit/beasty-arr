@@ -277,6 +277,100 @@ describe("resolveQueueItem", () => {
     expect(result.status).toBe("needs_review");
   });
 
+  it("promotes a sole feature-sized Radarr file past an advisory sample warning", async () => {
+    const runner: FixerPiRunner = async (req) => {
+      await invokeProposalTool(req, {
+        action: "needs_review",
+        confidence: 0.88,
+        selectedCandidateIds: [],
+        selectedImports: [],
+        sampleCandidateIds: [],
+        reason: "Radarr could not determine whether this is a sample.",
+        issueSummary: "Sample detection was inconclusive.",
+        evidence: [],
+        warnings: ["Verify the feature manually."],
+      });
+      return { log: [] };
+    };
+    const client = new FakeArrClient();
+    client.moviesById.set(42, { id: 42, hasFile: false });
+    const result = await resolveQueueItem({
+      queueItem: makeQueueItem({
+        service: "radarr",
+        movieId: 42,
+        movieTitle: "Feature",
+        episodeIds: [],
+        episodeLabels: [],
+        statusMessages: ["Unable to determine if file is a sample"],
+      }),
+      candidates: [
+        makeCandidate("candidate_1", {
+          service: "radarr",
+          movieId: 42,
+          movieTitle: "Feature",
+          seriesId: undefined,
+          episodeIds: [],
+          episodeLabels: [],
+          size: 7_000_000_000,
+          rejections: ["Unable to determine if file is a sample"],
+        }),
+      ],
+      client,
+      runner,
+    });
+
+    expect(result.status).toBe("proposal");
+    expect(result.proposal).toMatchObject({
+      action: "import_candidates",
+      confidence: 0.97,
+      selectedImports: [{ candidateId: "candidate_1", movieId: 42 }],
+    });
+    expect(result.validation.ok).toBe(true);
+  });
+
+  it("does not promote a sample-only review when Radarr already has a movie file", async () => {
+    const runner: FixerPiRunner = async (req) => {
+      await invokeProposalTool(req, {
+        action: "needs_review",
+        confidence: 0.88,
+        selectedCandidateIds: [],
+        selectedImports: [],
+        sampleCandidateIds: [],
+        reason: "Radarr could not determine whether this is a sample.",
+        issueSummary: "Sample detection was inconclusive.",
+        evidence: [],
+        warnings: [],
+      });
+      return { log: [] };
+    };
+    const client = new FakeArrClient();
+    client.moviesById.set(42, { id: 42, hasFile: true });
+
+    const result = await resolveQueueItem({
+      queueItem: makeQueueItem({
+        service: "radarr",
+        movieId: 42,
+        episodeIds: [],
+        episodeLabels: [],
+      }),
+      candidates: [
+        makeCandidate("candidate_1", {
+          service: "radarr",
+          movieId: 42,
+          seriesId: undefined,
+          episodeIds: [],
+          episodeLabels: [],
+          size: 7_000_000_000,
+          rejections: ["Unable to determine if file is a sample"],
+        }),
+      ],
+      client,
+      runner,
+    });
+
+    expect(result.proposal.action).toBe("needs_review");
+  });
+
   it("replays the real Devil's Rejects Radarr decision", async () => {
     const calls: FixerPiRunRequest[] = [];
     const runner: FixerPiRunner = async (req) => {

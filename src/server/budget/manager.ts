@@ -46,6 +46,7 @@ export type IndexerBudgetStatus = {
     observedSonarr: number;
     observedRadarr: number;
     observedOther: number;
+    observedOtherSources: Record<string, number>;
     huntSonarr: number;
     huntRadarr: number;
   };
@@ -348,6 +349,7 @@ export class BudgetManager {
       observedSonarr: 0,
       observedRadarr: 0,
       observedOther: 0,
+      observedOtherSources: {},
       huntSonarr: 0,
       huntRadarr: 0,
     };
@@ -358,6 +360,12 @@ export class BudgetManager {
       attribution.observedSonarr += b.sonarrQueries;
       attribution.observedRadarr += b.radarrQueries;
       attribution.observedOther += b.otherQueries;
+      for (const [source, queries] of Object.entries(b.sourceQueries ?? {})) {
+        const normalized = source.toLowerCase();
+        if (normalized === "sonarr" || normalized === "radarr") continue;
+        attribution.observedOtherSources[source] =
+          (attribution.observedOtherSources[source] ?? 0) + queries;
+      }
       attribution.huntSonarr += b.huntSonarrQueries;
       attribution.huntRadarr += b.huntRadarrQueries;
       if (b.hourUtc === currentHour) huntHourSpend = b.huntQueries;
@@ -424,6 +432,7 @@ export class BudgetManager {
         radarr: number;
         other: number;
         grabs: number;
+        sources: Record<string, number>;
       }
     >();
     for (const record of records) {
@@ -436,6 +445,7 @@ export class BudgetManager {
         radarr: 0,
         other: 0,
         grabs: 0,
+        sources: {},
       };
       if (record.eventType === "releaseGrabbed") {
         bucket.grabs += 1;
@@ -446,6 +456,8 @@ export class BudgetManager {
       if (source === "sonarr") bucket.sonarr += 1;
       else if (source === "radarr") bucket.radarr += 1;
       else bucket.other += 1;
+      const sourceLabel = record.source.trim() || "Unknown";
+      bucket.sources[sourceLabel] = (bucket.sources[sourceLabel] ?? 0) + 1;
       grouped.set(key, bucket);
     }
 
@@ -457,6 +469,7 @@ export class BudgetManager {
         sonarrQueries: 0,
         radarrQueries: 0,
         otherQueries: 0,
+        sourceQueries: {},
       })
       .where(gte(budgetBuckets.hourUtc, startHour))
       .run();
@@ -471,6 +484,7 @@ export class BudgetManager {
           sonarrQueries: bucket.sonarr,
           radarrQueries: bucket.radarr,
           otherQueries: bucket.other,
+          sourceQueries: bucket.sources,
         })
         .onConflictDoUpdate({
           target: [budgetBuckets.indexerId, budgetBuckets.hourUtc],
@@ -480,6 +494,7 @@ export class BudgetManager {
             sonarrQueries: bucket.sonarr,
             radarrQueries: bucket.radarr,
             otherQueries: bucket.other,
+            sourceQueries: bucket.sources,
           },
         })
         .run();

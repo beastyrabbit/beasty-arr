@@ -397,6 +397,7 @@ export function registerHuntRoutes(app: FastifyInstance, ctx: AppContext): void 
         nextEligibleAt: null,
         lastSearchAt: null,
         awaitingImportSince: null,
+        awaitingImportDownloadId: null,
         manualPriority: 0,
       })
       .run();

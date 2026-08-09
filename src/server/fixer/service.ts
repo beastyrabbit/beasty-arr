@@ -748,7 +748,11 @@ export class FixerService {
     }
 
     try {
-      const result = await client.applyImportProposal(queueItem, candidates, effective);
+      const started = await client.applyImportProposal(queueItem, candidates, effective);
+      const result =
+        started.ok && client.verifyImportApplied
+          ? await client.verifyImportApplied(queueItem, started)
+          : started;
       const historyId = recordFixerHistory(this.db, {
         ...base,
         at: this.now(),
@@ -762,6 +766,9 @@ export class FixerService {
       });
       if (result.ok) {
         this.dropFromQueueCache(row.service, row.queueItemId);
+        if (client.verifyImportApplied) {
+          await this.refreshQueue();
+        }
       }
       return {
         ok: result.ok,

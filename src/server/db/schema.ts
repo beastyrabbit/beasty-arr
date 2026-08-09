@@ -129,6 +129,7 @@ export const huntState = sqliteTable(
     lastSearchAt: integer("last_search_at"),
     nextEligibleAt: integer("next_eligible_at"), // NULL = eligible now
     awaitingImportSince: integer("awaiting_import_since"), // grab seen, import pending
+    awaitingImportDownloadId: text("awaiting_import_download_id"),
     manualPriority: integer("manual_priority").notNull().default(0), // >0 = jumped queue
     userPaused: integer("user_paused", { mode: "boolean" }).notNull().default(false),
     userPausedAt: integer("user_paused_at"),
@@ -219,6 +220,10 @@ export const budgetBuckets = sqliteTable(
     sonarrQueries: integer("sonarr_queries").notNull().default(0),
     radarrQueries: integer("radarr_queries").notNull().default(0),
     otherQueries: integer("other_queries").notNull().default(0),
+    sourceQueries: text("source_queries", { mode: "json" })
+      .$type<Record<string, number>>()
+      .notNull()
+      .default({}),
   },
   (t) => [primaryKey({ columns: [t.indexerId, t.hourUtc] })],
 );

@@ -13,6 +13,7 @@ import {
   validateProposalForImport,
 } from "../fixer/validation.js";
 import { type ArrClientOptions, arrFetch } from "./http-util.js";
+import { verifyManualImport } from "./import-verification.js";
 import { detectLikelySample } from "./sample.js";
 import {
   type ArrCommandBody,
@@ -388,6 +389,21 @@ export class RadarrClient {
     return { totalRecords: response?.totalRecords ?? 0 };
   }
 
+  async getQueueDownloadIds(): Promise<Set<string>> {
+    const ids = new Set<string>();
+    const pageSize = 1_000;
+    for (let page = 1; ; page += 1) {
+      const response = await this.request<ArrPaged<RadarrQueueRecord>>(
+        appendQuery("/api/v3/queue", { page, pageSize }),
+      );
+      for (const record of response.records ?? []) {
+        if (record.downloadId) ids.add(record.downloadId);
+      }
+      if (page * pageSize >= (response.totalRecords ?? 0)) break;
+    }
+    return ids;
+  }
+
   /** MoviesSearch payloads etc. */
   async sendCommand(body: ArrCommandBody): Promise<ArrCommandResource> {
     return this.request<ArrCommandResource>("/api/v3/command", {
@@ -520,6 +536,16 @@ export class RadarrClient {
         ? `Started Radarr ManualImport command ${command.id}.`
         : "Started Radarr ManualImport.",
     };
+  }
+
+  async verifyImportApplied(queueItem: QueueItem, result: ApplyResult): Promise<ApplyResult> {
+    return verifyManualImport({
+      serviceName: "Radarr",
+      commandId: result.commandId,
+      downloadId: queueItem.downloadId,
+      getCommand: (id) => this.getCommand(id),
+      getQueueDownloadIds: () => this.getQueueDownloadIds(),
+    });
   }
 
   async preflightImportProposal(

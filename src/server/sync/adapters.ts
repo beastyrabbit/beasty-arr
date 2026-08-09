@@ -203,6 +203,7 @@ export function sonarrSyncPort(client: SonarrClient): SonarrSyncPort {
     async getHistoryPage(opts) {
       return toHistoryPage(await client.getHistoryPage(opts), opts);
     },
+    getQueueDownloadIds: () => client.getQueueDownloadIds(),
   };
 }
 
@@ -226,5 +227,6 @@ export function radarrSyncPort(client: RadarrClient): RadarrSyncPort {
     async getHistoryPage(opts) {
       return toHistoryPage(await client.getHistoryPage(opts), opts);
     },
+    getQueueDownloadIds: () => client.getQueueDownloadIds(),
   };
 }

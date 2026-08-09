@@ -144,6 +144,7 @@ export type IndexerBudget = {
     observedSonarr: number;
     observedRadarr: number;
     observedOther: number;
+    observedOtherSources: Record<string, number>;
     huntSonarr: number;
     huntRadarr: number;
   };

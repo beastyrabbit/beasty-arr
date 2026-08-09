@@ -198,6 +198,7 @@ describe("BudgetManager.refresh — snapshot diffing", () => {
         sonarrQueries: 0,
         radarrQueries: 0,
         otherQueries: 0,
+        sourceQueries: {},
       },
     ]);
   });
@@ -228,6 +229,7 @@ describe("BudgetManager.refresh — snapshot diffing", () => {
         sonarrQueries: 0,
         radarrQueries: 0,
         otherQueries: 0,
+        sourceQueries: {},
       },
     ]);
   });
@@ -294,6 +296,7 @@ describe("BudgetManager attribution and pending estimates", () => {
       observedSonarr: 1,
       observedRadarr: 1,
       observedOther: 1,
+      observedOtherSources: { Lidarr: 1 },
       huntSonarr: 4,
       huntRadarr: 0,
     });

@@ -290,7 +290,7 @@ export class SyncService {
     }
     // Clock-driven passes need no arr calls — always run them.
     this.clockPassUnreleased();
-    this.expireAwaitingImports();
+    await this.expireAwaitingImports();
     if (firstError) {
       throw firstError instanceof Error ? firstError : new Error(String(firstError));
     }
@@ -362,7 +362,10 @@ export class SyncService {
     const at = parseDateMs(rec.date) ?? this.now();
     this.db
       .update(huntState)
-      .set({ awaitingImportSince: at })
+      .set({
+        awaitingImportSince: at,
+        awaitingImportDownloadId: rec.downloadId ?? existing.awaitingImportDownloadId,
+      })
       .where(eq(huntState.id, existing.id))
       .run();
     this.bus.emit("item.updated", {
@@ -468,8 +471,8 @@ export class SyncService {
     }
   }
 
-  /** Grabs that never imported within 48h: release the hold, retry in a day. */
-  private expireAwaitingImports(): void {
+  /** Grabs older than 48h: retain active downloads, otherwise release and retry in a day. */
+  private async expireAwaitingImports(): Promise<void> {
     const now = this.now();
     const cutoff = now - AWAITING_IMPORT_TIMEOUT_MS;
     const rows = this.db
@@ -479,10 +482,37 @@ export class SyncService {
         and(isNotNull(huntState.awaitingImportSince), lt(huntState.awaitingImportSince, cutoff)),
       )
       .all();
+    if (rows.length === 0) return;
+    const queueIds = new Map<ArrSource, Set<string> | null>();
+    const sources = new Set(rows.map((row) => row.source));
+    await Promise.all(
+      [...sources].map(async (source) => {
+        const port = source === "sonarr" ? this.sonarr : this.radarr;
+        if (!port) {
+          queueIds.set(source, null);
+          return;
+        }
+        try {
+          queueIds.set(source, await port.getQueueDownloadIds());
+        } catch (error) {
+          queueIds.set(source, null);
+          this.log.warn({ err: error, source }, "queue lookup failed — retaining import holds");
+        }
+      }),
+    );
     for (const row of rows) {
+      const activeIds = queueIds.get(row.source);
+      if (activeIds === null || activeIds === undefined) continue;
+      if (row.awaitingImportDownloadId) {
+        if (activeIds.has(row.awaitingImportDownloadId)) continue;
+      }
       this.db
         .update(huntState)
-        .set({ awaitingImportSince: null, nextEligibleAt: now + AWAITING_IMPORT_RETRY_DELAY_MS })
+        .set({
+          awaitingImportSince: null,
+          awaitingImportDownloadId: null,
+          nextEligibleAt: now + AWAITING_IMPORT_RETRY_DELAY_MS,
+        })
         .where(eq(huntState.id, row.id))
         .run();
       this.bus.emit("item.updated", {
@@ -688,6 +718,7 @@ export class SyncService {
       fileImportedAt >= existing.awaitingImportSince
     ) {
       patch.awaitingImportSince = null;
+      patch.awaitingImportDownloadId = null;
     }
     if (stateChanged) {
       patch.state = next;

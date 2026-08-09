@@ -30,6 +30,7 @@ export function compactCandidate(candidate: ManualImportCandidate) {
     size: candidate.size,
     seriesId: candidate.seriesId,
     seriesTitle: candidate.seriesTitle,
+    seriesType: candidate.seriesType,
     seasonNumber: candidate.seasonNumber,
     movieId: candidate.movieId,
     movieTitle: candidate.movieTitle,

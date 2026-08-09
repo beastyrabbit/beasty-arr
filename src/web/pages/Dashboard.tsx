@@ -12,16 +12,19 @@ type Attribution = {
   sonarr: number;
   radarr: number;
   fixer: number;
-  other: number;
+  otherSources: Record<string, number>;
 };
 
-const ATTRIBUTION_COLORS: Record<keyof Attribution, string> = {
+const ATTRIBUTION_COLORS = {
   hunt: "#f0a63a",
   sonarr: "#66a7c5",
   radarr: "#7eaa78",
   fixer: "#b78ad7",
-  other: "#6f7682",
 };
+
+const OTHER_SOURCE_COLORS = ["#d2a05f", "#6f7682", "#8f83bd", "#6ca69a", "#bd7f8d"];
+
+type AttributionEntry = { key: string; label: string; value: number; color: string };
 
 export function DashboardPage() {
   const navigate = useNavigate();
@@ -102,25 +105,20 @@ export function DashboardPage() {
           <div className="p-4">
             <AttributionBar attribution={attribution} />
             <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2 sm:grid-cols-5">
-              {(Object.keys(attribution) as (keyof Attribution)[]).map((key) => (
-                <div key={key} className="flex items-center gap-2">
-                  <span
-                    className="h-2 w-2 rounded-[2px]"
-                    style={{ background: ATTRIBUTION_COLORS[key] }}
-                  />
+              {attributionEntries(attribution).map((entry) => (
+                <div key={entry.key} className="flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-[2px]" style={{ background: entry.color }} />
                   <div>
-                    <div className="font-mono text-[12px] text-ink">{fmtNum(attribution[key])}</div>
-                    <div className="microlabel">
-                      {key === "hunt" ? "Hunt" : key === "fixer" ? "Fixer" : `${key} itself`}
-                    </div>
+                    <div className="font-mono text-[12px] text-ink">{fmtNum(entry.value)}</div>
+                    <div className="microlabel">{entry.label}</div>
                   </div>
                 </div>
               ))}
             </div>
             <p className="mt-3 text-[10px] leading-4 text-faint">
-              Sonarr/Radarr/other are measured from Prowlarr history. Hunt is Beasty-arr's dispatch
-              attribution; Fixer currently imports existing downloads and does not issue indexer
-              searches.
+              App names are measured from Prowlarr history. Hunt is Beasty-arr's dispatch
+              attribution through Sonarr/Radarr; Fixer imports existing downloads and does not issue
+              indexer searches.
             </p>
           </div>
         </Panel>
@@ -319,21 +317,50 @@ function attributionFor(indexer: IndexerBudget): Attribution {
   const hunt = Math.min(indexer.huntShare, indexer.trailing24h);
   const sonarrBase = Math.max(0, observed.observedSonarr - observed.huntSonarr);
   const radarrBase = Math.max(0, observed.observedRadarr - observed.huntRadarr);
-  const otherBase = observed.observedOther;
+  const namedOther = { ...observed.observedOtherSources };
+  const namedOtherTotal = Object.values(namedOther).reduce((sum, value) => sum + value, 0);
+  if (namedOtherTotal < observed.observedOther) {
+    namedOther["Other apps"] = observed.observedOther - namedOtherTotal;
+  }
+  const otherBase = Object.values(namedOther).reduce((sum, value) => sum + value, 0);
   const baseTotal = sonarrBase + radarrBase + otherBase;
   const organic = Math.max(0, indexer.trailing24h - hunt);
-  if (baseTotal <= 0) return { hunt, sonarr: 0, radarr: 0, fixer: 0, other: organic };
+  if (baseTotal <= 0) {
+    return {
+      hunt,
+      sonarr: 0,
+      radarr: 0,
+      fixer: 0,
+      otherSources: organic > 0 ? { "Other apps": organic } : {},
+    };
+  }
+  const weighted = [
+    { key: "sonarr", weight: sonarrBase },
+    { key: "radarr", weight: radarrBase },
+    ...Object.entries(namedOther).map(([source, weight]) => ({ key: `source:${source}`, weight })),
+  ].map((entry) => {
+    const exact = (organic * entry.weight) / baseTotal;
+    return { ...entry, value: Math.floor(exact), fraction: exact - Math.floor(exact) };
+  });
+  let remainder = organic - weighted.reduce((sum, entry) => sum + entry.value, 0);
+  for (const entry of [...weighted].sort((a, b) => b.fraction - a.fraction)) {
+    if (remainder <= 0) break;
+    entry.value += 1;
+    remainder -= 1;
+  }
+  const sonarr = weighted.find((entry) => entry.key === "sonarr")?.value ?? 0;
+  const radarr = weighted.find((entry) => entry.key === "radarr")?.value ?? 0;
+  const otherSources = Object.fromEntries(
+    weighted
+      .filter((entry) => entry.key.startsWith("source:"))
+      .map((entry) => [entry.key.slice("source:".length), entry.value]),
+  );
   return {
     hunt,
-    sonarr: Math.round((organic * sonarrBase) / baseTotal),
-    radarr: Math.round((organic * radarrBase) / baseTotal),
+    sonarr,
+    radarr,
     fixer: 0,
-    other: Math.max(
-      0,
-      organic -
-        Math.round((organic * sonarrBase) / baseTotal) -
-        Math.round((organic * radarrBase) / baseTotal),
-    ),
+    otherSources,
   };
 }
 
@@ -341,11 +368,45 @@ function aggregateAttribution(indexers: IndexerBudget[]): Attribution {
   return indexers.reduce<Attribution>(
     (total, indexer) => {
       const value = attributionFor(indexer);
-      for (const key of Object.keys(total) as (keyof Attribution)[]) total[key] += value[key];
+      total.hunt += value.hunt;
+      total.sonarr += value.sonarr;
+      total.radarr += value.radarr;
+      total.fixer += value.fixer;
+      for (const [source, queries] of Object.entries(value.otherSources)) {
+        total.otherSources[source] = (total.otherSources[source] ?? 0) + queries;
+      }
       return total;
     },
-    { hunt: 0, sonarr: 0, radarr: 0, fixer: 0, other: 0 },
+    { hunt: 0, sonarr: 0, radarr: 0, fixer: 0, otherSources: {} },
   );
+}
+
+function attributionEntries(attribution: Attribution): AttributionEntry[] {
+  const fixed: AttributionEntry[] = [
+    { key: "hunt", label: "Hunt", value: attribution.hunt, color: ATTRIBUTION_COLORS.hunt },
+    {
+      key: "sonarr",
+      label: "Sonarr itself",
+      value: attribution.sonarr,
+      color: ATTRIBUTION_COLORS.sonarr,
+    },
+    {
+      key: "radarr",
+      label: "Radarr itself",
+      value: attribution.radarr,
+      color: ATTRIBUTION_COLORS.radarr,
+    },
+    { key: "fixer", label: "Fixer", value: attribution.fixer, color: ATTRIBUTION_COLORS.fixer },
+  ];
+  const sources = Object.entries(attribution.otherSources)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([source, value], index) => ({
+      key: `source:${source}`,
+      label: source,
+      value,
+      color: OTHER_SOURCE_COLORS[index % OTHER_SOURCE_COLORS.length] ?? "#6f7682",
+    }));
+  return [...fixed, ...sources];
 }
 
 function AttributionBar({
@@ -355,18 +416,19 @@ function AttributionBar({
   attribution: Attribution;
   compact?: boolean;
 }) {
-  const total = Object.values(attribution).reduce((sum, value) => sum + value, 0);
+  const entries = attributionEntries(attribution);
+  const total = entries.reduce((sum, entry) => sum + entry.value, 0);
   return (
     <div className={`flex overflow-hidden rounded-[3px] bg-raised ${compact ? "h-1.5" : "h-3"}`}>
-      {(Object.keys(attribution) as (keyof Attribution)[]).map((key) =>
-        attribution[key] > 0 ? (
+      {entries.map((entry) =>
+        entry.value > 0 ? (
           <div
-            key={key}
+            key={entry.key}
             style={{
-              width: `${total > 0 ? (attribution[key] / total) * 100 : 0}%`,
-              background: ATTRIBUTION_COLORS[key],
+              width: `${total > 0 ? (entry.value / total) * 100 : 0}%`,
+              background: entry.color,
             }}
-            title={`${key}: ${attribution[key]}`}
+            title={`${entry.label}: ${entry.value}`}
           />
         ) : null,
       )}
