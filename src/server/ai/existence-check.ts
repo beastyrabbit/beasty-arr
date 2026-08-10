@@ -4,7 +4,7 @@ import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent
 import { Type } from "typebox";
 import { AI_VERDICTS, type AiVerdictValue } from "../../shared/domain.js";
 
-export const PROMPT_VERSION = "dub-oracle-v11";
+export const PROMPT_VERSION = "dub-oracle-v12";
 export const REPORT_TOOL_NAME = "report_dub_verdict";
 
 export const RECHECK_MIN_DAYS = 90;
@@ -424,11 +424,7 @@ export function seasonPageShowsLocalizedGermanRelease(text: string): boolean {
 }
 
 /** A localized German series title plus a German season broadcast also proves localization. */
-export function seasonPageShowsLocalizedGermanSeriesRelease(
-  text: string,
-  subjectTitle: string,
-): boolean {
-  if (!GERMAN_PREMIERE_RE.test(text) || OMU_RE.test(text)) return false;
+export function pageShowsLocalizedGermanSeriesTitle(text: string, subjectTitle: string): boolean {
   const documentTitle = text
     .split("\n", 1)[0]
     ?.replace(FERNSEHSERIEN_SITE_TITLE_SUFFIX_RE, "")
@@ -441,6 +437,18 @@ export function seasonPageShowsLocalizedGermanSeriesRelease(
   const localizedTitle = normalizeComparableTitle(documentTitle.slice(localizedTitleSeparator + 3));
   const wanted = normalizeComparableTitle(subjectTitle);
   return originalTitle === wanted && localizedTitle.length > 0;
+}
+
+/** A localized German series title plus a German season broadcast also proves localization. */
+export function seasonPageShowsLocalizedGermanSeriesRelease(
+  text: string,
+  subjectTitle: string,
+): boolean {
+  return (
+    GERMAN_PREMIERE_RE.test(text) &&
+    !OMU_RE.test(text) &&
+    pageShowsLocalizedGermanSeriesTitle(text, subjectTitle)
+  );
 }
 
 /** Explicit OmU on an exact season page is negative evidence for that season. */
@@ -811,12 +819,22 @@ ${
       ),
     localizedGermanSeasonReleases: () =>
       state.fetchedPages.flatMap((page) => {
+        const localizedSeriesTitleWasFetched = state.fetchedPages.some(
+          (candidate) =>
+            fernsehserienPageMatchesTitle(candidate.url, candidate.text, subject.title) &&
+            pageShowsLocalizedGermanSeriesTitle(candidate.text, subject.title),
+        );
         const season = fernsehserienSeasonNumber(page.url);
         if (
           season == null ||
           !fernsehserienPageMatchesTitle(page.url, page.text, subject.title) ||
           (!seasonPageShowsLocalizedGermanRelease(page.text) &&
-            !seasonPageShowsLocalizedGermanSeriesRelease(page.text, subject.title))
+            !seasonPageShowsLocalizedGermanSeriesRelease(page.text, subject.title) &&
+            !(
+              localizedSeriesTitleWasFetched &&
+              GERMAN_PREMIERE_RE.test(page.text) &&
+              !OMU_RE.test(page.text)
+            ))
         ) {
           return [];
         }

@@ -16,6 +16,7 @@ import {
   isOfficialProviderTitleUrl,
   isPrivateAddress,
   KNOWLEDGE_ONLY_CONFIDENCE_CAP,
+  pageShowsLocalizedGermanSeriesTitle,
   providerPageListsGermanAudio,
   type RawDubVerdict,
   RECHECK_MAX_DAYS,
@@ -346,6 +347,12 @@ describe("buildDubCheckSession", () => {
       ),
     ).toBe(true);
     expect(
+      pageShowsLocalizedGermanSeriesTitle(
+        "Impractical Jokers – Die Lachflasher! – fernsehserien.de\nUS-Comedyshow",
+        "Impractical Jokers",
+      ),
+    ).toBe(true);
+    expect(
       seasonPageShowsLocalizedGermanSeriesRelease(
         "The House that Dragons Built Staffel 1 Episodenguide – fernsehserien.de\nFolge 1 (The Heirs of the Dragon)\nDeutsche TV-Premiere 07.10.2022\nOmU (Original mit Untertiteln)",
         "The House that Dragons Built",
@@ -438,6 +445,30 @@ describe("buildDubCheckSession", () => {
       },
     ]);
     expect(session.originalOnlySeasonReleases()).toEqual([]);
+  });
+
+  it("combines a localized series title page with each exact German-broadcast season", async () => {
+    const fetchImpl = (async (input: string | URL | Request) => {
+      const url = String(input);
+      return fakeResponse(
+        url.endsWith("/some-show")
+          ? "Some Show – Deutscher Titel – fernsehserien.de\nDeutsche TV-Premiere 2020"
+          : "Some Show Staffel 2 Episodenguide – fernsehserien.de\nEpisode (Episode)\nDeutsche TV-Premiere 18.09.2021 DMAX",
+        { headers: { "content-type": "text/plain" } },
+      );
+    }) as unknown as typeof fetch;
+    const session = buildDubCheckSession(subject, { fetchImpl, lookupFn: publicLookup });
+    const fetchTool = session.tools.find((tool) => tool.name === "fetch_url");
+    await runTool(fetchTool as never, { url: "https://www.fernsehserien.de/some-show" });
+    await runTool(fetchTool as never, {
+      url: "https://www.fernsehserien.de/some-show/episodenguide/staffel-2",
+    });
+    expect(session.localizedGermanSeasonReleases()).toEqual([
+      {
+        season: 2,
+        url: "https://www.fernsehserien.de/some-show/episodenguide/staffel-2",
+      },
+    ]);
   });
 
   it("captures the verdict through the terminating tool and terminates", async () => {
