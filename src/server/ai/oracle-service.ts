@@ -809,7 +809,7 @@ export class OracleService {
     }
     if (
       containsNegativeVerdict &&
-      session.providerAvailabilityDetected() &&
+      session.providerAvailabilityDetected(final.evidence) &&
       !session.fetchedOfficialProviderTitle()
     ) {
       discard(

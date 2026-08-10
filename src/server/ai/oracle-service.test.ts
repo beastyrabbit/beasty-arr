@@ -676,7 +676,7 @@ describe("OracleService.runDailyBatch", () => {
       await callTool(req, REPORT_TOOL_NAME, {
         verdict: "unlikely",
         confidence: 0.9,
-        evidence: ["Netflix listed but not checked"],
+        evidence: ["JustWatch says Movie 1 is available to stream on Netflix."],
         recheckAfterDays: 365,
       });
     });

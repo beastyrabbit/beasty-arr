@@ -191,6 +191,20 @@ type WebEvidenceState = {
 
 const PROVIDER_MENTION_RE =
   /\bnetflix\b|\bprime video\b|\bamazon video\b|\bdisney\+\b|\bapple tv\b|\bmax\b|\bwow\b|\bsky\b/i;
+const PROVIDER_AVAILABILITY_RE =
+  /(?:\bavailable\b|\bverfügbar\b|\bstream(?:ing|en)?\b|\bwatch\b|\bansehen\b|\bläuft\b|\bangeboten\b|\bsubscription\b|\babo\b).{0,100}(?:\bnetflix\b|\bprime video\b|\bamazon video\b|\bdisney\+\b|\bapple tv\b|\bmax\b|\bwow\b|\bsky\b)|(?:\bnetflix\b|\bprime video\b|\bamazon video\b|\bdisney\+\b|\bapple tv\b|\bmax\b|\bwow\b|\bsky\b).{0,100}(?:\bavailable\b|\bverfügbar\b|\bstream(?:ing|en)?\b|\bwatch\b|\bansehen\b|\bläuft\b|\bangeboten\b|\bsubscription\b|\babo\b)/i;
+const NEGATED_PROVIDER_AVAILABILITY_RE =
+  /(?:\bnot\b|\bno\b|\bunavailable\b|\bnicht\b|\bkein(?:e|en|er|es)?\b|\bohne\b).{0,40}(?:\bavailable\b|\bverfügbar\b|\bstream(?:ing|en)?\b|\bwatch\b|\bansehen\b|\bläuft\b|\bangeboten\b).{0,80}(?:\bnetflix\b|\bprime video\b|\bamazon video\b|\bdisney\+\b|\bapple tv\b|\bmax\b|\bwow\b|\bsky\b)|(?:\bnetflix\b|\bprime video\b|\bamazon video\b|\bdisney\+\b|\bapple tv\b|\bmax\b|\bwow\b|\bsky\b).{0,40}(?:\bnot\b|\bno\b|\bunavailable\b|\bnicht\b|\bkein(?:e|en|er|es)?\b|\bohne\b).{0,40}(?:\bavailable\b|\bverfügbar\b|\bstream(?:ing|en)?\b|\bwatch\b|\bansehen\b|\bläuft\b|\bangeboten\b)/i;
+
+/** Model evidence must make an affirmative availability claim; provider filter/navigation text is insufficient. */
+export function evidenceClaimsProviderAvailability(evidence: string[]): boolean {
+  return evidence.some(
+    (item) =>
+      PROVIDER_MENTION_RE.test(item) &&
+      PROVIDER_AVAILABILITY_RE.test(item) &&
+      !NEGATED_PROVIDER_AVAILABILITY_RE.test(item),
+  );
+}
 
 /** Search/browse pages do not qualify: the URL must identify one provider title. */
 export function isOfficialProviderTitleUrl(rawUrl: string): boolean {
@@ -437,7 +451,7 @@ export type DubCheckSession = {
   fetchSucceeded(): boolean;
   fetchedUrls(): string[];
   fetchedOfficialProviderTitle(): boolean;
-  providerAvailabilityDetected(): boolean;
+  providerAvailabilityDetected(evidence: string[]): boolean;
   providerPageHasGermanAudio(): boolean;
 };
 
@@ -545,13 +559,7 @@ ${
     fetchedUrls: () => [...state.fetchedUrls],
     fetchedOfficialProviderTitle: () =>
       state.fetchedPages.some((page) => isOfficialProviderTitleUrl(page.url)),
-    providerAvailabilityDetected: () =>
-      state.fetchedPages.some(
-        (page) =>
-          !isOfficialProviderTitleUrl(page.url) &&
-          /justwatch\.|fernsehserien\./i.test(page.url) &&
-          PROVIDER_MENTION_RE.test(page.text),
-      ),
+    providerAvailabilityDetected: (evidence) => evidenceClaimsProviderAvailability(evidence),
     providerPageHasGermanAudio: () =>
       state.fetchedPages.some(
         (page) => isOfficialProviderTitleUrl(page.url) && providerPageListsGermanAudio(page.text),

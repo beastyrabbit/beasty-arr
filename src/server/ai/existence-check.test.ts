@@ -3,6 +3,7 @@ import {
   assertPublicHttpUrl,
   buildDubCheckSession,
   type DnsLookupFn,
+  evidenceClaimsProviderAvailability,
   extractTextFromHtml,
   FETCH_URL_MAX_TEXT_CHARS,
   fetchUrlForOracle,
@@ -234,6 +235,22 @@ describe("buildDubCheckSession", () => {
     );
   });
 
+  it("requires an affirmative provider availability claim instead of a provider name", () => {
+    expect(
+      evidenceClaimsProviderAvailability([
+        "JustWatch says the movie is currently available to stream on Netflix.",
+      ]),
+    ).toBe(true);
+    expect(
+      evidenceClaimsProviderAvailability([
+        "JustWatch provider filters include Netflix, Prime Video and Disney+.",
+      ]),
+    ).toBe(false);
+    expect(
+      evidenceClaimsProviderAvailability(["The movie is not available to stream on Netflix."]),
+    ).toBe(false);
+  });
+
   it("tracks exact provider pages and German audio separately", async () => {
     const fetchImpl = (async (input: string | URL | Request) => {
       const url = String(input);
@@ -247,7 +264,11 @@ describe("buildDubCheckSession", () => {
     const session = buildDubCheckSession(subject, { fetchImpl, lookupFn: publicLookup });
     const fetchTool = session.tools.find((tool) => tool.name === "fetch_url");
     await runTool(fetchTool as never, { url: "https://www.justwatch.com/de/Serie/Some-Show" });
-    expect(session.providerAvailabilityDetected()).toBe(true);
+    expect(
+      session.providerAvailabilityDetected([
+        "JustWatch says the series is available to stream on Netflix.",
+      ]),
+    ).toBe(true);
     expect(session.fetchedOfficialProviderTitle()).toBe(false);
     await runTool(fetchTool as never, { url: "https://www.netflix.com/title/81234567" });
     expect(session.fetchedOfficialProviderTitle()).toBe(true);
