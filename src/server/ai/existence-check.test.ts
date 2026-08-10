@@ -226,6 +226,8 @@ describe("buildDubCheckSession", () => {
     expect(session.system).toContain("provider page being inaccessible is NOT by itself");
     expect(session.system).toContain("German production");
     expect(session.system).toContain("concert/performance film");
+    expect(session.system).toContain("audience questions");
+    expect(session.system).toContain("require normal German-audio proof");
     expect(session.system).toContain("de (Sprache: Deutsch)");
     expect(session.prompt).toContain("every requested season: 1, 2");
   });

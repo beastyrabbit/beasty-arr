@@ -4,7 +4,7 @@ import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent
 import { Type } from "typebox";
 import { AI_VERDICTS, type AiVerdictValue } from "../../shared/domain.js";
 
-export const PROMPT_VERSION = "dub-oracle-v5";
+export const PROMPT_VERSION = "dub-oracle-v6";
 export const REPORT_TOOL_NAME = "report_dub_verdict";
 
 export const RECHECK_MIN_DAYS = 90;
@@ -533,7 +533,8 @@ const SYSTEM_PROMPT = [
   "If the work is unavailable in Germany and no German-dub announcement or evidence exists, return unlikely, not unknown.",
   "For a German production, an official German broadcaster/distributor page or an explicitly documented deutsche Fassung/voice-over proves exists even when Synchronkartei has no entry. A German title alone is still insufficient.",
   "If the official source says No Dialogue, return exists: no language replacement is needed.",
-  "A concert/performance film consisting of music rather than translatable spoken dialogue also counts as exists; stand-up comedy does not.",
+  "A concert/performance film counts as exists without a dub only when fetched sources show that it consists almost entirely of music and has no meaningful translatable spoken content.",
+  "Do NOT apply the concert exception to TV specials containing interviews, audience questions, answers, hosting, comedy, or substantial stage banter. Those require normal German-audio proof; stand-up comedy never qualifies.",
   "<series_contract>",
   "For a series, return exactly one perSeason entry for EVERY requested season, even when all seasons are unlikely.",
   "One series-level research pass may support multiple seasons, but each season still needs an explicit verdict, confidence, evidence, and recheck interval.",
