@@ -11,6 +11,7 @@ import {
   fernsehserienSeasonNumber,
   fetchUrlForOracle,
   finalizeDubVerdict,
+  germanAggregatorPageMatchesTitle,
   isGermanAggregatorTitleUrl,
   isOfficialProviderTitleUrl,
   isPrivateAddress,
@@ -21,6 +22,8 @@ import {
   RECHECK_MIN_DAYS,
   REPORT_TOOL_NAME,
   seasonPageShowsLocalizedGermanRelease,
+  seasonPageShowsLocalizedGermanSeriesRelease,
+  seasonPageShowsOriginalOnlyRelease,
   titlePageShowsGermanProduction,
 } from "./existence-check.js";
 
@@ -337,10 +340,44 @@ describe("buildDubCheckSession", () => {
       ),
     ).toBe(false);
     expect(
+      seasonPageShowsLocalizedGermanSeriesRelease(
+        "Impractical Jokers – Die Lachflasher! Staffel 6 Episodenguide – fernsehserien.de\nSwim Shady (Swim Shady)\nDeutsche TV-Premiere 18.09.2019 DMAX",
+        "Impractical Jokers",
+      ),
+    ).toBe(true);
+    expect(
+      seasonPageShowsLocalizedGermanSeriesRelease(
+        "The House that Dragons Built Staffel 1 Episodenguide – fernsehserien.de\nFolge 1 (The Heirs of the Dragon)\nDeutsche TV-Premiere 07.10.2022\nOmU (Original mit Untertiteln)",
+        "The House that Dragons Built",
+      ),
+    ).toBe(false);
+    expect(
+      seasonPageShowsOriginalOnlyRelease(
+        "Deutsche TV-Premiere 07.10.2022\nOmU (Original mit Untertiteln)",
+      ),
+    ).toBe(true);
+    expect(
       seasonPageShowsLocalizedGermanRelease(
         "Folge 19 (Salt And Sea, Fire And Blood)\nDeutsche TV-Premiere 29.06.2026",
       ),
     ).toBe(false);
+  });
+
+  it("rejects a JustWatch redirect to a similarly named parent series", () => {
+    expect(
+      germanAggregatorPageMatchesTitle(
+        "https://www.justwatch.com/de/Serie/the-house-that-dragons-built/staffel-1",
+        "House of the Dragon Staffel 1 - Jetzt Stream anschauen",
+        "The House that Dragons Built",
+      ),
+    ).toBe(false);
+    expect(
+      germanAggregatorPageMatchesTitle(
+        "https://www.justwatch.com/de/Film/13-Cameras",
+        "13 Cameras - Stream: Jetzt Film online finden und anschauen",
+        "13 Cameras",
+      ),
+    ).toBe(true);
   });
 
   it("requires an affirmative provider availability claim instead of a provider name", () => {
@@ -400,6 +437,7 @@ describe("buildDubCheckSession", () => {
         url: "https://www.fernsehserien.de/some-show/episodenguide/staffel-1",
       },
     ]);
+    expect(session.originalOnlySeasonReleases()).toEqual([]);
   });
 
   it("captures the verdict through the terminating tool and terminates", async () => {

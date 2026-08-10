@@ -4,7 +4,7 @@ import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent
 import { Type } from "typebox";
 import { AI_VERDICTS, type AiVerdictValue } from "../../shared/domain.js";
 
-export const PROMPT_VERSION = "dub-oracle-v9";
+export const PROMPT_VERSION = "dub-oracle-v10";
 export const REPORT_TOOL_NAME = "report_dub_verdict";
 
 export const RECHECK_MIN_DAYS = 90;
@@ -25,12 +25,15 @@ const FERNSEHSERIEN_GERMAN_AUDIO_RE = /\bde\s*\(\s*Sprache:\s*Deutsch\s*\)/i;
 const FERNSEHSERIEN_SITE_TITLE_SUFFIX_RE = /\s+[–—-]\s+fernsehserien\.de.*$/i;
 const FERNSEHSERIEN_GENERIC_SEARCH_TITLE_RE = /^Suche nach\b/i;
 const FERNSEHSERIEN_SEASON_TITLE_SUFFIX_RE = /\s+Staffel\s+\d+\s+Episodenguide.*$/i;
+const JUSTWATCH_TITLE_SUFFIX_RE =
+  /\s+(?:Staffel\s+\d+\s*)?[–—-]\s+(?:Stream|Jetzt|Wo\s+kann\s+ich).*$/i;
 const FERNSEHSERIEN_SEASON_NUMBER_RE = /\/episodenguide\/staffel-(\d+)(?:\/|$)/;
 const GERMAN_PREMIERE_RE = /Deutsche (?:TV|Streaming)-Premiere\b/i;
 const OMU_RE = /\bOmU\b|Original mit Untertiteln/i;
 const LOCALIZED_EPISODE_TITLE_RE = /^\s*(?:\d+\s*\.\s*)?(.+?)\s*\(([^()]+)\)\s*$/;
 const EPISODE_NUMBER_PREFIX_RE = /^\d+\s*\.\s*/;
 const GENERIC_EPISODE_TITLE_RE = /^(?:Folge|Episode)\s*\d+$/i;
+const LOCALIZED_SERIES_TITLE_SEPARATOR_RE = /\s[–—]\s/;
 const FERNSEHSERIEN_RESERVED_PATHS = new Set([
   "/datenschutz",
   "/filme",
@@ -360,6 +363,31 @@ export function fernsehserienPageMatchesTitle(
   );
 }
 
+/** Verify the displayed title of an aggregator page; URLs can redirect to a similar work. */
+export function germanAggregatorPageMatchesTitle(
+  rawUrl: string,
+  text: string,
+  subjectTitle: string,
+): boolean {
+  if (fernsehserienPageMatchesTitle(rawUrl, text, subjectTitle)) return true;
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return false;
+  }
+  const host = url.hostname.toLowerCase();
+  if (host !== "justwatch.com" && !host.endsWith(".justwatch.com")) return false;
+  if (!JUSTWATCH_GERMAN_TITLE_PATH_RE.test(url.pathname.toLowerCase())) return false;
+  const documentTitle = text
+    .split("\n")
+    .find((line) => line.trim())
+    ?.replace(JUSTWATCH_TITLE_SUFFIX_RE, "")
+    .trim();
+  if (!documentTitle) return false;
+  return normalizeComparableTitle(documentTitle) === normalizeComparableTitle(subjectTitle);
+}
+
 /** Read a season number only from a Fernsehserien season-guide URL. */
 export function fernsehserienSeasonNumber(rawUrl: string): number | null {
   let url: URL;
@@ -393,6 +421,31 @@ export function seasonPageShowsLocalizedGermanRelease(text: string): boolean {
     }
     return normalizeComparableTitle(localized) !== normalizeComparableTitle(original);
   });
+}
+
+/** A localized German series title plus a German season broadcast also proves localization. */
+export function seasonPageShowsLocalizedGermanSeriesRelease(
+  text: string,
+  subjectTitle: string,
+): boolean {
+  if (!GERMAN_PREMIERE_RE.test(text) || OMU_RE.test(text)) return false;
+  const documentTitle = text
+    .split("\n", 1)[0]
+    ?.replace(FERNSEHSERIEN_SITE_TITLE_SUFFIX_RE, "")
+    .replace(FERNSEHSERIEN_SEASON_TITLE_SUFFIX_RE, "")
+    .trim();
+  if (!documentTitle) return false;
+  const localizedTitleSeparator = documentTitle.search(LOCALIZED_SERIES_TITLE_SEPARATOR_RE);
+  if (localizedTitleSeparator < 0) return false;
+  const originalTitle = normalizeComparableTitle(documentTitle.slice(0, localizedTitleSeparator));
+  const localizedTitle = normalizeComparableTitle(documentTitle.slice(localizedTitleSeparator + 3));
+  const wanted = normalizeComparableTitle(subjectTitle);
+  return originalTitle === wanted && localizedTitle.length > 0;
+}
+
+/** Explicit OmU on an exact season page is negative evidence for that season. */
+export function seasonPageShowsOriginalOnlyRelease(text: string): boolean {
+  return GERMAN_PREMIERE_RE.test(text) && OMU_RE.test(text);
 }
 
 /** Inspect only the provider's Audio section, never subtitles or page locale. */
@@ -620,6 +673,7 @@ export type DubCheckSession = {
   titlePageHasGermanAudio(): boolean;
   titlePageShowsGermanProduction(): boolean;
   localizedGermanSeasonReleases(): { season: number; url: string }[];
+  originalOnlySeasonReleases(): { season: number; url: string }[];
 };
 
 const SYSTEM_PROMPT = [
@@ -663,7 +717,8 @@ const SYSTEM_PROMPT = [
   "Never infer other seasons from a confirmed season. Do not omit, duplicate, or add seasons.",
   "A title-wide provider offer or Audio section that does not explicitly identify a season number is NEVER proof for a requested season. Do not guess that an unspecified one-season offer means the newest/current season. A season-level exists verdict needs evidence tied explicitly to that exact season.",
   "For every requested season where Fernsehserien shows German dates, fetch that exact /episodenguide/staffel-N page. Never cite one season page as evidence for a different season.",
-  "A German premiere date alone is not dub proof because an OmU release can also have a German premiere. However, an exact season guide that combines a German TV/streaming premiere with localized German episode titles distinct from the original titles proves that season's German version, unless the exact season/provider evidence says OmU, original version, or explicitly excludes German audio.",
+  "A German premiere date alone is not dub proof because an OmU release can also have a German premiere. However, an exact season guide proves the season's German version when the German TV/streaming premiere is combined either with localized German episode titles or with a localized German series title, unless the exact season/provider evidence says OmU, original version, or explicitly excludes German audio. Episode titles may remain untranslated.",
+  "An exact matching season page that says OmU/original with subtitles outranks an aggregator audio claim. Never transfer audio from a similarly named parent series, remake, search result, or redirected page; the displayed page title must match the requested work.",
   "</series_contract>",
   "confidence is 0..1. Report a confidence above 0.6 only when a fetched source confirms the verdict.",
   "evidence: short bullets citing what you found, each including its source URL.",
@@ -679,7 +734,7 @@ export function buildDubCheckSession(
 ): DubCheckSession {
   const state: WebEvidenceState = { fetchSucceeded: false, fetchedUrls: [], fetchedPages: [] };
   const isMatchingTitlePage = (page: { url: string; text: string }) =>
-    isGermanAggregatorTitleUrl(page.url) ||
+    germanAggregatorPageMatchesTitle(page.url, page.text, subject.title) ||
     fernsehserienSearchPageMatchesTitle(page.url, page.text, subject.title);
   let captured: RawDubVerdict | undefined;
   const fetchOptions: FetchUrlOptions = {
@@ -757,7 +812,20 @@ ${
         if (
           season == null ||
           !fernsehserienPageMatchesTitle(page.url, page.text, subject.title) ||
-          !seasonPageShowsLocalizedGermanRelease(page.text)
+          (!seasonPageShowsLocalizedGermanRelease(page.text) &&
+            !seasonPageShowsLocalizedGermanSeriesRelease(page.text, subject.title))
+        ) {
+          return [];
+        }
+        return [{ season, url: page.url }];
+      }),
+    originalOnlySeasonReleases: () =>
+      state.fetchedPages.flatMap((page) => {
+        const season = fernsehserienSeasonNumber(page.url);
+        if (
+          season == null ||
+          !fernsehserienPageMatchesTitle(page.url, page.text, subject.title) ||
+          !seasonPageShowsOriginalOnlyRelease(page.text)
         ) {
           return [];
         }

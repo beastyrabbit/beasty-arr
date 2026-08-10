@@ -448,7 +448,7 @@ describe("OracleService.runDailyBatch", () => {
       subjectKind: "series",
       verdict: "unlikely",
       germanTitle: "Die Serie",
-      promptVersion: "dub-oracle-v9",
+      promptVersion: "dub-oracle-v10",
       checkedAt: NOW,
       recheckAfter: NOW + 365 * DAY, // local "no dub" policy overrides model suggestion
       confidence: 0.95,
@@ -683,6 +683,80 @@ describe("OracleService.runDailyBatch", () => {
     });
   });
 
+  it("upgrades a German-broadcast season when the localized series title is documented", async () => {
+    const ctx = setup();
+    seedSeriesSubject(ctx.db, 1, { season: 6 });
+    const runner = scriptedRunner(async (req) => {
+      await callTool(req, "fetch_url", {
+        url: "https://www.fernsehserien.de/series-1/episodenguide/staffel-6",
+      });
+      await callTool(req, REPORT_TOOL_NAME, {
+        verdict: "unlikely",
+        confidence: 0.8,
+        perSeason: [
+          {
+            season: 6,
+            verdict: "unlikely",
+            confidence: 0.8,
+            evidence: ["episode title stayed English"],
+            recheckAfterDays: 365,
+          },
+        ],
+        evidence: ["episode title stayed English"],
+        recheckAfterDays: 365,
+      });
+    });
+    const result = await makeOracle(ctx, runner.runner, {
+      fetchImpl: async () =>
+        new Response(
+          "Series 1 – Deutscher Titel Staffel 6 Episodenguide – fernsehserien.de\nSwim Shady (Swim Shady)\nDeutsche TV-Premiere 18.09.2019 DMAX",
+          { headers: { "content-type": "text/plain" } },
+        ),
+    }).runDailyBatch();
+    expect(result).toMatchObject({ checked: 1, failed: 0 });
+    expect(ctx.db.select().from(aiVerdicts).get()).toMatchObject({
+      verdict: "exists",
+      perSeason: [{ season: 6, verdict: "exists", confidence: 1 }],
+    });
+  });
+
+  it("downgrades a positive season contradicted by an exact OmU season page", async () => {
+    const ctx = setup();
+    seedSeriesSubject(ctx.db, 1, { season: 1 });
+    const runner = scriptedRunner(async (req) => {
+      await callTool(req, "fetch_url", {
+        url: "https://www.fernsehserien.de/series-1/episodenguide/staffel-1",
+      });
+      await callTool(req, REPORT_TOOL_NAME, {
+        verdict: "exists",
+        confidence: 0.9,
+        perSeason: [
+          {
+            season: 1,
+            verdict: "exists",
+            confidence: 0.9,
+            evidence: ["aggregator claimed German audio"],
+            recheckAfterDays: 90,
+          },
+        ],
+        evidence: ["aggregator claimed German audio"],
+        recheckAfterDays: 90,
+      });
+    });
+    const result = await makeOracle(ctx, runner.runner, {
+      fetchImpl: async () =>
+        new Response(
+          "Series 1 Staffel 1 Episodenguide – fernsehserien.de\nFolge 1 (The Beginning)\nDeutsche TV-Premiere 07.10.2022\nOmU (Original mit Untertiteln)",
+          { headers: { "content-type": "text/plain" } },
+        ),
+    }).runDailyBatch();
+    expect(result).toMatchObject({ checked: 1, failed: 0 });
+    expect(ctx.db.select().from(aiVerdicts).get()).toMatchObject({
+      verdict: "unlikely",
+      perSeason: [{ season: 1, verdict: "unlikely", confidence: 1 }],
+    });
+  });
+
   it("overrides a movie verdict contradicted by exact-title German audio", async () => {
     const ctx = setup();
     seedMovieSubject(ctx.db, 1);
@@ -725,7 +799,7 @@ describe("OracleService.runDailyBatch", () => {
     const result = await makeOracle(ctx, runner.runner, {
       fetchImpl: async () =>
         new Response(
-          "Netflix (Englisch)\nStreaming & Mediatheken\nde (Sprache: Deutsch) en (ov)\nUT de (Untertitel: Deutsch)",
+          "Movie 1 – fernsehserien.de\nNetflix (Englisch)\nStreaming & Mediatheken\nde (Sprache: Deutsch) en (ov)\nUT de (Untertitel: Deutsch)",
           { headers: { "content-type": "text/plain" } },
         ),
     }).runDailyBatch();

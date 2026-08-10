@@ -802,6 +802,7 @@ export class OracleService {
     const titlePageHasGermanAudio = session.titlePageHasGermanAudio();
     const titlePageShowsGermanProduction = session.titlePageShowsGermanProduction();
     const localizedGermanSeasonReleases = session.localizedGermanSeasonReleases();
+    const originalOnlySeasonReleases = session.originalOnlySeasonReleases();
     if (subject.subjectKind === "movie" && titlePageHasGermanAudio) {
       final = {
         ...final,
@@ -861,6 +862,33 @@ export class OracleService {
             ],
             expectedAvailability: null,
             recheckAfterDays: settings.aiExistsRetryDays,
+          };
+        }),
+      };
+    }
+    if (
+      subject.subjectKind === "series" &&
+      originalOnlySeasonReleases.length > 0 &&
+      final.perSeason
+    ) {
+      const releases = new Map(
+        originalOnlySeasonReleases.map((release) => [release.season, release.url]),
+      );
+      final = {
+        ...final,
+        perSeason: final.perSeason.map((entry) => {
+          const url = releases.get(entry.season);
+          if (!url) return entry;
+          return {
+            ...entry,
+            verdict: "unlikely" as const,
+            confidence: 1,
+            note: "Exact season evidence identifies the German release as OmU, not dubbed.",
+            evidence: [
+              `Deterministic validation: the exact season page identifies the German release as OmU: ${url}`,
+            ],
+            expectedAvailability: null,
+            recheckAfterDays: settings.aiUnlikelyRetryDays,
           };
         }),
       };
