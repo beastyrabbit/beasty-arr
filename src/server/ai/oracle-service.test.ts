@@ -423,11 +423,11 @@ describe("OracleService.runDailyBatch", () => {
       subjectKind: "series",
       verdict: "unlikely",
       germanTitle: "Die Serie",
-      promptVersion: "dub-oracle-v1",
+      promptVersion: "dub-oracle-v2",
       checkedAt: NOW,
       recheckAfter: NOW + 365 * DAY, // local "no dub" policy overrides model suggestion
       confidence: 0.6, // knowledge-only cap (no successful fetch)
-      perSeason: [{ season: 1, verdict: "unlikely" }],
+      perSeason: null,
       supersededBy: null,
     });
     expect(rows.find((row) => row.id === expired.id)?.supersededBy).toBe(fresh?.id);
@@ -486,6 +486,193 @@ describe("OracleService.runDailyBatch", () => {
     // Two verdicts checked today → the third subject must wait for tomorrow.
     const second = await oracle.runDailyBatch();
     expect(second).toMatchObject({ selected: 0, checked: 0, skippedReason: "daily_cap" });
+  });
+
+  it("runs five different titles concurrently when the daily limit is disabled", async () => {
+    const ctx = setup({ aiDailyLimitEnabled: false, aiMaxChecksPerDay: 1, aiParallelism: 5 });
+    for (let id = 1; id <= 7; id += 1) seedMovieSubject(ctx.db, id);
+    let active = 0;
+    let maxActive = 0;
+    const { runner, calls } = scriptedRunner(async (req) => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      await reportVerdict({ verdict: "exists" })(req);
+      active -= 1;
+    });
+    const result = await makeOracle(ctx, runner).runDailyBatch();
+    expect(result).toMatchObject({ selected: 7, checked: 7, failed: 0 });
+    expect(calls).toHaveLength(7);
+    expect(maxActive).toBe(5);
+  });
+
+  it("uses a negative series gate without fabricating season verdicts", async () => {
+    const ctx = setup();
+    seedSeriesSubject(ctx.db, 1, { season: 1 });
+    ctx.db
+      .insert(episodes)
+      .values({
+        id: 102,
+        seriesId: 1,
+        seasonNumber: 2,
+        episodeNumber: 1,
+        monitored: true,
+        hasFile: false,
+        hasGerman: false,
+        lastSyncedAt: NOW,
+      })
+      .run();
+    ctx.db
+      .insert(huntState)
+      .values({
+        source: "sonarr",
+        targetKind: "episode",
+        targetId: 102,
+        seriesId: 1,
+        seasonNumber: 2,
+        state: "missing",
+        stateChangedAt: NOW,
+        searchCount: 5,
+      })
+      .run();
+    await makeOracle(ctx, scriptedRunner(reportVerdict()).runner).runDailyBatch();
+    expect(ctx.db.select().from(aiVerdicts).get()?.perSeason).toBeNull();
+  });
+
+  it("turns a missing season result into unknown instead of inheriting exists", async () => {
+    const ctx = setup();
+    seedSeriesSubject(ctx.db, 1, { season: 1 });
+    ctx.db
+      .insert(episodes)
+      .values({
+        id: 102,
+        seriesId: 1,
+        seasonNumber: 2,
+        episodeNumber: 1,
+        monitored: true,
+        hasFile: false,
+        hasGerman: false,
+        lastSyncedAt: NOW,
+      })
+      .run();
+    ctx.db
+      .insert(huntState)
+      .values({
+        source: "sonarr",
+        targetKind: "episode",
+        targetId: 102,
+        seriesId: 1,
+        seasonNumber: 2,
+        state: "missing",
+        stateChangedAt: NOW,
+        searchCount: 5,
+      })
+      .run();
+    const runner = scriptedRunner(
+      reportVerdict({
+        verdict: "exists",
+        confidence: 0.95,
+        perSeason: [
+          {
+            season: 1,
+            verdict: "exists",
+            confidence: 0.95,
+            evidence: ["confirmed"],
+            recheckAfterDays: 90,
+          },
+        ],
+      }),
+    );
+    await makeOracle(ctx, runner.runner).runDailyBatch();
+    expect(ctx.db.select().from(aiVerdicts).get()?.perSeason).toMatchObject([
+      { season: 1, verdict: "exists", confidence: 0.6 },
+      { season: 2, verdict: "unknown", confidence: 0 },
+    ]);
+  });
+
+  it("prefilters bulk movies through Wikidata and passes series evidence to one AI job", async () => {
+    const ctx = setup({ aiDailyLimitEnabled: false, aiParallelism: 5 });
+    seedMovieSubject(ctx.db, 1, { searchCount: 0 });
+    seedSeriesSubject(ctx.db, 2, { searchCount: 0 });
+    const scripted = scriptedRunner(reportVerdict({ verdict: "unlikely" }));
+    const oracle = makeOracle(ctx, scripted.runner, {
+      catalogLookup: async () =>
+        new Map([
+          [
+            "radarr:1",
+            {
+              subjectKey: "radarr:1",
+              source: "wikidata-synchronkartei" as const,
+              sourceId: "123",
+              url: "https://www.synchronkartei.de/film/123",
+            },
+          ],
+          [
+            "sonarr:2",
+            {
+              subjectKey: "sonarr:2",
+              source: "wikidata-synchronkartei" as const,
+              sourceId: "456",
+              url: "https://www.synchronkartei.de/serie/456",
+            },
+          ],
+        ]),
+    });
+    expect(oracle.startBulk()).toMatchObject({ ok: true, total: 2 });
+    while (oracle.getBulkStatus().running) {
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+    expect(oracle.getBulkStatus()).toMatchObject({ completed: 2, failed: 0, remaining: 0 });
+    expect(scripted.calls).toHaveLength(1);
+    expect(scripted.calls[0]?.prompt).toContain("wikidata-synchronkartei");
+    expect(
+      ctx.db
+        .select()
+        .from(aiVerdicts)
+        .all()
+        .find((row) => row.subjectKey === "sonarr:2"),
+    ).toMatchObject({ verdict: "exists", confidence: 1 });
+    expect(
+      ctx.db
+        .select()
+        .from(aiVerdicts)
+        .all()
+        .find((row) => row.subjectKey === "radarr:1"),
+    ).toMatchObject({ verdict: "exists", provider: "wikidata", confidence: 1 });
+  });
+
+  it("cancels a bulk run while its catalog prefilter is still pending", async () => {
+    const ctx = setup({ aiDailyLimitEnabled: false });
+    seedMovieSubject(ctx.db, 1, { searchCount: 0 });
+    let catalogStarted = false;
+    const oracle = makeOracle(ctx, scriptedRunner(reportVerdict()).runner, {
+      catalogLookup: async (_subjects, _fetchImpl, signal) => {
+        catalogStarted = true;
+        await new Promise<void>((_resolve, reject) => {
+          if (!signal) throw new Error("missing bulk abort signal");
+          if (signal.aborted) {
+            reject(signal.reason);
+            return;
+          }
+          signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+        });
+        return new Map();
+      },
+    });
+
+    expect(oracle.startBulk()).toMatchObject({ ok: true, total: 1 });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(catalogStarted).toBe(true);
+    expect(oracle.cancelBulk()).toBe(true);
+    while (oracle.getBulkStatus().running) {
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+    expect(oracle.getBulkStatus()).toMatchObject({
+      cancelled: true,
+      completed: 0,
+      failed: 0,
+      remaining: 1,
+    });
   });
 
   it("is skipped entirely in dry-run and when the provider is off", async () => {

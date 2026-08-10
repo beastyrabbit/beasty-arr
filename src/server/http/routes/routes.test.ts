@@ -537,6 +537,13 @@ describe("ai", () => {
     expect(res.json().model).toBe("gpt-5.6-terra");
     expect(res.json().status).toBe("unauthenticated");
     expect(res.json().capPerDay).toBe(20);
+    expect(res.json().dailyLimitEnabled).toBe(true);
+    expect(res.json().parallelism).toBe(5);
+    expect((await get(b.app, "/api/ai/bulk/status")).json()).toMatchObject({
+      running: false,
+      total: 0,
+      active: [],
+    });
   });
 
   it("drives the codex device-login flow", async () => {

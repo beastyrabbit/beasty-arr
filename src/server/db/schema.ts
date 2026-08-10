@@ -8,6 +8,7 @@ import {
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 import type {
+  AiSeasonVerdict,
   AiVerdictValue,
   ArrSource,
   FileLanguage,
@@ -254,9 +255,7 @@ export const aiVerdicts = sqliteTable(
     verdict: text("verdict").$type<AiVerdictValue>().notNull(),
     confidence: real("confidence").notNull(),
     germanTitle: text("german_title"),
-    perSeason: text("per_season", { mode: "json" }).$type<
-      { season: number; verdict: string; note?: string }[]
-    >(),
+    perSeason: text("per_season", { mode: "json" }).$type<AiSeasonVerdict[]>(),
     evidence: text("evidence", { mode: "json" }).$type<string[]>().notNull(),
     expectedAvailability: integer("expected_availability"),
     provider: text("provider").notNull(),
@@ -323,6 +322,15 @@ export const manualRequests = sqliteTable("manual_requests", {
 export const settings = sqliteTable("settings", {
   key: text("key").primaryKey(),
   value: text("value", { mode: "json" }).notNull(),
+});
+
+/** Machine-readable evidence imported from licensed/open dub catalogs. */
+export const dubCatalogEvidence = sqliteTable("dub_catalog_evidence", {
+  subjectKey: text("subject_key").primaryKey(),
+  source: text("source").notNull(),
+  sourceId: text("source_id").notNull(),
+  url: text("url").notNull(),
+  checkedAt: integer("checked_at").notNull(),
 });
 
 export const syncState = sqliteTable("sync_state", {

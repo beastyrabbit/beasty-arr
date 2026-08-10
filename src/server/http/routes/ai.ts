@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type {
+  AiBulkStatusResponse,
   AiModelsResponse,
   AiStatusResponse,
   CodexLoginStartResponse,
@@ -39,8 +40,26 @@ export function registerAiRoutes(app: FastifyInstance, ctx: AppContext): void {
       detail: status.detail ?? null,
       checksToday: ctx.services.oracle.countCheckedToday(),
       capPerDay: cfg.aiMaxChecksPerDay,
+      dailyLimitEnabled: cfg.aiDailyLimitEnabled,
+      parallelism: cfg.aiParallelism,
     };
     return response;
+  });
+
+  app.get("/api/ai/bulk/status", async () => {
+    const response: AiBulkStatusResponse = ctx.services.oracle.getBulkStatus();
+    return response;
+  });
+
+  app.post("/api/ai/bulk/start", async (_request, reply) => {
+    const result = ctx.services.oracle.startBulk();
+    if (!result.ok) return reply.code(409).send({ error: result.message ?? "AI bulk unavailable" });
+    return reply.code(202).send({ ok: true, total: result.total });
+  });
+
+  app.post("/api/ai/bulk/cancel", async () => {
+    ctx.services.oracle.cancelBulk();
+    return { ok: true };
   });
 
   app.get("/api/ai/models", async () => {

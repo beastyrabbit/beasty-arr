@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import type {
   ActivityQuery,
   ActivityResponse,
+  AiBulkStatusResponse,
   AiModelsResponse,
   AiStatusResponse,
   AttemptsQuery,
@@ -85,6 +86,7 @@ export const keys = {
   activity: (q: ActivityQuery) => ["activity", q] as const,
   verdicts: (q: VerdictsQuery) => ["verdicts", q] as const,
   aiStatus: ["ai", "status"] as const,
+  aiBulk: ["ai", "bulk"] as const,
   aiModels: ["ai", "models"] as const,
   codexLogin: (id: string) => ["ai", "codex-login", id] as const,
   fixerQueue: ["fixer", "queue"] as const,
@@ -152,6 +154,7 @@ export function wireSseToQueryClient(qc: QueryClient): void {
       case "ai.check.completed":
         qc.invalidateQueries({ queryKey: ["verdicts"] });
         qc.invalidateQueries({ queryKey: keys.aiStatus });
+        qc.invalidateQueries({ queryKey: keys.aiBulk });
         qc.invalidateQueries({ queryKey: ["library"] });
         break;
       case "fixer.queue.changed":
@@ -557,6 +560,27 @@ export function useAiStatus() {
     queryKey: keys.aiStatus,
     queryFn: () => api.get<AiStatusResponse>("/api/ai/status"),
     refetchInterval: 120_000,
+  });
+}
+
+export function useAiBulkStatus() {
+  return useQuery({
+    queryKey: keys.aiBulk,
+    queryFn: () => api.get<AiBulkStatusResponse>("/api/ai/bulk/status"),
+    refetchInterval: (query) => (query.state.data?.running ? 2_000 : 30_000),
+  });
+}
+
+export function useAiBulk() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (action: "start" | "cancel") => api.post<OkResponse>(`/api/ai/bulk/${action}`),
+    onSuccess: (_data, action) => {
+      toast.success(action === "start" ? "AI bulk started" : "AI bulk cancellation requested");
+      qc.invalidateQueries({ queryKey: keys.aiBulk });
+      qc.invalidateQueries({ queryKey: keys.aiStatus });
+    },
+    onError: toastError,
   });
 }
 

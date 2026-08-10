@@ -2,6 +2,7 @@
 // The server routes implement exactly these shapes; the web client consumes them.
 
 import type {
+  AiSeasonVerdict,
   AiVerdictValue,
   ArrSource,
   HuntState,
@@ -540,7 +541,7 @@ export type AiVerdictDto = {
   verdict: AiVerdictValue;
   confidence: number;
   germanTitle: string | null;
-  perSeason: { season: number; verdict: string; note?: string }[] | null;
+  perSeason: AiSeasonVerdict[] | null;
   evidence: string[];
   expectedAvailability: number | null;
   provider: string;
@@ -562,6 +563,20 @@ export type AiStatusResponse = {
   detail: string | null;
   checksToday: number;
   capPerDay: number;
+  dailyLimitEnabled: boolean;
+  parallelism: number;
+};
+
+export type AiBulkStatusResponse = {
+  running: boolean;
+  total: number;
+  completed: number;
+  failed: number;
+  remaining: number;
+  startedAt: number | null;
+  completedAt: number | null;
+  cancelled: boolean;
+  active: { subjectKey: string; title: string }[];
 };
 
 export type AiModelsResponse = PiModelCatalog;
@@ -680,7 +695,9 @@ export type AiSettingsDto = {
   aiProvider: "codex" | "aibox" | "off";
   aiModel: string;
   aiThinkingLevel: AiThinkingLevel;
+  aiDailyLimitEnabled: boolean;
   aiMaxChecksPerDay: number;
+  aiParallelism: number;
   aiPauseConfidence: number;
   aiMinSearchesBeforeCheck: number;
   aiExistsRetryDays: number;

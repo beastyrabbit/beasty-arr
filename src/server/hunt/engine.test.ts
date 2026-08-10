@@ -793,7 +793,7 @@ describe("applyVerdict", () => {
     const s2 = seedEpisode(
       db,
       { id: 21, seriesId: 1, seasonNumber: 2, episodeNumber: 1 },
-      { seasonNumber: 2 },
+      { seasonNumber: 2, searchCount: 1 },
     );
     const done = seedEpisode(
       db,
@@ -846,7 +846,7 @@ describe("applyVerdict", () => {
     expect(huntRow(db, missing)).toMatchObject({
       state: "missing",
       tier: 2,
-      nextEligibleAt: T0 + 30 * DAY_MS,
+      nextEligibleAt: null,
     });
   });
 
@@ -870,7 +870,7 @@ describe("applyVerdict", () => {
   it("applies announced timing and gives confirmed existing dubs a one-month retry", () => {
     const { db, engine } = makeHarness();
     seedSeries(db, { id: 1 });
-    const hs = seedEpisode(db, { id: 11, seriesId: 1 }, { tier: 5 });
+    const hs = seedEpisode(db, { id: 11, seriesId: 1 }, { tier: 5, searchCount: 1 });
     const announced = seedVerdict(db, {
       verdict: "announced",
       expectedAvailability: T0 + 45 * DAY_MS,
@@ -902,6 +902,15 @@ describe("applyVerdict", () => {
       tier: 2,
       nextEligibleAt: T0 + 30 * DAY_MS,
     });
+  });
+
+  it("hunts an AI-confirmed unsearched target immediately", () => {
+    const { db, engine } = makeHarness();
+    seedSeries(db, { id: 1 });
+    const hs = seedEpisode(db, { id: 11, seriesId: 1 }, { searchCount: 0 });
+    const exists = seedVerdict(db, { verdict: "exists" });
+    engine.applyVerdict(exists);
+    expect(huntRow(db, hs)).toMatchObject({ tier: 2, nextEligibleAt: null });
   });
 
   it("applies movie verdicts via radarr subject keys", () => {

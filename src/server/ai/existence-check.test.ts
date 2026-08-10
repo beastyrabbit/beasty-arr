@@ -298,15 +298,42 @@ describe("finalizeDubVerdict", () => {
         verdict: "announced",
         expectedAvailability: "2026-09-01",
         perSeason: [
-          { season: 1, verdict: "exists" },
-          { season: 2.5, verdict: "exists" },
-          { season: 3, verdict: "nope" as never },
+          {
+            season: 1,
+            verdict: "exists",
+            confidence: 0.95,
+            evidence: ["season source"],
+            recheckAfterDays: 120,
+          },
+          {
+            season: 2.5,
+            verdict: "exists",
+            confidence: 0.9,
+            evidence: [],
+            recheckAfterDays: 90,
+          },
+          {
+            season: 3,
+            verdict: "nope" as never,
+            confidence: 0.9,
+            evidence: [],
+            recheckAfterDays: 90,
+          },
         ],
       },
       true,
     );
     expect(final.expectedAvailability).toBe(Date.parse("2026-09-01"));
-    expect(final.perSeason).toEqual([{ season: 1, verdict: "exists" }]);
+    expect(final.perSeason).toEqual([
+      {
+        season: 1,
+        verdict: "exists",
+        confidence: 0.95,
+        evidence: ["season source"],
+        expectedAvailability: null,
+        recheckAfterDays: 120,
+      },
+    ]);
     expect(
       finalizeDubVerdict({ ...base, expectedAvailability: "soon" }, true).expectedAvailability,
     ).toBeNull();

@@ -35,6 +35,9 @@ import { Field, Input } from "../components/ui/input.js";
 import { Switch } from "../components/ui/switch.js";
 import { fmtDate, fmtNum, relTime } from "../lib/format.js";
 import {
+  useAiBulk,
+  useAiBulkStatus,
+  useAiStatus,
   useBudget,
   useConfig,
   useEngineAction,
@@ -553,6 +556,9 @@ function HuntControls({
   indexers: IndexerBudget[];
 }) {
   const update = useUpdateConfig();
+  const aiStatus = useAiStatus();
+  const aiBulkStatus = useAiBulkStatus();
+  const aiBulk = useAiBulk();
   const [form, setForm] = useState({
     queueGateEnabled: settings.queueGateEnabled ?? true,
     queueGateThreshold: settings.queueGateThreshold,
@@ -560,6 +566,9 @@ function HuntControls({
     maxCommandsPerCycle: settings.maxCommandsPerCycle,
     missingToUpgradeRatio: settings.missingToUpgradeRatio,
     huntSpecials: settings.huntSpecials,
+    aiDailyLimitEnabled: settings.aiDailyLimitEnabled,
+    aiMaxChecksPerDay: settings.aiMaxChecksPerDay,
+    aiParallelism: settings.aiParallelism,
   });
   const cyclesPerHour = 60 / Math.max(1, form.huntTickMinutes);
   const ceilingPerHour = cyclesPerHour * form.maxCommandsPerCycle;
@@ -572,7 +581,14 @@ function HuntControls({
     open: !form.queueGateEnabled || status.queueGate[source].size <= form.queueGateThreshold,
   }));
   const setNumber =
-    (key: "queueGateThreshold" | "huntTickMinutes" | "maxCommandsPerCycle") =>
+    (
+      key:
+        | "queueGateThreshold"
+        | "huntTickMinutes"
+        | "maxCommandsPerCycle"
+        | "aiMaxChecksPerDay"
+        | "aiParallelism",
+    ) =>
     (event: React.ChangeEvent<HTMLInputElement>) => {
       const value = Number.parseInt(event.target.value, 10);
       setForm((current) => ({ ...current, [key]: Number.isNaN(value) ? 0 : value }));
@@ -673,6 +689,93 @@ function HuntControls({
             />
           </div>
         </ControlRow>
+
+        <ControlRow
+          label="Daily AI limit"
+          description="Limits paid AI title analyses per UTC day. Turn it off for the initial backlog; catalog matches do not consume this allowance."
+        >
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-[12px] text-ink">
+              {form.aiDailyLimitEnabled ? "Limit on" : "Unlimited"}
+            </span>
+            <Switch
+              checked={form.aiDailyLimitEnabled}
+              onCheckedChange={(value) =>
+                setForm((current) => ({ ...current, aiDailyLimitEnabled: value }))
+              }
+            />
+          </div>
+        </ControlRow>
+
+        <ControlRow
+          label="AI analyses per day"
+          description="Only applies while the daily AI limit is enabled."
+        >
+          <RangeControl
+            value={form.aiMaxChecksPerDay}
+            min={0}
+            max={500}
+            step={5}
+            disabled={!form.aiDailyLimitEnabled}
+            onChange={setNumber("aiMaxChecksPerDay")}
+            suffix="titles"
+          />
+        </ControlRow>
+
+        <ControlRow
+          label="Parallel AI jobs"
+          description="Different films or series analyzed at the same time. A series remains one job even when it contains many seasons."
+        >
+          <RangeControl
+            value={form.aiParallelism}
+            min={1}
+            max={10}
+            step={1}
+            onChange={setNumber("aiParallelism")}
+            suffix="jobs"
+          />
+        </ControlRow>
+
+        <ControlRow
+          label="Initial AI bulk"
+          description="Checks every currently due title. Wikidata/Synchronkartei matches are resolved first; AI handles only remaining films and season details."
+        >
+          <div className="space-y-2">
+            <div className="font-mono text-[10px] text-muted">
+              {aiBulkStatus.data?.running
+                ? `${fmtNum(aiBulkStatus.data.completed)} done · ${fmtNum(aiBulkStatus.data.remaining)} left · ${aiBulkStatus.data.active.length} active`
+                : aiBulkStatus.data?.completedAt
+                  ? `${fmtNum(aiBulkStatus.data.completed)} completed · ${fmtNum(aiBulkStatus.data.failed)} failed · ${fmtNum(aiBulkStatus.data.remaining)} left`
+                  : "Not started"}
+            </div>
+            {aiBulkStatus.data?.running ? (
+              <Button
+                variant="danger"
+                size="sm"
+                disabled={aiBulk.isPending}
+                onClick={() => aiBulk.mutate("cancel")}
+              >
+                <X size={12} /> Cancel bulk
+              </Button>
+            ) : (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={
+                  aiBulk.isPending ||
+                  update.isPending ||
+                  settings.dryRun ||
+                  settings.aiProvider === "off"
+                }
+                onClick={() => {
+                  void update.mutateAsync(form).then(() => aiBulk.mutate("start"));
+                }}
+              >
+                <Sparkles size={12} /> Start bulk
+              </Button>
+            )}
+          </div>
+        </ControlRow>
       </div>
 
       <aside className="self-start border border-line bg-bg">
@@ -713,6 +816,15 @@ function HuntControls({
             icon={<ListFilter size={14} />}
             label="Tightest P1 pace"
             value={p1Rate == null ? "unlimited" : `${fmtCompact(p1Rate)} queries/h`}
+          />
+          <ImpactLine
+            icon={<Sparkles size={14} />}
+            label="AI allowance"
+            value={
+              form.aiDailyLimitEnabled
+                ? `${fmtNum(aiStatus.data?.checksToday ?? 0)}/${fmtNum(form.aiMaxChecksPerDay)} today`
+                : `unlimited · ${form.aiParallelism} parallel`
+            }
           />
         </div>
         {estimatedMovieBatchesPerHour != null &&

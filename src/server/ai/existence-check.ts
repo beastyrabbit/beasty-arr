@@ -4,7 +4,7 @@ import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent
 import { Type } from "typebox";
 import { AI_VERDICTS, type AiVerdictValue } from "../../shared/domain.js";
 
-export const PROMPT_VERSION = "dub-oracle-v1";
+export const PROMPT_VERSION = "dub-oracle-v2";
 export const REPORT_TOOL_NAME = "report_dub_verdict";
 
 export const RECHECK_MIN_DAYS = 90;
@@ -272,7 +272,15 @@ export type RawDubVerdict = {
   verdict: AiVerdictValue;
   confidence: number;
   germanTitle?: string;
-  perSeason?: { season: number; verdict: AiVerdictValue; note?: string }[];
+  perSeason?: {
+    season: number;
+    verdict: AiVerdictValue;
+    confidence: number;
+    note?: string;
+    evidence: string[];
+    expectedAvailability?: string;
+    recheckAfterDays: number;
+  }[];
   evidence: string[];
   expectedAvailability?: string;
   recheckAfterDays: number;
@@ -300,9 +308,16 @@ function createReportTool(capture: (verdict: RawDubVerdict) => void) {
           Type.Object({
             season: Type.Integer({ minimum: 0 }),
             verdict: verdictSchema,
+            confidence: Type.Number({ minimum: 0, maximum: 1 }),
             note: Type.Optional(Type.String()),
+            evidence: Type.Array(Type.String()),
+            expectedAvailability: Type.Optional(Type.String()),
+            recheckAfterDays: Type.Integer({ minimum: 1 }),
           }),
-          { description: "Per-season verdicts when dub coverage differs between seasons." },
+          {
+            description:
+              "Season-specific results. Required for every requested season only when the series-level gate finds German-dub evidence.",
+          },
         ),
       ),
       evidence: Type.Array(Type.String(), {
@@ -340,6 +355,8 @@ export type DubCheckSubject = {
   originalLanguage?: string | null;
   externalIds: { tvdbId?: number | null; tmdbId?: number | null; imdbId?: string | null };
   seasons?: number[];
+  confirmedGermanSeasons?: number[];
+  catalogEvidence?: { source: string; url: string };
 };
 
 export type DubCheckSessionOptions = {
@@ -367,11 +384,15 @@ const SYSTEM_PROMPT = [
   "- German Wikipedia (https://de.wikipedia.org)",
   "- Fernsehserien.de (https://www.fernsehserien.de)",
   "Verdict semantics:",
-  "- exists: a German dub is released/available (for series: at least one requested season; detail differences in perSeason).",
+  "- exists: a German dub is released/available.",
   "- announced: a German dub or German release is officially announced or dated but not yet available.",
   "- unlikely: strong evidence that no German dub exists and none is coming (niche title, years without a dub, no German distributor).",
   "- unknown: you could not determine it reliably.",
-  "For series, always fill perSeason with one verdict for every requested season.",
+  "Series use a two-stage decision: first determine whether any reliable German-dub evidence exists for the series at all.",
+  "If no reliable series-level evidence exists, return unlikely with no perSeason entries. The complete series will sleep for one year.",
+  "If series-level evidence exists or catalog/local evidence is supplied, inspect every requested season and return exactly one perSeason entry for each.",
+  "Never infer that every season is dubbed merely because one season is confirmed.",
+  "Each season needs its own confidence, evidence, availability date and recheck interval.",
   "confidence is 0..1. Report a confidence above 0.6 only when a fetched source confirms the verdict.",
   "evidence: short bullets citing what you found, each including its source URL.",
   "expectedAvailability: for announced, return the ISO date (YYYY-MM-DD) when hunting should resume whenever any date or release window is known.",
@@ -409,6 +430,10 @@ ${JSON.stringify(
     originalLanguage: subject.originalLanguage ?? undefined,
     externalIds: subject.externalIds,
     seasons: subject.seasons?.length ? subject.seasons : undefined,
+    confirmedGermanSeasons: subject.confirmedGermanSeasons?.length
+      ? subject.confirmedGermanSeasons
+      : undefined,
+    catalogEvidence: subject.catalogEvidence,
   },
   null,
   2,
@@ -417,7 +442,14 @@ ${JSON.stringify(
 Instructions:
 - Verify on the preferred German sources via fetch_url${options.searxngUrl ? " (use search_web first when you need to locate the right page)" : ""}.
 - Use the external ids (TVDB/TMDB/IMDb) and the original title to avoid confusing similarly named titles.
-${subject.kind === "series" ? "- Check the listed seasons individually and report one perSeason entry for every listed season.\n" : ""}- Then call ${REPORT_TOOL_NAME} exactly once with your verdict.`;
+${
+  subject.kind === "series"
+    ? `- First make the series-level gate decision. A supplied catalogEvidence or confirmedGermanSeasons value already makes that gate positive.
+- If the gate is negative, stop there and return unlikely without perSeason.
+- If the gate is positive, check every listed season individually and report exactly one perSeason entry for each listed season.
+`
+    : ""
+}- Then call ${REPORT_TOOL_NAME} exactly once with your verdict.`;
 
   return {
     system: SYSTEM_PROMPT,
@@ -435,7 +467,17 @@ export type FinalDubVerdict = {
   verdict: AiVerdictValue;
   confidence: number;
   germanTitle: string | null;
-  perSeason: { season: number; verdict: AiVerdictValue; note?: string }[] | null;
+  perSeason:
+    | {
+        season: number;
+        verdict: AiVerdictValue;
+        confidence: number;
+        note?: string;
+        evidence: string[];
+        expectedAvailability: number | null;
+        recheckAfterDays: number;
+      }[]
+    | null;
   evidence: string[];
   /** Epoch ms, parsed from the ISO date; null when absent or unparseable. */
   expectedAvailability: number | null;
@@ -477,9 +519,33 @@ export function finalizeDubVerdict(
     ? Math.round(clamp(raw.recheckAfterDays, RECHECK_MIN_DAYS, RECHECK_MAX_DAYS))
     : RECHECK_MIN_DAYS;
   const perSeason = Array.isArray(raw.perSeason)
-    ? raw.perSeason.filter(
-        (entry) => Number.isInteger(entry?.season) && isVerdictValue(entry?.verdict),
-      )
+    ? raw.perSeason
+        .filter((entry) => Number.isInteger(entry?.season) && isVerdictValue(entry?.verdict))
+        .map((entry) => {
+          let seasonConfidence = Number.isFinite(entry.confidence)
+            ? clamp(entry.confidence, 0, 1)
+            : 0;
+          if (!fetchSucceeded) {
+            seasonConfidence = Math.min(seasonConfidence, KNOWLEDGE_ONLY_CONFIDENCE_CAP);
+          }
+          const parsedAvailability =
+            typeof entry.expectedAvailability === "string"
+              ? Date.parse(entry.expectedAvailability)
+              : Number.NaN;
+          return {
+            season: entry.season,
+            verdict: entry.verdict,
+            confidence: seasonConfidence,
+            ...(typeof entry.note === "string" && entry.note.trim() ? { note: entry.note } : {}),
+            evidence: Array.isArray(entry.evidence)
+              ? entry.evidence.filter((value): value is string => typeof value === "string")
+              : [],
+            expectedAvailability: Number.isFinite(parsedAvailability) ? parsedAvailability : null,
+            recheckAfterDays: Number.isFinite(entry.recheckAfterDays)
+              ? Math.round(clamp(entry.recheckAfterDays, RECHECK_MIN_DAYS, RECHECK_MAX_DAYS))
+              : RECHECK_MIN_DAYS,
+          };
+        })
     : null;
   const expectedAvailability =
     typeof raw.expectedAvailability === "string" && raw.expectedAvailability.trim()

@@ -24,6 +24,17 @@ export type TargetMode = (typeof TARGET_MODES)[number];
 export const AI_VERDICTS = ["exists", "announced", "unlikely", "unknown"] as const;
 export type AiVerdictValue = (typeof AI_VERDICTS)[number];
 
+/** Season-scoped oracle result stored inside a series verdict. */
+export type AiSeasonVerdict = {
+  season: number;
+  verdict: AiVerdictValue;
+  confidence?: number;
+  note?: string;
+  evidence?: string[];
+  expectedAvailability?: number | null;
+  recheckAfter?: number;
+};
+
 export const SEARCH_TRIGGERS = ["scheduled", "forced", "retry"] as const;
 export type SearchTrigger = (typeof SEARCH_TRIGGERS)[number];
 

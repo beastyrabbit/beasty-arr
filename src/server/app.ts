@@ -243,6 +243,7 @@ export async function buildApp(
     ctx.scheduler.stop();
     fixer.cancelAll();
     fixerBulk.cancel();
+    oracle.cancelBulk();
     sqlite.close();
   });
 

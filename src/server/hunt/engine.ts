@@ -2,6 +2,7 @@ import { and, eq, gt, inArray, isNull, ne, notInArray, sql } from "drizzle-orm";
 import type { FastifyBaseLogger } from "fastify";
 import type { AppEventPayloads } from "../../shared/api-types.js";
 import {
+  type AiSeasonVerdict,
   type AiVerdictValue,
   type ArrSource,
   backoffForTier,
@@ -185,7 +186,7 @@ export type AppliedVerdictInput = {
   subjectKey: string;
   verdict: AiVerdictValue;
   confidence: number;
-  perSeason?: { season: number; verdict: string; note?: string }[] | null;
+  perSeason?: AiSeasonVerdict[] | null;
   checkedAt: number;
   recheckAfter: number;
   expectedAvailability?: number | null;
@@ -224,7 +225,7 @@ function defaultSleep(ms: number, signal?: AbortSignal): Promise<void> {
 function effectiveVerdict(
   verdict: {
     verdict: AiVerdictValue;
-    perSeason?: { season: number; verdict: string; note?: string }[] | null;
+    perSeason?: AiSeasonVerdict[] | null;
   },
   seasonNumber: number | null,
 ): AiVerdictValue | null {
@@ -234,6 +235,33 @@ function effectiveVerdict(
     return null;
   }
   return verdict.verdict;
+}
+
+function effectiveVerdictDetail(
+  verdict: AppliedVerdictInput,
+  seasonNumber: number | null,
+): {
+  verdict: AiVerdictValue;
+  confidence: number;
+  expectedAvailability: number | null;
+  recheckAfter: number;
+} | null {
+  if (seasonNumber != null && verdict.perSeason?.length) {
+    const entry = verdict.perSeason.find((value) => value.season === seasonNumber);
+    if (!entry || !isAiVerdictValue(entry.verdict)) return null;
+    return {
+      verdict: entry.verdict,
+      confidence: entry.confidence ?? verdict.confidence,
+      expectedAvailability: entry.expectedAvailability ?? verdict.expectedAvailability ?? null,
+      recheckAfter: entry.recheckAfter ?? verdict.recheckAfter,
+    };
+  }
+  return {
+    verdict: verdict.verdict,
+    confidence: verdict.confidence,
+    expectedAvailability: verdict.expectedAvailability ?? null,
+    recheckAfter: verdict.recheckAfter,
+  };
 }
 
 /**
@@ -925,12 +953,15 @@ export class HuntEngine {
     row: EpisodeJoinRow,
     verdicts: Map<string, VerdictRow>,
     now: number,
+    germanSeasons: Set<string>,
   ): HuntCandidate {
     const verdict = verdicts.get(`sonarr:${row.ep.seriesId}`) ?? null;
     const eff = verdict ? effectiveVerdict(verdict, row.ep.seasonNumber) : null;
+    const seasonVerdict = verdict?.perSeason?.find((entry) => entry.season === row.ep.seasonNumber);
+    const expectedAvailability =
+      seasonVerdict?.expectedAvailability ?? verdict?.expectedAvailability ?? null;
     const announcedDue =
-      eff === "announced" &&
-      (verdict?.expectedAvailability == null || verdict.expectedAvailability <= now);
+      eff === "announced" && (expectedAvailability == null || expectedAvailability <= now);
     const daysSinceRelease = row.ep.airDateUtc != null ? (now - row.ep.airDateUtc) / DAY_MS : null;
     return {
       huntStateId: row.hs.id,
@@ -945,7 +976,8 @@ export class HuntEngine {
       anime: row.s.seriesType === "anime",
       score: priorityScore({
         announcedDue,
-        existsVerdict: eff === "exists",
+        existsVerdict:
+          eff === "exists" || germanSeasons.has(`${row.ep.seriesId}:${row.ep.seasonNumber}`),
         daysSinceRelease,
         tier: row.hs.tier,
         searchCount: row.hs.searchCount,
@@ -1002,6 +1034,7 @@ export class HuntEngine {
     now: number,
   ): HuntCandidate[] {
     const verdicts = this.loadVerdicts();
+    const germanSeasons = this.germanSeasonKeys();
     const out: HuntCandidate[] = [];
     const filters = [
       gt(huntState.manualPriority, 0),
@@ -1009,7 +1042,7 @@ export class HuntEngine {
     ];
     if (reachable.has("sonarr")) {
       for (const row of this.episodeJoinRows(filters)) {
-        out.push(this.buildEpisodeCandidate(row, verdicts, now));
+        out.push(this.buildEpisodeCandidate(row, verdicts, now, germanSeasons));
       }
     }
     if (reachable.has("radarr")) {
@@ -1027,6 +1060,7 @@ export class HuntEngine {
     now: number,
   ): HuntCandidate[] {
     const verdicts = this.loadVerdicts();
+    const germanSeasons = this.germanSeasonKeys();
     const lag = this.loadDubLagOverrides();
     const missingBucket: HuntCandidate[] = [];
     const upgradeBucket: HuntCandidate[] = [];
@@ -1054,7 +1088,7 @@ export class HuntEngine {
           });
           if (blockedUntil != null && blockedUntil > now) continue;
         }
-        const cand = this.buildEpisodeCandidate(row, verdicts, now);
+        const cand = this.buildEpisodeCandidate(row, verdicts, now, germanSeasons);
         (cand.bucket === "missing" ? missingBucket : upgradeBucket).push(cand);
       }
     }
@@ -1079,6 +1113,17 @@ export class HuntEngine {
     missingBucket.sort(byScore);
     upgradeBucket.sort(byScore);
     return interleaveByRatio(missingBucket, upgradeBucket, parseRatio(cfg.missingToUpgradeRatio));
+  }
+
+  private germanSeasonKeys(): Set<string> {
+    return new Set(
+      this.db
+        .selectDistinct({ seriesId: episodes.seriesId, seasonNumber: episodes.seasonNumber })
+        .from(episodes)
+        .where(eq(episodes.hasGerman, true))
+        .all()
+        .map((row) => `${row.seriesId}:${row.seasonNumber}`),
+    );
   }
 
   // ============ oracle contract ============
@@ -1129,8 +1174,13 @@ export class HuntEngine {
     const mirrorStates = this.mirrorFallbackStates(applicable);
     let applied = 0;
     for (const row of applicable) {
-      const eff = effectiveVerdict(verdict, row.seasonNumber);
-      if (eff === null) continue;
+      const detail = effectiveVerdictDetail(verdict, row.seasonNumber);
+      if (detail === null) continue;
+      const eff = detail.verdict;
+      const seasonDetail =
+        row.seasonNumber == null
+          ? undefined
+          : verdict.perSeason?.find((entry) => entry.season === row.seasonNumber);
       const patch: Partial<typeof huntState.$inferInsert> = { aiVerdictId: verdict.id };
       const germanSeasonEvidence =
         source === "sonarr" &&
@@ -1140,21 +1190,27 @@ export class HuntEngine {
       if (
         eff === "unlikely" &&
         !germanSeasonEvidence &&
-        verdict.confidence >= cfg.aiPauseConfidence
+        detail.confidence >= cfg.aiPauseConfidence
       ) {
         patch.state = "ai_paused";
-        patch.nextEligibleAt = verdict.checkedAt + cfg.aiUnlikelyRetryDays * DAY_MS;
+        patch.nextEligibleAt = Math.max(
+          detail.recheckAfter,
+          verdict.checkedAt + cfg.aiUnlikelyRetryDays * DAY_MS,
+        );
         if (row.state !== "ai_paused") patch.stateChangedAt = now;
       } else {
         if (eff === "announced") {
           patch.tier = 2;
           patch.nextEligibleAt =
-            verdict.expectedAvailability != null && verdict.expectedAvailability > now
-              ? verdict.expectedAvailability
+            detail.expectedAvailability != null && detail.expectedAvailability > now
+              ? detail.expectedAvailability
               : now + ANNOUNCED_FALLBACK_MS;
         } else if (eff === "exists" || germanSeasonEvidence) {
           patch.tier = 2;
-          patch.nextEligibleAt = verdict.checkedAt + cfg.aiExistsRetryDays * DAY_MS;
+          patch.nextEligibleAt =
+            row.searchCount === 0 || germanSeasonEvidence
+              ? null
+              : (seasonDetail?.recheckAfter ?? verdict.checkedAt + cfg.aiExistsRetryDays * DAY_MS);
         }
         if (row.state === "ai_paused") {
           patch.state = mirrorStates.get(row.id) ?? "missing";
