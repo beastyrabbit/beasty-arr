@@ -4,7 +4,7 @@ import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent
 import { Type } from "typebox";
 import { AI_VERDICTS, type AiVerdictValue } from "../../shared/domain.js";
 
-export const PROMPT_VERSION = "dub-oracle-v12";
+export const PROMPT_VERSION = "dub-oracle-v13";
 export const REPORT_TOOL_NAME = "report_dub_verdict";
 
 export const RECHECK_MIN_DAYS = 90;
@@ -34,6 +34,9 @@ const LOCALIZED_EPISODE_TITLE_RE = /^\s*(?:\d+\s*\.\s*)?(.+?)\s*\(([^()]+)\)\s*$
 const EPISODE_NUMBER_PREFIX_RE = /^\d+\s*\.\s*/;
 const GENERIC_EPISODE_TITLE_RE = /^(?:Folge|Episode)\s*\d+$/i;
 const LOCALIZED_SERIES_TITLE_SEPARATOR_RE = /\s[–—]\s/;
+const TWO_EPISODE_DATES_RE = /\b\d{2}\.\d{2}\.\d{4}\s+\d{2}\.\d{2}\.\d{4}\b/;
+const SEASON_HEADER_RE = /^Staffel \d+$/;
+const EPISODE_TABLE_ROW_RE = /^\d+\s+(\d+)\.\d+$/;
 const FERNSEHSERIEN_RESERVED_PATHS = new Set([
   "/datenschutz",
   "/filme",
@@ -451,6 +454,26 @@ export function seasonPageShowsLocalizedGermanSeriesRelease(
   );
 }
 
+/** Fernsehserien episode rows contain German date + original date when localized. */
+export function seasonPageShowsGermanDatedEpisodes(text: string, season: number): boolean {
+  if (OMU_RE.test(text)) return false;
+  const lines = text.split("\n").map((line) => line.trim());
+  const start = lines.findIndex(
+    (line, index) =>
+      line === `Staffel ${season}` &&
+      Number(lines[index + 1]?.match(EPISODE_TABLE_ROW_RE)?.[1]) === season,
+  );
+  if (start < 0) return false;
+  const relativeEnd = lines
+    .slice(start + 1)
+    .findIndex(
+      (line, index, tail) =>
+        SEASON_HEADER_RE.test(line) && EPISODE_TABLE_ROW_RE.test(tail[index + 1] ?? ""),
+    );
+  const end = relativeEnd < 0 ? lines.length : start + 1 + relativeEnd;
+  return lines.slice(start, end).some((line) => TWO_EPISODE_DATES_RE.test(line));
+}
+
 /** Explicit OmU on an exact season page is negative evidence for that season. */
 export function seasonPageShowsOriginalOnlyRelease(text: string): boolean {
   return GERMAN_PREMIERE_RE.test(text) && OMU_RE.test(text);
@@ -832,7 +855,8 @@ ${
             !seasonPageShowsLocalizedGermanSeriesRelease(page.text, subject.title) &&
             !(
               localizedSeriesTitleWasFetched &&
-              GERMAN_PREMIERE_RE.test(page.text) &&
+              (GERMAN_PREMIERE_RE.test(page.text) ||
+                seasonPageShowsGermanDatedEpisodes(page.text, season)) &&
               !OMU_RE.test(page.text)
             ))
         ) {

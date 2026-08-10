@@ -22,6 +22,7 @@ import {
   RECHECK_MAX_DAYS,
   RECHECK_MIN_DAYS,
   REPORT_TOOL_NAME,
+  seasonPageShowsGermanDatedEpisodes,
   seasonPageShowsLocalizedGermanRelease,
   seasonPageShowsLocalizedGermanSeriesRelease,
   seasonPageShowsOriginalOnlyRelease,
@@ -366,6 +367,18 @@ describe("buildDubCheckSession", () => {
     expect(
       seasonPageShowsLocalizedGermanRelease(
         "Folge 19 (Salt And Sea, Fire And Blood)\nDeutsche TV-Premiere 29.06.2026",
+      ),
+    ).toBe(false);
+    expect(
+      seasonPageShowsGermanDatedEpisodes(
+        "Staffel 5\n108 5.01\n5.\n01\nHellCopter HellCopter\n12.06.2019 11.02.2016\nHellCopter\n11.02.2016\nStaffel 6\n135 6.01",
+        5,
+      ),
+    ).toBe(true);
+    expect(
+      seasonPageShowsGermanDatedEpisodes(
+        "Staffel 4\n78 4.01\n4.\n01\nWelcome to Miami\n29.01.2015\nWelcome to Miami\n29.01.2015\nStaffel 5\n108 5.01",
+        4,
       ),
     ).toBe(false);
   });
