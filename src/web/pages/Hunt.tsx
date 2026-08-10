@@ -753,26 +753,45 @@ function HuntControls({
                 variant="danger"
                 size="sm"
                 disabled={aiBulk.isPending}
-                onClick={() => aiBulk.mutate("cancel")}
+                onClick={() => aiBulk.mutate({ action: "cancel" })}
               >
                 <X size={12} /> Cancel bulk
               </Button>
             ) : (
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={
-                  aiBulk.isPending ||
-                  update.isPending ||
-                  settings.dryRun ||
-                  settings.aiProvider === "off"
-                }
-                onClick={() => {
-                  void update.mutateAsync(form).then(() => aiBulk.mutate("start"));
-                }}
-              >
-                <Sparkles size={12} /> Start bulk
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={
+                    aiBulk.isPending ||
+                    update.isPending ||
+                    settings.dryRun ||
+                    settings.aiProvider === "off"
+                  }
+                  onClick={() => {
+                    void update
+                      .mutateAsync(form)
+                      .then(() => aiBulk.mutate({ action: "start", limit: 25 }));
+                  }}
+                >
+                  <Sparkles size={12} /> Validate 25
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={
+                    aiBulk.isPending ||
+                    update.isPending ||
+                    settings.dryRun ||
+                    settings.aiProvider === "off"
+                  }
+                  onClick={() => {
+                    void update.mutateAsync(form).then(() => aiBulk.mutate({ action: "start" }));
+                  }}
+                >
+                  Start full bulk
+                </Button>
+              </div>
             )}
           </div>
         </ControlRow>

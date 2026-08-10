@@ -574,9 +574,16 @@ export function useAiBulkStatus() {
 export function useAiBulk() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (action: "start" | "cancel") => api.post<OkResponse>(`/api/ai/bulk/${action}`),
-    onSuccess: (_data, action) => {
-      toast.success(action === "start" ? "AI bulk started" : "AI bulk cancellation requested");
+    mutationFn: ({ action, limit }: { action: "start" | "cancel"; limit?: number }) =>
+      api.post<OkResponse>(`/api/ai/bulk/${action}`, limit ? { limit } : undefined),
+    onSuccess: (_data, variables) => {
+      toast.success(
+        variables.action === "start"
+          ? variables.limit
+            ? `AI validation batch started (${variables.limit} titles)`
+            : "AI bulk started"
+          : "AI bulk cancellation requested",
+      );
       qc.invalidateQueries({ queryKey: keys.aiBulk });
       qc.invalidateQueries({ queryKey: keys.aiStatus });
     },

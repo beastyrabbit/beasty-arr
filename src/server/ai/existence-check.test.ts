@@ -7,8 +7,10 @@ import {
   FETCH_URL_MAX_TEXT_CHARS,
   fetchUrlForOracle,
   finalizeDubVerdict,
+  isOfficialProviderTitleUrl,
   isPrivateAddress,
   KNOWLEDGE_ONLY_CONFIDENCE_CAP,
+  providerPageListsGermanAudio,
   type RawDubVerdict,
   RECHECK_MAX_DAYS,
   RECHECK_MIN_DAYS,
@@ -217,6 +219,39 @@ describe("buildDubCheckSession", () => {
     expect(session.prompt).toContain('"tvdbId": 123');
     expect(session.system).toContain("synchronkartei.de");
     expect(session.system).toContain("spring/summer/autumn/winter → Mar/Jun/Sep/Dec 01");
+    expect(session.system).toContain("exactly one perSeason entry for EVERY requested season");
+    expect(session.system).toContain("Provider search, browse and login pages do not count");
+    expect(session.prompt).toContain("every requested season: 1, 2");
+  });
+
+  it("recognizes exact provider title pages and keeps subtitles separate from audio", () => {
+    expect(isOfficialProviderTitleUrl("https://www.netflix.com/de/title/81234567")).toBe(true);
+    expect(isOfficialProviderTitleUrl("https://www.netflix.com/search?q=show")).toBe(false);
+    expect(isOfficialProviderTitleUrl("https://www.primevideo.com/detail/0ABC123")).toBe(true);
+    expect(providerPageListsGermanAudio("Audio\nEnglish, Deutsch\nUntertitel\nEnglish")).toBe(true);
+    expect(providerPageListsGermanAudio("Audio\nEnglish\nUntertitel\nDeutsch, English")).toBe(
+      false,
+    );
+  });
+
+  it("tracks exact provider pages and German audio separately", async () => {
+    const fetchImpl = (async (input: string | URL | Request) => {
+      const url = String(input);
+      return fakeResponse(
+        url.includes("netflix.com/title/")
+          ? "Audio\nEnglish, Deutsch\nUntertitel\nEnglish"
+          : "Stream Some Show on Netflix",
+        { headers: { "content-type": "text/plain" } },
+      );
+    }) as unknown as typeof fetch;
+    const session = buildDubCheckSession(subject, { fetchImpl, lookupFn: publicLookup });
+    const fetchTool = session.tools.find((tool) => tool.name === "fetch_url");
+    await runTool(fetchTool as never, { url: "https://www.justwatch.com/de/Serie/Some-Show" });
+    expect(session.providerAvailabilityDetected()).toBe(true);
+    expect(session.fetchedOfficialProviderTitle()).toBe(false);
+    await runTool(fetchTool as never, { url: "https://www.netflix.com/title/81234567" });
+    expect(session.fetchedOfficialProviderTitle()).toBe(true);
+    expect(session.providerPageHasGermanAudio()).toBe(true);
   });
 
   it("captures the verdict through the terminating tool and terminates", async () => {

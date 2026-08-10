@@ -211,6 +211,22 @@ function scriptedRunner(script?: (req: PiSessionRequest) => Promise<void> | void
 const reportVerdict =
   (args: Partial<RawDubVerdict> = {}) =>
   async (req: PiSessionRequest) => {
+    const subjectJson = req.prompt
+      .slice(req.prompt.indexOf("{"), req.prompt.indexOf("Instructions:"))
+      .trim();
+    const subject = JSON.parse(subjectJson) as { kind: "series" | "movie"; seasons?: number[] };
+    const verdict = args.verdict ?? "unlikely";
+    const perSeason =
+      args.perSeason ??
+      (subject.kind === "series"
+        ? (subject.seasons ?? []).map((season) => ({
+            season,
+            verdict,
+            confidence: args.confidence ?? 0.8,
+            evidence: ["season evidence"],
+            recheckAfterDays: args.recheckAfterDays ?? 180,
+          }))
+        : undefined);
     await callTool(req, "fetch_url", { url: "https://example.com/dub-evidence" });
     await callTool(req, REPORT_TOOL_NAME, {
       verdict: "unlikely",
@@ -218,6 +234,7 @@ const reportVerdict =
       evidence: ["no synchronkartei entry"],
       recheckAfterDays: 180,
       ...args,
+      ...(perSeason ? { perSeason } : {}),
     });
   };
 
@@ -431,11 +448,11 @@ describe("OracleService.runDailyBatch", () => {
       subjectKind: "series",
       verdict: "unlikely",
       germanTitle: "Die Serie",
-      promptVersion: "dub-oracle-v2",
+      promptVersion: "dub-oracle-v3",
       checkedAt: NOW,
       recheckAfter: NOW + 365 * DAY, // local "no dub" policy overrides model suggestion
       confidence: 0.95,
-      perSeason: null,
+      perSeason: [{ season: 1, verdict: "unlikely", confidence: 0.95 }],
       supersededBy: null,
     });
     expect(rows.find((row) => row.id === expired.id)?.supersededBy).toBe(fresh?.id);
@@ -528,7 +545,7 @@ describe("OracleService.runDailyBatch", () => {
     expect(maxActive).toBe(5);
   });
 
-  it("uses a negative series gate without fabricating season verdicts", async () => {
+  it("stores explicit negative verdicts for every requested season", async () => {
     const ctx = setup();
     seedSeriesSubject(ctx.db, 1, { season: 1 });
     ctx.db
@@ -558,10 +575,13 @@ describe("OracleService.runDailyBatch", () => {
       })
       .run();
     await makeOracle(ctx, scriptedRunner(reportVerdict()).runner).runDailyBatch();
-    expect(ctx.db.select().from(aiVerdicts).get()?.perSeason).toBeNull();
+    expect(ctx.db.select().from(aiVerdicts).get()?.perSeason).toMatchObject([
+      { season: 1, verdict: "unlikely" },
+      { season: 2, verdict: "unlikely" },
+    ]);
   });
 
-  it("turns a missing season result into unknown instead of inheriting exists", async () => {
+  it("discards an incomplete season result instead of inventing a fallback", async () => {
     const ctx = setup();
     seedSeriesSubject(ctx.db, 1, { season: 1 });
     ctx.db
@@ -605,11 +625,69 @@ describe("OracleService.runDailyBatch", () => {
         ],
       }),
     );
-    await makeOracle(ctx, runner.runner).runDailyBatch();
-    expect(ctx.db.select().from(aiVerdicts).get()?.perSeason).toMatchObject([
-      { season: 1, verdict: "exists", confidence: 0.95 },
-      { season: 2, verdict: "unknown", confidence: 0 },
-    ]);
+    const result = await makeOracle(ctx, runner.runner).runDailyBatch();
+    expect(result).toMatchObject({ checked: 0, failed: 1 });
+    expect(ctx.db.select().from(aiVerdicts).all()).toHaveLength(0);
+  });
+
+  it("discards duplicate season results", async () => {
+    const ctx = setup();
+    seedSeriesSubject(ctx.db, 1, { season: 1 });
+    const duplicate = {
+      season: 1,
+      verdict: "unlikely" as const,
+      confidence: 0.8,
+      evidence: ["source"],
+      recheckAfterDays: 365,
+    };
+    const runner = scriptedRunner(reportVerdict({ perSeason: [duplicate, duplicate] }));
+    const result = await makeOracle(ctx, runner.runner).runDailyBatch();
+    expect(result).toMatchObject({ checked: 0, failed: 1 });
+    expect(ctx.db.select().from(aiVerdicts).all()).toHaveLength(0);
+  });
+
+  it("discards a negative verdict contradicted by provider German audio", async () => {
+    const ctx = setup();
+    seedMovieSubject(ctx.db, 1);
+    const runner = scriptedRunner(async (req) => {
+      await callTool(req, "fetch_url", { url: "https://www.netflix.com/title/81234567" });
+      await callTool(req, REPORT_TOOL_NAME, {
+        verdict: "unlikely",
+        confidence: 0.9,
+        evidence: ["incorrect negative"],
+        recheckAfterDays: 365,
+      });
+    });
+    const result = await makeOracle(ctx, runner.runner, {
+      fetchImpl: async () =>
+        new Response("Audio\nEnglish, Deutsch\nUntertitel\nEnglish", {
+          headers: { "content-type": "text/plain" },
+        }),
+    }).runDailyBatch();
+    expect(result).toMatchObject({ checked: 0, failed: 1 });
+    expect(ctx.db.select().from(aiVerdicts).all()).toHaveLength(0);
+  });
+
+  it("discards a provider-backed negative when only the aggregator was fetched", async () => {
+    const ctx = setup();
+    seedMovieSubject(ctx.db, 1);
+    const runner = scriptedRunner(async (req) => {
+      await callTool(req, "fetch_url", { url: "https://www.justwatch.com/de/Film/Movie-1" });
+      await callTool(req, REPORT_TOOL_NAME, {
+        verdict: "unlikely",
+        confidence: 0.9,
+        evidence: ["Netflix listed but not checked"],
+        recheckAfterDays: 365,
+      });
+    });
+    const result = await makeOracle(ctx, runner.runner, {
+      fetchImpl: async () =>
+        new Response("Movie 1 is currently available on Netflix", {
+          headers: { "content-type": "text/plain" },
+        }),
+    }).runDailyBatch();
+    expect(result).toMatchObject({ checked: 0, failed: 1 });
+    expect(ctx.db.select().from(aiVerdicts).all()).toHaveLength(0);
   });
 
   it("prefilters bulk movies through Wikidata and passes series evidence to one AI job", async () => {
@@ -661,6 +739,19 @@ describe("OracleService.runDailyBatch", () => {
         .all()
         .find((row) => row.subjectKey === "radarr:1"),
     ).toMatchObject({ verdict: "exists", provider: "wikidata", confidence: 1 });
+  });
+
+  it("limits an initial bulk to an explicit validation batch size", async () => {
+    const ctx = setup({ aiDailyLimitEnabled: false, aiParallelism: 5 });
+    for (let id = 1; id <= 30; id += 1) seedMovieSubject(ctx.db, id, { searchCount: 0 });
+    const scripted = scriptedRunner(reportVerdict());
+    const oracle = makeOracle(ctx, scripted.runner, { catalogLookup: async () => new Map() });
+    expect(oracle.startBulk({ limit: 25 })).toMatchObject({ ok: true, total: 25 });
+    while (oracle.getBulkStatus().running) {
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+    expect(oracle.getBulkStatus()).toMatchObject({ completed: 25, failed: 0 });
+    expect(scripted.calls).toHaveLength(25);
   });
 
   it("cancels a bulk run while its catalog prefilter is still pending", async () => {

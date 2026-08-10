@@ -4,7 +4,7 @@ import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent
 import { Type } from "typebox";
 import { AI_VERDICTS, type AiVerdictValue } from "../../shared/domain.js";
 
-export const PROMPT_VERSION = "dub-oracle-v2";
+export const PROMPT_VERSION = "dub-oracle-v3";
 export const REPORT_TOOL_NAME = "report_dub_verdict";
 
 export const RECHECK_MIN_DAYS = 90;
@@ -186,7 +186,56 @@ export async function fetchUrlForOracle(
 type WebEvidenceState = {
   fetchSucceeded: boolean;
   fetchedUrls: string[];
+  fetchedPages: { url: string; text: string }[];
 };
+
+const PROVIDER_MENTION_RE =
+  /\bnetflix\b|\bprime video\b|\bamazon video\b|\bdisney\+\b|\bapple tv\b|\bmax\b|\bwow\b|\bsky\b/i;
+
+/** Search/browse pages do not qualify: the URL must identify one provider title. */
+export function isOfficialProviderTitleUrl(rawUrl: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return false;
+  }
+  const host = url.hostname.toLowerCase();
+  const path = url.pathname.toLowerCase();
+  if (host === "netflix.com" || host.endsWith(".netflix.com")) {
+    return /\/(?:[a-z]{2}(?:-[a-z]{2})?\/)?title\/\d+/.test(path);
+  }
+  if (host === "primevideo.com" || host.endsWith(".primevideo.com")) {
+    return path.includes("/detail/");
+  }
+  if (host.startsWith("amazon.") || host.includes(".amazon.")) {
+    return path.includes("/gp/video/detail/") || path.includes("/detail/");
+  }
+  if (host === "disneyplus.com" || host.endsWith(".disneyplus.com")) {
+    return (
+      path.includes("/browse/entity-") || path.includes("/movies/") || path.includes("/series/")
+    );
+  }
+  if (host === "tv.apple.com" || host.endsWith(".tv.apple.com")) {
+    return path.includes("/movie/") || path.includes("/show/");
+  }
+  if (host === "play.max.com" || host.endsWith(".play.max.com")) {
+    return path.includes("/movie/") || path.includes("/show/");
+  }
+  return false;
+}
+
+/** Inspect only the provider's Audio section, never subtitles or page locale. */
+export function providerPageListsGermanAudio(text: string): boolean {
+  const start = text.search(/(?:^|\n)\s*(?:Audio|Audiosprachen|Tonspuren?)\s*(?:\n|$)/i);
+  if (start < 0) return false;
+  const tail = text.slice(start, start + 2_500);
+  const end = tail.search(
+    /\n\s*(?:Subtitles|Untertitel|Cast|Besetzung|Genres|More Details|Weitere Details)\s*(?:\n|$)/i,
+  );
+  const audio = end > 0 ? tail.slice(0, end) : tail;
+  return /\b(?:Deutsch|German|Deutsch(?:land)?)\b/i.test(audio);
+}
 
 function createFetchUrlTool(state: WebEvidenceState, options: FetchUrlOptions) {
   return defineTool({
@@ -202,6 +251,9 @@ function createFetchUrlTool(state: WebEvidenceState, options: FetchUrlOptions) {
         const text = await fetchUrlForOracle(params.url, options);
         state.fetchSucceeded = true;
         if (!state.fetchedUrls.includes(params.url)) state.fetchedUrls.push(params.url);
+        const previous = state.fetchedPages.find((page) => page.url === params.url);
+        if (previous) previous.text = text;
+        else state.fetchedPages.push({ url: params.url, text });
         return {
           content: [{ type: "text" as const, text }],
           details: { url: params.url, ok: true },
@@ -292,7 +344,28 @@ export type RawDubVerdict = {
   recheckAfterDays: number;
 };
 
-function createReportTool(capture: (verdict: RawDubVerdict) => void) {
+function createReportTool(
+  capture: (verdict: RawDubVerdict) => void,
+  requiredSeasons: number[] = [],
+) {
+  const seasonResults = Type.Array(
+    Type.Object({
+      season: Type.Integer({ minimum: 0 }),
+      verdict: verdictSchema,
+      confidence: Type.Number({ minimum: 0, maximum: 1 }),
+      note: Type.Optional(Type.String()),
+      evidence: Type.Array(Type.String()),
+      expectedAvailability: Type.Optional(Type.String()),
+      recheckAfterDays: Type.Integer({ minimum: 1 }),
+    }),
+    {
+      minItems: requiredSeasons.length || undefined,
+      maxItems: requiredSeasons.length || undefined,
+      description: requiredSeasons.length
+        ? `Required series results: exactly one entry for each requested season (${requiredSeasons.join(", ")}).`
+        : "Optional season-specific results for a movie request.",
+    },
+  );
   return defineTool({
     name: REPORT_TOOL_NAME,
     label: "Report Dub Verdict",
@@ -309,23 +382,7 @@ function createReportTool(capture: (verdict: RawDubVerdict) => void) {
       germanTitle: Type.Optional(
         Type.String({ description: "Official German release title, when one exists." }),
       ),
-      perSeason: Type.Optional(
-        Type.Array(
-          Type.Object({
-            season: Type.Integer({ minimum: 0 }),
-            verdict: verdictSchema,
-            confidence: Type.Number({ minimum: 0, maximum: 1 }),
-            note: Type.Optional(Type.String()),
-            evidence: Type.Array(Type.String()),
-            expectedAvailability: Type.Optional(Type.String()),
-            recheckAfterDays: Type.Integer({ minimum: 1 }),
-          }),
-          {
-            description:
-              "Season-specific results. Required for every requested season only when the series-level gate finds German-dub evidence.",
-          },
-        ),
-      ),
+      perSeason: requiredSeasons.length ? seasonResults : Type.Optional(seasonResults),
       evidence: Type.Array(Type.String(), {
         description: "Short evidence bullets citing what was found, including source URLs.",
       }),
@@ -379,32 +436,44 @@ export type DubCheckSession = {
   getVerdict(): RawDubVerdict | undefined;
   fetchSucceeded(): boolean;
   fetchedUrls(): string[];
+  fetchedOfficialProviderTitle(): boolean;
+  providerAvailabilityDetected(): boolean;
+  providerPageHasGermanAudio(): boolean;
 };
 
 const SYSTEM_PROMPT = [
   'You are the "Dub Oracle" for a German media library.',
-  "Your only job: determine whether an official GERMAN AUDIO DUB exists (or is announced) for one series or movie.",
-  "Research on the web with your tools — never answer from memory alone.",
-  "Preferred sources, in this order:",
+  "Determine whether an official GERMAN AUDIO DUB exists or is announced. Research with the tools; memory alone is never evidence.",
+  "<source_priority>",
   "- Deutsche Synchronkartei (https://www.synchronkartei.de — authoritative for German dubs; search via https://www.synchronkartei.de/suche?q=...)",
-  "- The official streaming-provider title page when the title is on Netflix, Disney+, Prime Video, Apple TV or another provider",
+  "- The exact official streaming-provider title page (Netflix /title/<id>, Prime Video /detail/<id>, Disney+, Apple TV, Max)",
   "- JustWatch Germany (https://www.justwatch.com/de/...)",
   "- German Wikipedia (https://de.wikipedia.org)",
   "- Fernsehserien.de (https://www.fernsehserien.de)",
-  "Verdict semantics:",
+  "</source_priority>",
+  "<research_contract>",
+  "1. Match the exact work using year, original title and external IDs.",
+  "2. Fetch the exact Deutsche Synchronkartei result/entry.",
+  "3. If any source says the work is on a streaming provider, fetch that provider's exact title-detail page. Provider search, browse and login pages do not count.",
+  "4. Read the Audio section on the exact provider page. Keep Audio and Subtitles strictly separate.",
+  "5. Only then decide. Every evidence URL must have been opened successfully with fetch_url during this check.",
+  "</research_contract>",
+  "<verdicts>",
   "- exists: a German dub is released/available.",
   "- announced: a German dub or German release is officially announced or dated but not yet available.",
-  "- unlikely: no German dub evidence was found after checking the relevant German sources. This is the normal negative result and sleeps for one year.",
-  "- unknown: source pages were unavailable/conflicting or the title identity could not be matched reliably. Do not use unknown merely because no dub was found.",
-  "A German-localized title, German availability, German release date, German subtitles or German audio description alone do NOT prove a German dub.",
-  "A source must explicitly list German audio, a German voice cast/studio, or a German synchronization. Keep audio and subtitle fields strictly separate.",
-  "When a streaming provider is involved, fetch its official title page and treat its explicit audio-language list as stronger than an aggregator.",
-  "Every URL cited in evidence must have been opened successfully with fetch_url during this check; never cite search snippets or unfetched URLs as evidence.",
-  "Series use a two-stage decision: first determine whether any reliable German-dub evidence exists for the series at all.",
-  "If no reliable series-level evidence exists, return unlikely with no perSeason entries. The complete series will sleep for one year.",
-  "If series-level evidence exists or catalog/local evidence is supplied, inspect every requested season and return exactly one perSeason entry for each.",
-  "Never infer that every season is dubbed merely because one season is confirmed.",
-  "Each season needs its own confidence, evidence, availability date and recheck interval.",
+  "- unlikely: after completing the research contract, no German-dub evidence exists. This is the normal negative and sleeps for one year.",
+  "- unknown: required source pages are unavailable/conflicting or identity is unclear. If a provider is known but its exact Audio section cannot be fetched, use unknown, not unlikely.",
+  "</verdicts>",
+  "A German title, German availability/date, German subtitles, CC, or German audio description does NOT prove a German dub.",
+  "Positive proof must explicitly say German in the Audio section or identify a German voice cast, dubbing studio, or synchronization.",
+  "The exact provider Audio list outranks aggregators and a missing Synchronkartei entry.",
+  "If the official source says No Dialogue, return exists: no language replacement is needed.",
+  "<series_contract>",
+  "For a series, return exactly one perSeason entry for EVERY requested season, even when all seasons are unlikely.",
+  "One series-level research pass may support multiple seasons, but each season still needs an explicit verdict, confidence, evidence, and recheck interval.",
+  "A season in confirmedGermanSeasons is exists with confidence 1 because one downloaded German episode proves that complete season's dub.",
+  "Never infer other seasons from a confirmed season. Do not omit, duplicate, or add seasons.",
+  "</series_contract>",
   "confidence is 0..1. Report a confidence above 0.6 only when a fetched source confirms the verdict.",
   "evidence: short bullets citing what you found, each including its source URL.",
   "expectedAvailability: for announced, return the ISO date (YYYY-MM-DD) when hunting should resume whenever any date or release window is known.",
@@ -417,7 +486,7 @@ export function buildDubCheckSession(
   subject: DubCheckSubject,
   options: DubCheckSessionOptions = {},
 ): DubCheckSession {
-  const state: WebEvidenceState = { fetchSucceeded: false, fetchedUrls: [] };
+  const state: WebEvidenceState = { fetchSucceeded: false, fetchedUrls: [], fetchedPages: [] };
   let captured: RawDubVerdict | undefined;
   const fetchOptions: FetchUrlOptions = {
     fetchImpl: options.fetchImpl,
@@ -426,9 +495,12 @@ export function buildDubCheckSession(
   const tools: ToolDefinition[] = [
     createFetchUrlTool(state, fetchOptions),
     ...(options.searxngUrl ? [createSearchTool(options.searxngUrl, fetchOptions)] : []),
-    createReportTool((verdict) => {
-      captured = verdict;
-    }),
+    createReportTool(
+      (verdict) => {
+        captured = verdict;
+      },
+      subject.kind === "series" ? (subject.seasons ?? []) : [],
+    ),
   ];
 
   const prompt = `Determine whether an official German dub exists for this ${subject.kind}:
@@ -456,12 +528,12 @@ Instructions:
 - Use the external ids (TVDB/TMDB/IMDb) and the original title to avoid confusing similarly named titles.
 ${
   subject.kind === "series"
-    ? `- First make the series-level gate decision. A supplied catalogEvidence or confirmedGermanSeasons value already makes that gate positive.
-- If the gate is negative, stop there and return unlikely without perSeason.
-- If the gate is positive, check every listed season individually and report exactly one perSeason entry for each listed season.
+    ? `- Return exactly one perSeason entry for every requested season: ${subject.seasons?.join(", ") || "none"}.
+- Apply confirmedGermanSeasons directly as exists/confidence 1, then research all other requested seasons.
 `
     : ""
-}- Then call ${REPORT_TOOL_NAME} exactly once with your verdict.`;
+}- Before reporting unlikely, confirm that every discovered provider's exact title-detail Audio section was fetched.
+- Then call ${REPORT_TOOL_NAME} exactly once with your verdict.`;
 
   return {
     system: SYSTEM_PROMPT,
@@ -471,6 +543,19 @@ ${
     getVerdict: () => captured,
     fetchSucceeded: () => state.fetchSucceeded,
     fetchedUrls: () => [...state.fetchedUrls],
+    fetchedOfficialProviderTitle: () =>
+      state.fetchedPages.some((page) => isOfficialProviderTitleUrl(page.url)),
+    providerAvailabilityDetected: () =>
+      state.fetchedPages.some(
+        (page) =>
+          !isOfficialProviderTitleUrl(page.url) &&
+          /justwatch\.|fernsehserien\./i.test(page.url) &&
+          PROVIDER_MENTION_RE.test(page.text),
+      ),
+    providerPageHasGermanAudio: () =>
+      state.fetchedPages.some(
+        (page) => isOfficialProviderTitleUrl(page.url) && providerPageListsGermanAudio(page.text),
+      ),
   };
 }
 

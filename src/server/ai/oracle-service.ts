@@ -133,7 +133,7 @@ export class OracleService {
     return { ...this.bulkStatus, active: [...this.bulkStatus.active] };
   }
 
-  startBulk(): { ok: boolean; total: number; message?: string } {
+  startBulk(options: { limit?: number } = {}): { ok: boolean; total: number; message?: string } {
     if (this.bulkStatus.running) {
       return { ok: false, total: this.bulkStatus.total, message: "AI bulk is already running." };
     }
@@ -149,7 +149,8 @@ export class OracleService {
       return { ok: false, total: 0, message: "Daily AI limit is exhausted." };
     }
     const all = this.selectSubjects({ includeUnsearched: true });
-    const subjects = Number.isFinite(remaining) ? all.slice(0, remaining) : all;
+    const dailyCapped = Number.isFinite(remaining) ? all.slice(0, remaining) : all;
+    const subjects = options.limit ? dailyCapped.slice(0, options.limit) : dailyCapped;
     this.bulkAbort = new AbortController();
     this.bulkStatus = {
       ...OracleService.idleBulkStatus(),
@@ -778,6 +779,43 @@ export class OracleService {
     }
 
     const final = finalizeDubVerdict(rawVerdict, true);
+    const discard = (message: string): never => {
+      const error = new Error(message);
+      this.bus.emit("ai.check.completed", {
+        subjectKey: subject.subjectKey,
+        error: error.message,
+      });
+      throw error;
+    };
+    if (subject.subjectKind === "series" && subject.seasons?.length) {
+      const requested = [...subject.seasons].sort((a, b) => a - b);
+      const reported = (final.perSeason ?? []).map((entry) => entry.season).sort((a, b) => a - b);
+      const exactCoverage =
+        requested.length === reported.length &&
+        requested.every((season, index) => season === reported[index]);
+      if (!exactCoverage) {
+        discard(
+          `Dub oracle returned invalid season coverage; expected exactly [${requested.join(", ")}], received [${reported.join(", ")}]. Verdict was discarded.`,
+        );
+      }
+    }
+    const containsNegativeVerdict =
+      final.verdict === "unlikely" ||
+      Boolean(final.perSeason?.some((entry) => entry.verdict === "unlikely"));
+    if (containsNegativeVerdict && session.providerPageHasGermanAudio()) {
+      discard(
+        "Dub oracle returned an unlikely verdict although a fetched provider Audio section lists German. Verdict was discarded.",
+      );
+    }
+    if (
+      containsNegativeVerdict &&
+      session.providerAvailabilityDetected() &&
+      !session.fetchedOfficialProviderTitle()
+    ) {
+      discard(
+        "Dub oracle returned an unlikely verdict without fetching the discovered provider's exact title page. Verdict was discarded.",
+      );
+    }
     const now = this.now();
     const evidence = [
       ...(subject.catalogEvidence
@@ -789,30 +827,42 @@ export class OracleService {
     const confirmedSeriesExists =
       subject.subjectKind === "series" &&
       (Boolean(subject.catalogEvidence) || Boolean(subject.confirmedGermanSeasons?.length));
-    const overallVerdict = confirmedSeriesExists ? "exists" : final.verdict;
-    const overallConfidence = confirmedSeriesExists ? 1 : final.confidence;
-    const seriesGatePositive = overallVerdict === "exists" || overallVerdict === "announced";
     const perSeason =
-      subject.subjectKind === "series" && subject.seasons?.length && seriesGatePositive
+      subject.subjectKind === "series" && subject.seasons?.length
         ? subject.seasons.map((season) => {
             const reported = final.perSeason?.find((entry) => entry.season === season);
-            if (reported) {
-              const { recheckAfterDays, ...seasonVerdict } = reported;
-              return {
-                ...seasonVerdict,
-                recheckAfter: now + recheckAfterDays * DAY_MS,
-              };
-            }
+            if (!reported) throw new Error(`validated season ${season} is missing`);
+            const { recheckAfterDays, ...seasonVerdict } = reported;
+            const effectiveRecheckDays =
+              reported.verdict === "unlikely"
+                ? settings.aiUnlikelyRetryDays
+                : reported.verdict === "exists"
+                  ? settings.aiExistsRetryDays
+                  : recheckAfterDays;
             return {
-              season,
-              verdict: "unknown" as const,
-              confidence: 0,
-              evidence: ["No valid season-specific result was returned."],
-              expectedAvailability: null,
-              recheckAfter: now + 90 * DAY_MS,
+              ...seasonVerdict,
+              recheckAfter: now + effectiveRecheckDays * DAY_MS,
             };
           })
         : null;
+    const seasonVerdicts = perSeason?.map((entry) => entry.verdict) ?? [];
+    const derivedSeriesVerdict = seasonVerdicts.includes("exists")
+      ? "exists"
+      : seasonVerdicts.includes("announced")
+        ? "announced"
+        : seasonVerdicts.length > 0 && seasonVerdicts.every((verdict) => verdict === "unlikely")
+          ? "unlikely"
+          : "unknown";
+    const overallVerdict = confirmedSeriesExists
+      ? "exists"
+      : subject.subjectKind === "series" && perSeason?.length
+        ? derivedSeriesVerdict
+        : final.verdict;
+    const overallConfidence = confirmedSeriesExists
+      ? 1
+      : subject.subjectKind === "series" && perSeason?.length
+        ? Math.min(...perSeason.map((entry) => entry.confidence))
+        : final.confidence;
     const recheckDays =
       overallVerdict === "unlikely"
         ? settings.aiUnlikelyRetryDays

@@ -51,8 +51,14 @@ export function registerAiRoutes(app: FastifyInstance, ctx: AppContext): void {
     return response;
   });
 
-  app.post("/api/ai/bulk/start", async (_request, reply) => {
-    const result = ctx.services.oracle.startBulk();
+  app.post("/api/ai/bulk/start", async (request, reply) => {
+    const body = parse(
+      reply,
+      z.object({ limit: z.number().int().min(1).max(500).optional() }).strict(),
+      request.body ?? {},
+    );
+    if (!body.ok) return;
+    const result = ctx.services.oracle.startBulk(body.data);
     if (!result.ok) return reply.code(409).send({ error: result.message ?? "AI bulk unavailable" });
     return reply.code(202).send({ ok: true, total: result.total });
   });

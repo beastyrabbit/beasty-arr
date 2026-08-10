@@ -546,6 +546,24 @@ describe("ai", () => {
     });
   });
 
+  it("accepts an explicit 25-title AI validation batch", async () => {
+    let received: { limit?: number } | undefined;
+    const original = b.ctx.services.oracle.startBulk.bind(b.ctx.services.oracle);
+    b.ctx.services.oracle.startBulk = ((options: { limit?: number }) => {
+      received = options;
+      return { ok: true, total: options.limit ?? 0 };
+    }) as typeof b.ctx.services.oracle.startBulk;
+    try {
+      const res = await post(b.app, "/api/ai/bulk/start", { limit: 25 });
+      expect(res.statusCode).toBe(202);
+      expect(res.json()).toEqual({ ok: true, total: 25 });
+      expect(received).toEqual({ limit: 25 });
+      expect((await post(b.app, "/api/ai/bulk/start", { limit: 0 })).statusCode).toBe(400);
+    } finally {
+      b.ctx.services.oracle.startBulk = original;
+    }
+  });
+
   it("drives the codex device-login flow", async () => {
     b.ctx.services.codexLogin = {
       startCodexLogin: () => ({ loginId: "login-1" }),
