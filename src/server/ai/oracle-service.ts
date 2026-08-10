@@ -893,6 +893,43 @@ export class OracleService {
         }),
       };
     }
+    if (subject.subjectKind === "series" && final.perSeason) {
+      const independentlyConfirmedSeasons = new Set([
+        ...(subject.confirmedGermanSeasons ?? []),
+        ...localizedGermanSeasonReleases.map((release) => release.season),
+      ]);
+      let rejectedUnverifiedPositive = false;
+      final = {
+        ...final,
+        perSeason: final.perSeason.map((entry) => {
+          if (
+            entry.verdict !== "exists" ||
+            titlePageShowsGermanProduction ||
+            independentlyConfirmedSeasons.has(entry.season)
+          ) {
+            return entry;
+          }
+          rejectedUnverifiedPositive = true;
+          return {
+            ...entry,
+            verdict: "unlikely" as const,
+            confidence: Math.max(entry.confidence, 0.8),
+            note: "No independent season-specific source confirms the claimed German dub; aggregator-only positive evidence is insufficient.",
+            evidence: [
+              "Deterministic validation: no downloaded German episode, localized German season broadcast, or exact season-specific non-aggregator dub source was fetched.",
+            ],
+            expectedAvailability: null,
+            recheckAfterDays: settings.aiUnlikelyRetryDays,
+          };
+        }),
+        evidence: rejectedUnverifiedPositive
+          ? [
+              ...final.evidence,
+              "Deterministic validation rejected one or more positive seasons without independent season-specific proof.",
+            ]
+          : final.evidence,
+      };
+    }
     if (subject.subjectKind === "movie" && final.verdict !== "exists" && titlePageHasGermanAudio) {
       discard(
         "Dub oracle returned a non-existing verdict although a fetched exact-title Audio section lists German. Verdict was discarded.",

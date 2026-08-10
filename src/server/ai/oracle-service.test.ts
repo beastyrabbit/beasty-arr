@@ -448,7 +448,7 @@ describe("OracleService.runDailyBatch", () => {
       subjectKind: "series",
       verdict: "unlikely",
       germanTitle: "Die Serie",
-      promptVersion: "dub-oracle-v10",
+      promptVersion: "dub-oracle-v11",
       checkedAt: NOW,
       recheckAfter: NOW + 365 * DAY, // local "no dub" policy overrides model suggestion
       confidence: 0.95,
@@ -482,7 +482,7 @@ describe("OracleService.runDailyBatch", () => {
     });
     await oracle.runDailyBatch();
     const row = ctx.db.select().from(aiVerdicts).get();
-    expect(row).toMatchObject({ verdict: "exists", confidence: 0.95 });
+    expect(row).toMatchObject({ verdict: "unlikely", confidence: 0.95 });
   });
 
   it("discards a verdict when no web source was fetched", async () => {
@@ -754,6 +754,48 @@ describe("OracleService.runDailyBatch", () => {
     expect(ctx.db.select().from(aiVerdicts).get()).toMatchObject({
       verdict: "unlikely",
       perSeason: [{ season: 1, verdict: "unlikely", confidence: 1 }],
+    });
+  });
+
+  it("downgrades a JustWatch-only positive season without independent season proof", async () => {
+    const ctx = setup();
+    seedSeriesSubject(ctx.db, 1, { season: 1 });
+    const runner = scriptedRunner(async (req) => {
+      await callTool(req, "fetch_url", {
+        url: "https://www.justwatch.com/de/Serie/series-1/staffel-1",
+      });
+      await callTool(req, REPORT_TOOL_NAME, {
+        verdict: "exists",
+        confidence: 0.9,
+        perSeason: [
+          {
+            season: 1,
+            verdict: "exists",
+            confidence: 0.9,
+            evidence: ["JustWatch exact season page lists German audio"],
+            recheckAfterDays: 90,
+          },
+        ],
+        evidence: ["JustWatch exact season page lists German audio"],
+        recheckAfterDays: 90,
+      });
+    });
+    const result = await makeOracle(ctx, runner.runner, {
+      fetchImpl: async () =>
+        new Response("Series 1 Staffel 1 – Stream\nAudio\nEnglish, Deutsch\nUntertitel\nDeutsch", {
+          headers: { "content-type": "text/plain" },
+        }),
+    }).runDailyBatch();
+    expect(result).toMatchObject({ checked: 1, failed: 0 });
+    expect(ctx.db.select().from(aiVerdicts).get()).toMatchObject({
+      verdict: "unlikely",
+      perSeason: [
+        {
+          season: 1,
+          verdict: "unlikely",
+          note: expect.stringContaining("independent season-specific source"),
+        },
+      ],
     });
   });
 
@@ -1127,7 +1169,7 @@ describe("OracleService.recheckSubject", () => {
     const { runner } = scriptedRunner(reportVerdict({ verdict: "exists" }));
     const oracle = makeOracle(ctx, runner);
     const row = await oracle.recheckSubject("sonarr:1");
-    expect(row).toMatchObject({ subjectKey: "sonarr:1", verdict: "exists" });
+    expect(row).toMatchObject({ subjectKey: "sonarr:1", verdict: "unlikely" });
     const oldRow = ctx.db.select().from(aiVerdicts).where(eq(aiVerdicts.id, old.id)).get();
     expect(oldRow?.supersededBy).not.toBeNull();
   });

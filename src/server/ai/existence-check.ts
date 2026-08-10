@@ -4,7 +4,7 @@ import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent
 import { Type } from "typebox";
 import { AI_VERDICTS, type AiVerdictValue } from "../../shared/domain.js";
 
-export const PROMPT_VERSION = "dub-oracle-v10";
+export const PROMPT_VERSION = "dub-oracle-v11";
 export const REPORT_TOOL_NAME = "report_dub_verdict";
 
 export const RECHECK_MIN_DAYS = 90;
@@ -682,7 +682,7 @@ const SYSTEM_PROMPT = [
   "<source_priority>",
   "- Deutsche Synchronkartei (https://www.synchronkartei.de — authoritative for German dubs; search via https://www.synchronkartei.de/suche?q=...)",
   "- The exact official streaming-provider title page (Netflix /title/<id>, Prime Video /detail/<id>, Disney+, Apple TV, Max)",
-  "- JustWatch Germany (https://www.justwatch.com/de/...)",
+  "- JustWatch Germany (https://www.justwatch.com/de/...) for discovery and corroboration only; never as the sole positive dub proof",
   "- German Wikipedia (https://de.wikipedia.org)",
   "- Fernsehserien.de (https://www.fernsehserien.de)",
   "</source_priority>",
@@ -691,7 +691,7 @@ const SYSTEM_PROMPT = [
   "2. Fetch the exact Deutsche Synchronkartei result/entry.",
   "3. If any source says the work is on a streaming provider, use search_web with the exact title and year to locate the provider's exact title-detail URL, then fetch it. Provider search, browse, login, press/media, and guessed-ID pages do not count.",
   "4. Confirm that the fetched provider page heading/metadata matches this exact work before using it. For Netflix, prefer a matching netflix.com/de/title/<id> result from web search over Netflix's internal search page.",
-  "5. Read the Audio section. Keep Audio and Subtitles strictly separate. Exact JustWatch Germany and Fernsehserien.de title pages may corroborate structured audio languages when the provider page is inaccessible.",
+  "5. Read the Audio section. Keep Audio and Subtitles strictly separate. JustWatch may help locate an offer, but an aggregator audio claim alone NEVER proves a dub. Confirm every positive with an independent exact provider, Deutsche Synchronkartei, or exact Fernsehserien audio/broadcast source.",
   "6. Only then decide. Every evidence URL must have been opened successfully with fetch_url during this check.",
   "</research_contract>",
   "<verdicts>",
@@ -702,6 +702,7 @@ const SYSTEM_PROMPT = [
   "</verdicts>",
   "A German title, German availability/date, German subtitles, CC, or German audio description does NOT prove a German dub.",
   "Positive proof must explicitly say German in the Audio section or identify a German voice cast, dubbing studio, or synchronization.",
+  "If JustWatch is the only source claiming German audio and no independent exact source confirms it, return unlikely. Do not promote the claim merely because its title and season match.",
   "The exact provider Audio list outranks aggregators and a missing Synchronkartei entry.",
   "On an exact Fernsehserien.de title page, `de (Sprache: Deutsch)` in Streaming & Mediatheken proves German audio; `UT de (Untertitel: Deutsch)` proves only subtitles. An original-premiere label such as `Netflix (Englisch)` does not override a current `de (Sprache: Deutsch)` audio listing.",
   "If German listings explicitly show only original-language Audio plus German subtitles, return unlikely, not unknown.",
@@ -719,6 +720,8 @@ const SYSTEM_PROMPT = [
   "For every requested season where Fernsehserien shows German dates, fetch that exact /episodenguide/staffel-N page. Never cite one season page as evidence for a different season.",
   "A German premiere date alone is not dub proof because an OmU release can also have a German premiere. However, an exact season guide proves the season's German version when the German TV/streaming premiere is combined either with localized German episode titles or with a localized German series title, unless the exact season/provider evidence says OmU, original version, or explicitly excludes German audio. Episode titles may remain untranslated.",
   "An exact matching season page that says OmU/original with subtitles outranks an aggregator audio claim. Never transfer audio from a similarly named parent series, remake, search result, or redirected page; the displayed page title must match the requested work.",
+  "For Max/HBO/Sky/WOW titles, search for and fetch the exact WOW/Sky title page as well as any aggregator page. A provider label containing `(OmU)` is explicit negative dub evidence.",
+  "A positive season verdict needs independent season-specific proof. A title-wide dub entry or a JustWatch season audio claim by itself is insufficient; if no independent season proof is found, return unlikely for that season.",
   "</series_contract>",
   "confidence is 0..1. Report a confidence above 0.6 only when a fetched source confirms the verdict.",
   "evidence: short bullets citing what you found, each including its source URL.",
