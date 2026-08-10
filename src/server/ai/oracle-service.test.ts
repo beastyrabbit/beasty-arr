@@ -448,7 +448,7 @@ describe("OracleService.runDailyBatch", () => {
       subjectKind: "series",
       verdict: "unlikely",
       germanTitle: "Die Serie",
-      promptVersion: "dub-oracle-v8",
+      promptVersion: "dub-oracle-v9",
       checkedAt: NOW,
       recheckAfter: NOW + 365 * DAY, // local "no dub" policy overrides model suggestion
       confidence: 0.95,
@@ -644,6 +644,43 @@ describe("OracleService.runDailyBatch", () => {
     const result = await makeOracle(ctx, runner.runner).runDailyBatch();
     expect(result).toMatchObject({ checked: 0, failed: 1 });
     expect(ctx.db.select().from(aiVerdicts).all()).toHaveLength(0);
+  });
+
+  it("upgrades an exact season with localized German episode titles and a German premiere", async () => {
+    const ctx = setup();
+    seedSeriesSubject(ctx.db, 1, { season: 1 });
+    const runner = scriptedRunner(async (req) => {
+      await callTool(req, "fetch_url", {
+        url: "https://www.fernsehserien.de/series-1/episodenguide/staffel-1",
+      });
+      await callTool(req, REPORT_TOOL_NAME, {
+        verdict: "unlikely",
+        confidence: 0.8,
+        perSeason: [
+          {
+            season: 1,
+            verdict: "unlikely",
+            confidence: 0.8,
+            evidence: ["missing Synchronkartei entry"],
+            recheckAfterDays: 365,
+          },
+        ],
+        evidence: ["missing Synchronkartei entry"],
+        recheckAfterDays: 365,
+      });
+    });
+    const result = await makeOracle(ctx, runner.runner, {
+      fetchImpl: async () =>
+        new Response(
+          "Series 1 – Deutscher Titel Staffel 1 Episodenguide – fernsehserien.de\n1. Vom Hund in die Hand (Pay It Forward)\nDeutsche TV-Premiere 17.06.2015 sixx",
+          { headers: { "content-type": "text/plain" } },
+        ),
+    }).runDailyBatch();
+    expect(result).toMatchObject({ checked: 1, failed: 0 });
+    expect(ctx.db.select().from(aiVerdicts).get()).toMatchObject({
+      verdict: "exists",
+      perSeason: [{ season: 1, verdict: "exists", confidence: 1 }],
+    });
   });
 
   it("overrides a movie verdict contradicted by exact-title German audio", async () => {

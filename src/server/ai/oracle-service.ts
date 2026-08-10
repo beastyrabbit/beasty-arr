@@ -801,6 +801,7 @@ export class OracleService {
     }
     const titlePageHasGermanAudio = session.titlePageHasGermanAudio();
     const titlePageShowsGermanProduction = session.titlePageShowsGermanProduction();
+    const localizedGermanSeasonReleases = session.localizedGermanSeasonReleases();
     if (subject.subjectKind === "movie" && titlePageHasGermanAudio) {
       final = {
         ...final,
@@ -837,10 +838,34 @@ export class OracleService {
         recheckAfterDays: settings.aiExistsRetryDays,
       };
     }
-    const containsNonExistingVerdict =
-      final.verdict !== "exists" ||
-      Boolean(final.perSeason?.some((entry) => entry.verdict !== "exists"));
-    if (containsNonExistingVerdict && titlePageHasGermanAudio) {
+    if (
+      subject.subjectKind === "series" &&
+      localizedGermanSeasonReleases.length > 0 &&
+      final.perSeason
+    ) {
+      const releases = new Map(
+        localizedGermanSeasonReleases.map((release) => [release.season, release.url]),
+      );
+      final = {
+        ...final,
+        perSeason: final.perSeason.map((entry) => {
+          const url = releases.get(entry.season);
+          if (!url) return entry;
+          return {
+            ...entry,
+            verdict: "exists" as const,
+            confidence: 1,
+            note: "Exact season guide documents a localized German broadcast.",
+            evidence: [
+              `Deterministic validation: localized German episode titles and a German premiere are documented for this exact season: ${url}`,
+            ],
+            expectedAvailability: null,
+            recheckAfterDays: settings.aiExistsRetryDays,
+          };
+        }),
+      };
+    }
+    if (subject.subjectKind === "movie" && final.verdict !== "exists" && titlePageHasGermanAudio) {
       discard(
         "Dub oracle returned a non-existing verdict although a fetched exact-title Audio section lists German. Verdict was discarded.",
       );

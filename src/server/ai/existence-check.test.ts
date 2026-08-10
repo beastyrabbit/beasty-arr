@@ -6,7 +6,9 @@ import {
   evidenceClaimsProviderAvailability,
   extractTextFromHtml,
   FETCH_URL_MAX_TEXT_CHARS,
+  fernsehserienPageMatchesTitle,
   fernsehserienSearchPageMatchesTitle,
+  fernsehserienSeasonNumber,
   fetchUrlForOracle,
   finalizeDubVerdict,
   isGermanAggregatorTitleUrl,
@@ -18,6 +20,7 @@ import {
   RECHECK_MAX_DAYS,
   RECHECK_MIN_DAYS,
   REPORT_TOOL_NAME,
+  seasonPageShowsLocalizedGermanRelease,
   titlePageShowsGermanProduction,
 } from "./existence-check.js";
 
@@ -301,6 +304,43 @@ describe("buildDubCheckSession", () => {
         "'R Xmas",
       ),
     ).toBe(false);
+    expect(
+      fernsehserienPageMatchesTitle(
+        "https://www.fernsehserien.de/impractical-jokers/episodenguide/staffel-1",
+        "Impractical Jokers – Die Lachflasher! Staffel 1 Episodenguide – fernsehserien.de\nStaffel 1",
+        "Impractical Jokers",
+      ),
+    ).toBe(true);
+    expect(
+      fernsehserienPageMatchesTitle(
+        "https://www.fernsehserien.de/vampire-club/episodenguide/staffel-1",
+        "Vampire Club Staffel 1 Episodenguide – fernsehserien.de\nStaffel 1",
+        "Anonymous Club",
+      ),
+    ).toBe(false);
+  });
+
+  it("recognizes localized German season releases but not premieres marked as OmU", () => {
+    expect(
+      fernsehserienSeasonNumber(
+        "https://www.fernsehserien.de/impractical-jokers/episodenguide/staffel-6",
+      ),
+    ).toBe(6);
+    expect(
+      seasonPageShowsLocalizedGermanRelease(
+        "1. Vom Hund in die Hand (Pay It Forward)\nDeutsche TV-Premiere 17.06.2015 sixx",
+      ),
+    ).toBe(true);
+    expect(
+      seasonPageShowsLocalizedGermanRelease(
+        "1. Deutscher Titel (Original Title)\nDeutsche Streaming-Premiere\nOmU (Original mit Untertiteln)",
+      ),
+    ).toBe(false);
+    expect(
+      seasonPageShowsLocalizedGermanRelease(
+        "Folge 19 (Salt And Sea, Fire And Blood)\nDeutsche TV-Premiere 29.06.2026",
+      ),
+    ).toBe(false);
   });
 
   it("requires an affirmative provider availability claim instead of a provider name", () => {
@@ -341,6 +381,25 @@ describe("buildDubCheckSession", () => {
     await runTool(fetchTool as never, { url: "https://www.netflix.com/title/81234567" });
     expect(session.fetchedOfficialProviderTitle()).toBe(true);
     expect(session.titlePageHasGermanAudio()).toBe(true);
+  });
+
+  it("tracks localized German releases only for the exact fetched season", async () => {
+    const fetchImpl = (async () =>
+      fakeResponse(
+        "Some Show – Deutscher Titel Staffel 1 Episodenguide – fernsehserien.de\n1. Vom Hund in die Hand (Pay It Forward)\nDeutsche TV-Premiere 17.06.2015 sixx",
+        { headers: { "content-type": "text/plain" } },
+      )) as unknown as typeof fetch;
+    const session = buildDubCheckSession(subject, { fetchImpl, lookupFn: publicLookup });
+    const fetchTool = session.tools.find((tool) => tool.name === "fetch_url");
+    await runTool(fetchTool as never, {
+      url: "https://www.fernsehserien.de/some-show/episodenguide/staffel-1",
+    });
+    expect(session.localizedGermanSeasonReleases()).toEqual([
+      {
+        season: 1,
+        url: "https://www.fernsehserien.de/some-show/episodenguide/staffel-1",
+      },
+    ]);
   });
 
   it("captures the verdict through the terminating tool and terminates", async () => {
