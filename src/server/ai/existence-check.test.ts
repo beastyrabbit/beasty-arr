@@ -238,9 +238,11 @@ describe("buildDubCheckSession", () => {
       fakeResponse("<p>Deutsche Fassung</p>")) as unknown as typeof fetch;
     const session = buildDubCheckSession(subject, { fetchImpl, lookupFn: publicLookup });
     expect(session.fetchSucceeded()).toBe(false);
+    expect(session.fetchedUrls()).toEqual([]);
     const fetchTool = session.tools.find((tool) => tool.name === "fetch_url");
     await runTool(fetchTool as never, { url: "https://www.synchronkartei.de/suche?q=Some+Show" });
     expect(session.fetchSucceeded()).toBe(true);
+    expect(session.fetchedUrls()).toEqual(["https://www.synchronkartei.de/suche?q=Some+Show"]);
   });
 
   it("keeps fetchSucceeded false when the fetch fails (guard or network)", async () => {

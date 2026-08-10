@@ -210,7 +210,8 @@ function scriptedRunner(script?: (req: PiSessionRequest) => Promise<void> | void
 
 const reportVerdict =
   (args: Partial<RawDubVerdict> = {}) =>
-  async (req: PiSessionRequest) =>
+  async (req: PiSessionRequest) => {
+    await callTool(req, "fetch_url", { url: "https://example.com/dub-evidence" });
     await callTool(req, REPORT_TOOL_NAME, {
       verdict: "unlikely",
       confidence: 0.8,
@@ -218,6 +219,7 @@ const reportVerdict =
       recheckAfterDays: 180,
       ...args,
     });
+  };
 
 function makeOracle(
   ctx: ReturnType<typeof setup>,
@@ -227,6 +229,12 @@ function makeOracle(
   return new OracleService(ctx.db, ctx.settings, runner, ctx.bus, noopLog, {
     now: () => NOW,
     sleep: async () => undefined,
+    fetchImpl: async () =>
+      new Response("verified web evidence", {
+        status: 200,
+        headers: { "content-type": "text/plain" },
+      }),
+    lookupFn: async () => [{ address: "93.184.216.34" }],
     ...opts,
   });
 }
@@ -426,7 +434,7 @@ describe("OracleService.runDailyBatch", () => {
       promptVersion: "dub-oracle-v2",
       checkedAt: NOW,
       recheckAfter: NOW + 365 * DAY, // local "no dub" policy overrides model suggestion
-      confidence: 0.6, // knowledge-only cap (no successful fetch)
+      confidence: 0.95,
       perSeason: null,
       supersededBy: null,
     });
@@ -460,17 +468,31 @@ describe("OracleService.runDailyBatch", () => {
     expect(row).toMatchObject({ verdict: "exists", confidence: 0.95 });
   });
 
-  it("stores unknown/0 when the terminating tool was never called", async () => {
+  it("discards a verdict when no web source was fetched", async () => {
     const ctx = setup();
     seedSeriesSubject(ctx.db, 1);
-    const oracle = makeOracle(ctx, scriptedRunner().runner);
-    await oracle.runDailyBatch();
-    const row = ctx.db.select().from(aiVerdicts).get();
-    expect(row).toMatchObject({
-      verdict: "unknown",
-      confidence: 0,
-      recheckAfter: NOW + 90 * DAY,
+    const unverified = scriptedRunner(async (req) => {
+      await callTool(req, REPORT_TOOL_NAME, {
+        verdict: "exists",
+        confidence: 0.99,
+        evidence: ["claimed from memory"],
+        recheckAfterDays: 90,
+      });
     });
+    const result = await makeOracle(ctx, unverified.runner).runDailyBatch();
+    expect(result).toMatchObject({ selected: 1, checked: 0, failed: 1 });
+    expect(ctx.db.select().from(aiVerdicts).all()).toHaveLength(0);
+  });
+
+  it("discards a response without the structured verdict tool", async () => {
+    const ctx = setup();
+    seedSeriesSubject(ctx.db, 1);
+    const noStructuredOutput = scriptedRunner(async (req) => {
+      await callTool(req, "fetch_url", { url: "https://example.com/dub-evidence" });
+    });
+    const result = await makeOracle(ctx, noStructuredOutput.runner).runDailyBatch();
+    expect(result).toMatchObject({ selected: 1, checked: 0, failed: 1 });
+    expect(ctx.db.select().from(aiVerdicts).all()).toHaveLength(0);
   });
 
   it("caps checks per calendar day", async () => {
@@ -585,7 +607,7 @@ describe("OracleService.runDailyBatch", () => {
     );
     await makeOracle(ctx, runner.runner).runDailyBatch();
     expect(ctx.db.select().from(aiVerdicts).get()?.perSeason).toMatchObject([
-      { season: 1, verdict: "exists", confidence: 0.6 },
+      { season: 1, verdict: "exists", confidence: 0.95 },
       { season: 2, verdict: "unknown", confidence: 0 },
     ]);
   });
@@ -673,6 +695,37 @@ describe("OracleService.runDailyBatch", () => {
       failed: 0,
       remaining: 1,
     });
+  });
+
+  it("reports live progress when the catalog prefilter falls back to AI", async () => {
+    const ctx = setup({ aiDailyLimitEnabled: false, aiParallelism: 1 });
+    seedMovieSubject(ctx.db, 1, { searchCount: 0 });
+    let releaseRunner: (() => void) | undefined;
+    const runnerWaiting = new Promise<void>((resolve) => {
+      releaseRunner = resolve;
+    });
+    const scripted = scriptedRunner(async (req) => {
+      await reportVerdict({ verdict: "exists" })(req);
+      await runnerWaiting;
+    });
+    const oracle = makeOracle(ctx, scripted.runner, {
+      catalogLookup: async () => {
+        throw new Error("catalog unavailable");
+      },
+    });
+
+    expect(oracle.startBulk()).toMatchObject({ ok: true, total: 1 });
+    while (scripted.calls.length === 0) await new Promise((resolve) => setTimeout(resolve, 1));
+    expect(oracle.getBulkStatus()).toMatchObject({
+      running: true,
+      completed: 0,
+      failed: 0,
+      remaining: 1,
+      active: [{ subjectKey: "radarr:1", title: "Movie 1" }],
+    });
+    releaseRunner?.();
+    while (oracle.getBulkStatus().running) await new Promise((resolve) => setTimeout(resolve, 1));
+    expect(oracle.getBulkStatus()).toMatchObject({ completed: 1, failed: 0, remaining: 0 });
   });
 
   it("is skipped entirely in dry-run and when the provider is off", async () => {

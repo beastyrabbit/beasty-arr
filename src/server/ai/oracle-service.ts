@@ -568,47 +568,42 @@ export class OracleService {
     subjects: OracleCheckSubject[],
     signal: AbortSignal,
   ): Promise<void> {
+    const hooks = {
+      started: (subject: OracleCheckSubject) => {
+        this.bulkStatus.active = [
+          ...this.bulkStatus.active,
+          { subjectKey: subject.subjectKey, title: subject.title },
+        ];
+      },
+      completed: (subject: OracleCheckSubject, failed: boolean) => {
+        this.bulkStatus.active = this.bulkStatus.active.filter(
+          (entry) => entry.subjectKey !== subject.subjectKey,
+        );
+        if (!signal.aborted) {
+          if (failed) this.bulkStatus.failed += 1;
+          else this.bulkStatus.completed += 1;
+        }
+        this.bulkStatus.remaining = Math.max(
+          0,
+          this.bulkStatus.total - this.bulkStatus.completed - this.bulkStatus.failed,
+        );
+      },
+    };
     try {
       const prepared = await this.prepareBulkSubjects(subjects, signal);
-      if (!signal.aborted) {
-        await this.runSubjects(prepared.pending, signal, {
-          started: (subject) => {
-            this.bulkStatus.active = [
-              ...this.bulkStatus.active,
-              { subjectKey: subject.subjectKey, title: subject.title },
-            ];
-          },
-          completed: (subject, failed) => {
-            this.bulkStatus.active = this.bulkStatus.active.filter(
-              (entry) => entry.subjectKey !== subject.subjectKey,
-            );
-            if (!signal.aborted) {
-              if (failed) this.bulkStatus.failed += 1;
-              else this.bulkStatus.completed += 1;
-            }
-            this.bulkStatus.remaining = Math.max(
-              0,
-              this.bulkStatus.total - this.bulkStatus.completed - this.bulkStatus.failed,
-            );
-          },
-        });
-      }
       this.bulkStatus.completed += prepared.catalogCompleted;
       this.bulkStatus.remaining = Math.max(
         0,
         this.bulkStatus.total - this.bulkStatus.completed - this.bulkStatus.failed,
       );
+      if (!signal.aborted) {
+        await this.runSubjects(prepared.pending, signal, hooks);
+      }
     } catch (error) {
       if (!signal.aborted) {
         const message = error instanceof Error ? error.message : String(error);
         this.log.warn({ err: message }, "AI bulk catalog prefilter failed; continuing with AI");
-        const result = await this.runSubjects(subjects, signal);
-        this.bulkStatus.completed += result.checked;
-        this.bulkStatus.failed += result.failed;
-        this.bulkStatus.remaining = Math.max(
-          0,
-          this.bulkStatus.total - this.bulkStatus.completed - this.bulkStatus.failed,
-        );
+        await this.runSubjects(subjects, signal, hooks);
       }
     } finally {
       this.bulkStatus.running = false;
@@ -761,14 +756,36 @@ export class OracleService {
       throw error;
     }
 
-    const final = finalizeDubVerdict(session.getVerdict(), session.fetchSucceeded());
+    if (!session.fetchSucceeded()) {
+      const error = new Error(
+        "Dub oracle returned no successfully fetched web source; verdict was discarded.",
+      );
+      this.bus.emit("ai.check.completed", {
+        subjectKey: subject.subjectKey,
+        error: error.message,
+      });
+      throw error;
+    }
+
+    const rawVerdict = session.getVerdict();
+    if (!rawVerdict) {
+      const error = new Error("Dub oracle returned no structured verdict; response was discarded.");
+      this.bus.emit("ai.check.completed", {
+        subjectKey: subject.subjectKey,
+        error: error.message,
+      });
+      throw error;
+    }
+
+    const final = finalizeDubVerdict(rawVerdict, true);
     const now = this.now();
-    const evidence = subject.catalogEvidence
-      ? [
-          `Deutsche Synchronkartei catalog entry via Wikidata: ${subject.catalogEvidence.url}`,
-          ...final.evidence,
-        ]
-      : final.evidence;
+    const evidence = [
+      ...(subject.catalogEvidence
+        ? [`Deutsche Synchronkartei catalog entry via Wikidata: ${subject.catalogEvidence.url}`]
+        : []),
+      ...session.fetchedUrls().map((url) => `Fetched web source: ${url}`),
+      ...final.evidence,
+    ];
     const confirmedSeriesExists =
       subject.subjectKind === "series" &&
       (Boolean(subject.catalogEvidence) || Boolean(subject.confirmedGermanSeasons?.length));

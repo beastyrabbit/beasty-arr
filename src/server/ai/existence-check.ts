@@ -183,7 +183,12 @@ export async function fetchUrlForOracle(
   }
 }
 
-function createFetchUrlTool(state: { fetchSucceeded: boolean }, options: FetchUrlOptions) {
+type WebEvidenceState = {
+  fetchSucceeded: boolean;
+  fetchedUrls: string[];
+};
+
+function createFetchUrlTool(state: WebEvidenceState, options: FetchUrlOptions) {
   return defineTool({
     name: "fetch_url",
     label: "Fetch URL",
@@ -196,6 +201,7 @@ function createFetchUrlTool(state: { fetchSucceeded: boolean }, options: FetchUr
       try {
         const text = await fetchUrlForOracle(params.url, options);
         state.fetchSucceeded = true;
+        if (!state.fetchedUrls.includes(params.url)) state.fetchedUrls.push(params.url);
         return {
           content: [{ type: "text" as const, text }],
           details: { url: params.url, ok: true },
@@ -372,6 +378,7 @@ export type DubCheckSession = {
   terminatingTool: typeof REPORT_TOOL_NAME;
   getVerdict(): RawDubVerdict | undefined;
   fetchSucceeded(): boolean;
+  fetchedUrls(): string[];
 };
 
 const SYSTEM_PROMPT = [
@@ -380,14 +387,19 @@ const SYSTEM_PROMPT = [
   "Research on the web with your tools — never answer from memory alone.",
   "Preferred sources, in this order:",
   "- Deutsche Synchronkartei (https://www.synchronkartei.de — authoritative for German dubs; search via https://www.synchronkartei.de/suche?q=...)",
+  "- The official streaming-provider title page when the title is on Netflix, Disney+, Prime Video, Apple TV or another provider",
   "- JustWatch Germany (https://www.justwatch.com/de/...)",
   "- German Wikipedia (https://de.wikipedia.org)",
   "- Fernsehserien.de (https://www.fernsehserien.de)",
   "Verdict semantics:",
   "- exists: a German dub is released/available.",
   "- announced: a German dub or German release is officially announced or dated but not yet available.",
-  "- unlikely: strong evidence that no German dub exists and none is coming (niche title, years without a dub, no German distributor).",
-  "- unknown: you could not determine it reliably.",
+  "- unlikely: no German dub evidence was found after checking the relevant German sources. This is the normal negative result and sleeps for one year.",
+  "- unknown: source pages were unavailable/conflicting or the title identity could not be matched reliably. Do not use unknown merely because no dub was found.",
+  "A German-localized title, German availability, German release date, German subtitles or German audio description alone do NOT prove a German dub.",
+  "A source must explicitly list German audio, a German voice cast/studio, or a German synchronization. Keep audio and subtitle fields strictly separate.",
+  "When a streaming provider is involved, fetch its official title page and treat its explicit audio-language list as stronger than an aggregator.",
+  "Every URL cited in evidence must have been opened successfully with fetch_url during this check; never cite search snippets or unfetched URLs as evidence.",
   "Series use a two-stage decision: first determine whether any reliable German-dub evidence exists for the series at all.",
   "If no reliable series-level evidence exists, return unlikely with no perSeason entries. The complete series will sleep for one year.",
   "If series-level evidence exists or catalog/local evidence is supplied, inspect every requested season and return exactly one perSeason entry for each.",
@@ -405,7 +417,7 @@ export function buildDubCheckSession(
   subject: DubCheckSubject,
   options: DubCheckSessionOptions = {},
 ): DubCheckSession {
-  const state = { fetchSucceeded: false };
+  const state: WebEvidenceState = { fetchSucceeded: false, fetchedUrls: [] };
   let captured: RawDubVerdict | undefined;
   const fetchOptions: FetchUrlOptions = {
     fetchImpl: options.fetchImpl,
@@ -458,6 +470,7 @@ ${
     terminatingTool: REPORT_TOOL_NAME,
     getVerdict: () => captured,
     fetchSucceeded: () => state.fetchSucceeded,
+    fetchedUrls: () => [...state.fetchedUrls],
   };
 }
 
