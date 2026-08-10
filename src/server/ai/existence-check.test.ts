@@ -226,6 +226,7 @@ describe("buildDubCheckSession", () => {
     expect(session.system).toContain("provider page being inaccessible is NOT by itself");
     expect(session.system).toContain("German production");
     expect(session.system).toContain("concert/performance film");
+    expect(session.system).toContain("de (Sprache: Deutsch)");
     expect(session.prompt).toContain("every requested season: 1, 2");
   });
 
@@ -235,10 +236,30 @@ describe("buildDubCheckSession", () => {
     expect(isOfficialProviderTitleUrl("https://www.primevideo.com/detail/0ABC123")).toBe(true);
     expect(isGermanAggregatorTitleUrl("https://www.justwatch.com/de/Film/Being-Eddie")).toBe(true);
     expect(isGermanAggregatorTitleUrl("https://www.justwatch.com/de/suche?q=show")).toBe(false);
+    expect(
+      isGermanAggregatorTitleUrl("https://www.fernsehserien.de/filme/all-die-leeren-zimmer"),
+    ).toBe(true);
+    expect(isGermanAggregatorTitleUrl("https://www.fernsehserien.de/batwheels")).toBe(true);
+    expect(
+      isGermanAggregatorTitleUrl("https://www.fernsehserien.de/batwheels/episodenguide/staffel-3"),
+    ).toBe(true);
+    expect(isGermanAggregatorTitleUrl("https://www.fernsehserien.de/suche?q=show")).toBe(false);
+    expect(isGermanAggregatorTitleUrl("https://www.fernsehserien.de/filme")).toBe(false);
+    expect(isGermanAggregatorTitleUrl("https://www.fernsehserien.de/news")).toBe(false);
     expect(providerPageListsGermanAudio("Audio\nEnglish, Deutsch\nUntertitel\nEnglish")).toBe(true);
     expect(providerPageListsGermanAudio("Audio\nEnglish\nUntertitel\nDeutsch, English")).toBe(
       false,
     );
+    expect(
+      providerPageListsGermanAudio(
+        "Netflix (Englisch)\nStreaming & Mediatheken\nde (Sprache: Deutsch) en (ov)\nUT de (Untertitel: Deutsch)",
+      ),
+    ).toBe(true);
+    expect(
+      providerPageListsGermanAudio(
+        "Netflix (Englisch)\nStreaming & Mediatheken\nen (ov) (Sprache: Englisch)\nUT de (Untertitel: Deutsch)",
+      ),
+    ).toBe(false);
   });
 
   it("requires an affirmative provider availability claim instead of a provider name", () => {

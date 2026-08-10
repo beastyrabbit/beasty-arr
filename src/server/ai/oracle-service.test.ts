@@ -448,7 +448,7 @@ describe("OracleService.runDailyBatch", () => {
       subjectKind: "series",
       verdict: "unlikely",
       germanTitle: "Die Serie",
-      promptVersion: "dub-oracle-v4",
+      promptVersion: "dub-oracle-v5",
       checkedAt: NOW,
       recheckAfter: NOW + 365 * DAY, // local "no dub" policy overrides model suggestion
       confidence: 0.95,
@@ -663,6 +663,31 @@ describe("OracleService.runDailyBatch", () => {
         new Response("Audio\nEnglish, Deutsch\nUntertitel\nEnglish", {
           headers: { "content-type": "text/plain" },
         }),
+    }).runDailyBatch();
+    expect(result).toMatchObject({ checked: 0, failed: 1 });
+    expect(ctx.db.select().from(aiVerdicts).all()).toHaveLength(0);
+  });
+
+  it("discards a negative contradicted by Fernsehserien structured German audio", async () => {
+    const ctx = setup();
+    seedMovieSubject(ctx.db, 1);
+    const runner = scriptedRunner(async (req) => {
+      await callTool(req, "fetch_url", {
+        url: "https://www.fernsehserien.de/filme/all-die-leeren-zimmer",
+      });
+      await callTool(req, REPORT_TOOL_NAME, {
+        verdict: "unlikely",
+        confidence: 0.9,
+        evidence: ["English original with German subtitles"],
+        recheckAfterDays: 365,
+      });
+    });
+    const result = await makeOracle(ctx, runner.runner, {
+      fetchImpl: async () =>
+        new Response(
+          "Netflix (Englisch)\nStreaming & Mediatheken\nde (Sprache: Deutsch) en (ov)\nUT de (Untertitel: Deutsch)",
+          { headers: { "content-type": "text/plain" } },
+        ),
     }).runDailyBatch();
     expect(result).toMatchObject({ checked: 0, failed: 1 });
     expect(ctx.db.select().from(aiVerdicts).all()).toHaveLength(0);

@@ -4,7 +4,7 @@ import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent
 import { Type } from "typebox";
 import { AI_VERDICTS, type AiVerdictValue } from "../../shared/domain.js";
 
-export const PROMPT_VERSION = "dub-oracle-v4";
+export const PROMPT_VERSION = "dub-oracle-v5";
 export const REPORT_TOOL_NAME = "report_dub_verdict";
 
 export const RECHECK_MIN_DAYS = 90;
@@ -17,6 +17,24 @@ export const FETCH_URL_MAX_TEXT_CHARS = 100_000;
 const SEARCH_TIMEOUT_MS = 10_000;
 const MAX_REDIRECTS = 5;
 const JUSTWATCH_GERMAN_TITLE_PATH_RE = /^\/de\/(?:film|serie)\//;
+const FERNSEHSERIEN_MOVIE_PATH_RE = /^\/filme\/[^/]+\/?$/;
+const FERNSEHSERIEN_SERIES_PATH_RE = /^\/[^/]+\/?$/;
+const FERNSEHSERIEN_SEASON_PATH_RE = /^\/[^/]+\/episodenguide\/staffel-\d+\/?$/;
+const FERNSEHSERIEN_GERMAN_AUDIO_RE = /\bde\s*\(\s*Sprache:\s*Deutsch\s*\)/i;
+const FERNSEHSERIEN_RESERVED_PATHS = new Set([
+  "/datenschutz",
+  "/filme",
+  "/impressum",
+  "/login",
+  "/news",
+  "/registrieren",
+  "/sender",
+  "/sendetermine",
+  "/serien",
+  "/stars",
+  "/streaming",
+  "/suche",
+]);
 
 // ============ SSRF guard ============
 
@@ -250,14 +268,25 @@ export function isGermanAggregatorTitleUrl(rawUrl: string): boolean {
   }
   const host = url.hostname.toLowerCase();
   const path = url.pathname.toLowerCase();
-  return (
-    (host === "justwatch.com" || host.endsWith(".justwatch.com")) &&
-    JUSTWATCH_GERMAN_TITLE_PATH_RE.test(path)
-  );
+  if (host === "justwatch.com" || host.endsWith(".justwatch.com")) {
+    return JUSTWATCH_GERMAN_TITLE_PATH_RE.test(path);
+  }
+  if (host === "fernsehserien.de" || host.endsWith(".fernsehserien.de")) {
+    const canonicalPath = path.endsWith("/") ? path.slice(0, -1) : path;
+    return (
+      FERNSEHSERIEN_MOVIE_PATH_RE.test(path) ||
+      FERNSEHSERIEN_SEASON_PATH_RE.test(path) ||
+      (FERNSEHSERIEN_SERIES_PATH_RE.test(path) && !FERNSEHSERIEN_RESERVED_PATHS.has(canonicalPath))
+    );
+  }
+  return false;
 }
 
 /** Inspect only the provider's Audio section, never subtitles or page locale. */
 export function providerPageListsGermanAudio(text: string): boolean {
+  // Fernsehserien.de labels audio as `de (Sprache: Deutsch)` and subtitles as
+  // `UT de (Untertitel: Deutsch)`, so this token is unambiguous on an exact title page.
+  if (FERNSEHSERIEN_GERMAN_AUDIO_RE.test(text)) return true;
   const start = text.search(/(?:^|\n)\s*(?:Audio|Audiosprachen|Tonspuren?)\s*(?:\n|$)/i);
   if (start < 0) return false;
   const tail = text.slice(start, start + 2_500);
@@ -487,7 +516,7 @@ const SYSTEM_PROMPT = [
   "2. Fetch the exact Deutsche Synchronkartei result/entry.",
   "3. If any source says the work is on a streaming provider, use search_web with the exact title and year to locate the provider's exact title-detail URL, then fetch it. Provider search, browse, login, press/media, and guessed-ID pages do not count.",
   "4. Confirm that the fetched provider page heading/metadata matches this exact work before using it. For Netflix, prefer a matching netflix.com/de/title/<id> result from web search over Netflix's internal search page.",
-  "5. Read the Audio section. Keep Audio and Subtitles strictly separate. An exact JustWatch Germany title page may corroborate explicit Audio-Sprachen when the provider page is inaccessible.",
+  "5. Read the Audio section. Keep Audio and Subtitles strictly separate. Exact JustWatch Germany and Fernsehserien.de title pages may corroborate structured audio languages when the provider page is inaccessible.",
   "6. Only then decide. Every evidence URL must have been opened successfully with fetch_url during this check.",
   "</research_contract>",
   "<verdicts>",
@@ -499,6 +528,7 @@ const SYSTEM_PROMPT = [
   "A German title, German availability/date, German subtitles, CC, or German audio description does NOT prove a German dub.",
   "Positive proof must explicitly say German in the Audio section or identify a German voice cast, dubbing studio, or synchronization.",
   "The exact provider Audio list outranks aggregators and a missing Synchronkartei entry.",
+  "On an exact Fernsehserien.de title page, `de (Sprache: Deutsch)` in Streaming & Mediatheken proves German audio; `UT de (Untertitel: Deutsch)` proves only subtitles. An original-premiere label such as `Netflix (Englisch)` does not override a current `de (Sprache: Deutsch)` audio listing.",
   "If German listings explicitly show only original-language Audio plus German subtitles, return unlikely, not unknown.",
   "If the work is unavailable in Germany and no German-dub announcement or evidence exists, return unlikely, not unknown.",
   "For a German production, an official German broadcaster/distributor page or an explicitly documented deutsche Fassung/voice-over proves exists even when Synchronkartei has no entry. A German title alone is still insufficient.",
