@@ -448,7 +448,7 @@ describe("OracleService.runDailyBatch", () => {
       subjectKind: "series",
       verdict: "unlikely",
       germanTitle: "Die Serie",
-      promptVersion: "dub-oracle-v3",
+      promptVersion: "dub-oracle-v4",
       checkedAt: NOW,
       recheckAfter: NOW + 365 * DAY, // local "no dub" policy overrides model suggestion
       confidence: 0.95,
@@ -646,13 +646,13 @@ describe("OracleService.runDailyBatch", () => {
     expect(ctx.db.select().from(aiVerdicts).all()).toHaveLength(0);
   });
 
-  it("discards a negative verdict contradicted by provider German audio", async () => {
+  it("discards a non-existing verdict contradicted by exact-title German audio", async () => {
     const ctx = setup();
     seedMovieSubject(ctx.db, 1);
     const runner = scriptedRunner(async (req) => {
       await callTool(req, "fetch_url", { url: "https://www.netflix.com/title/81234567" });
       await callTool(req, REPORT_TOOL_NAME, {
-        verdict: "unlikely",
+        verdict: "unknown",
         confidence: 0.9,
         evidence: ["incorrect negative"],
         recheckAfterDays: 365,
@@ -668,7 +668,7 @@ describe("OracleService.runDailyBatch", () => {
     expect(ctx.db.select().from(aiVerdicts).all()).toHaveLength(0);
   });
 
-  it("discards a provider-backed negative when only the aggregator was fetched", async () => {
+  it("allows a provider-backed negative when the exact provider page is inaccessible", async () => {
     const ctx = setup();
     seedMovieSubject(ctx.db, 1);
     const runner = scriptedRunner(async (req) => {
@@ -686,8 +686,8 @@ describe("OracleService.runDailyBatch", () => {
           headers: { "content-type": "text/plain" },
         }),
     }).runDailyBatch();
-    expect(result).toMatchObject({ checked: 0, failed: 1 });
-    expect(ctx.db.select().from(aiVerdicts).all()).toHaveLength(0);
+    expect(result).toMatchObject({ checked: 1, failed: 0 });
+    expect(ctx.db.select().from(aiVerdicts).all()).toHaveLength(1);
   });
 
   it("prefilters bulk movies through Wikidata and passes series evidence to one AI job", async () => {

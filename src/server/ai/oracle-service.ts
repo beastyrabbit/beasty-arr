@@ -799,21 +799,12 @@ export class OracleService {
         );
       }
     }
-    const containsNegativeVerdict =
-      final.verdict === "unlikely" ||
-      Boolean(final.perSeason?.some((entry) => entry.verdict === "unlikely"));
-    if (containsNegativeVerdict && session.providerPageHasGermanAudio()) {
+    const containsNonExistingVerdict =
+      final.verdict !== "exists" ||
+      Boolean(final.perSeason?.some((entry) => entry.verdict !== "exists"));
+    if (containsNonExistingVerdict && session.titlePageHasGermanAudio()) {
       discard(
-        "Dub oracle returned an unlikely verdict although a fetched provider Audio section lists German. Verdict was discarded.",
-      );
-    }
-    if (
-      containsNegativeVerdict &&
-      session.providerAvailabilityDetected(final.evidence) &&
-      !session.fetchedOfficialProviderTitle()
-    ) {
-      discard(
-        "Dub oracle returned an unlikely verdict without fetching the discovered provider's exact title page. Verdict was discarded.",
+        "Dub oracle returned a non-existing verdict although a fetched exact-title Audio section lists German. Verdict was discarded.",
       );
     }
     const now = this.now();

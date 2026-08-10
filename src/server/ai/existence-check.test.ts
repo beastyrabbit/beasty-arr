@@ -8,6 +8,7 @@ import {
   FETCH_URL_MAX_TEXT_CHARS,
   fetchUrlForOracle,
   finalizeDubVerdict,
+  isGermanAggregatorTitleUrl,
   isOfficialProviderTitleUrl,
   isPrivateAddress,
   KNOWLEDGE_ONLY_CONFIDENCE_CAP,
@@ -221,7 +222,10 @@ describe("buildDubCheckSession", () => {
     expect(session.system).toContain("synchronkartei.de");
     expect(session.system).toContain("spring/summer/autumn/winter → Mar/Jun/Sep/Dec 01");
     expect(session.system).toContain("exactly one perSeason entry for EVERY requested season");
-    expect(session.system).toContain("Provider search, browse and login pages do not count");
+    expect(session.system).toContain("Provider search, browse, login, press/media");
+    expect(session.system).toContain("provider page being inaccessible is NOT by itself");
+    expect(session.system).toContain("German production");
+    expect(session.system).toContain("concert/performance film");
     expect(session.prompt).toContain("every requested season: 1, 2");
   });
 
@@ -229,6 +233,8 @@ describe("buildDubCheckSession", () => {
     expect(isOfficialProviderTitleUrl("https://www.netflix.com/de/title/81234567")).toBe(true);
     expect(isOfficialProviderTitleUrl("https://www.netflix.com/search?q=show")).toBe(false);
     expect(isOfficialProviderTitleUrl("https://www.primevideo.com/detail/0ABC123")).toBe(true);
+    expect(isGermanAggregatorTitleUrl("https://www.justwatch.com/de/Film/Being-Eddie")).toBe(true);
+    expect(isGermanAggregatorTitleUrl("https://www.justwatch.com/de/suche?q=show")).toBe(false);
     expect(providerPageListsGermanAudio("Audio\nEnglish, Deutsch\nUntertitel\nEnglish")).toBe(true);
     expect(providerPageListsGermanAudio("Audio\nEnglish\nUntertitel\nDeutsch, English")).toBe(
       false,
@@ -272,7 +278,7 @@ describe("buildDubCheckSession", () => {
     expect(session.fetchedOfficialProviderTitle()).toBe(false);
     await runTool(fetchTool as never, { url: "https://www.netflix.com/title/81234567" });
     expect(session.fetchedOfficialProviderTitle()).toBe(true);
-    expect(session.providerPageHasGermanAudio()).toBe(true);
+    expect(session.titlePageHasGermanAudio()).toBe(true);
   });
 
   it("captures the verdict through the terminating tool and terminates", async () => {

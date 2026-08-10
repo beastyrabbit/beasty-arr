@@ -4,7 +4,7 @@ import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent
 import { Type } from "typebox";
 import { AI_VERDICTS, type AiVerdictValue } from "../../shared/domain.js";
 
-export const PROMPT_VERSION = "dub-oracle-v3";
+export const PROMPT_VERSION = "dub-oracle-v4";
 export const REPORT_TOOL_NAME = "report_dub_verdict";
 
 export const RECHECK_MIN_DAYS = 90;
@@ -16,6 +16,7 @@ export const FETCH_URL_TIMEOUT_MS = 15_000;
 export const FETCH_URL_MAX_TEXT_CHARS = 100_000;
 const SEARCH_TIMEOUT_MS = 10_000;
 const MAX_REDIRECTS = 5;
+const JUSTWATCH_GERMAN_TITLE_PATH_RE = /^\/de\/(?:film|serie)\//;
 
 // ============ SSRF guard ============
 
@@ -239,6 +240,22 @@ export function isOfficialProviderTitleUrl(rawUrl: string): boolean {
   return false;
 }
 
+/** Exact German aggregator title pages may expose a structured audio-language section. */
+export function isGermanAggregatorTitleUrl(rawUrl: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return false;
+  }
+  const host = url.hostname.toLowerCase();
+  const path = url.pathname.toLowerCase();
+  return (
+    (host === "justwatch.com" || host.endsWith(".justwatch.com")) &&
+    JUSTWATCH_GERMAN_TITLE_PATH_RE.test(path)
+  );
+}
+
 /** Inspect only the provider's Audio section, never subtitles or page locale. */
 export function providerPageListsGermanAudio(text: string): boolean {
   const start = text.search(/(?:^|\n)\s*(?:Audio|Audiosprachen|Tonspuren?)\s*(?:\n|$)/i);
@@ -452,7 +469,7 @@ export type DubCheckSession = {
   fetchedUrls(): string[];
   fetchedOfficialProviderTitle(): boolean;
   providerAvailabilityDetected(evidence: string[]): boolean;
-  providerPageHasGermanAudio(): boolean;
+  titlePageHasGermanAudio(): boolean;
 };
 
 const SYSTEM_PROMPT = [
@@ -468,20 +485,25 @@ const SYSTEM_PROMPT = [
   "<research_contract>",
   "1. Match the exact work using year, original title and external IDs.",
   "2. Fetch the exact Deutsche Synchronkartei result/entry.",
-  "3. If any source says the work is on a streaming provider, fetch that provider's exact title-detail page. Provider search, browse and login pages do not count.",
-  "4. Read the Audio section on the exact provider page. Keep Audio and Subtitles strictly separate.",
-  "5. Only then decide. Every evidence URL must have been opened successfully with fetch_url during this check.",
+  "3. If any source says the work is on a streaming provider, use search_web with the exact title and year to locate the provider's exact title-detail URL, then fetch it. Provider search, browse, login, press/media, and guessed-ID pages do not count.",
+  "4. Confirm that the fetched provider page heading/metadata matches this exact work before using it. For Netflix, prefer a matching netflix.com/de/title/<id> result from web search over Netflix's internal search page.",
+  "5. Read the Audio section. Keep Audio and Subtitles strictly separate. An exact JustWatch Germany title page may corroborate explicit Audio-Sprachen when the provider page is inaccessible.",
+  "6. Only then decide. Every evidence URL must have been opened successfully with fetch_url during this check.",
   "</research_contract>",
   "<verdicts>",
   "- exists: a German dub is released/available.",
   "- announced: a German dub or German release is officially announced or dated but not yet available.",
-  "- unlikely: after completing the research contract, no German-dub evidence exists. This is the normal negative and sleeps for one year.",
-  "- unknown: required source pages are unavailable/conflicting or identity is unclear. If a provider is known but its exact Audio section cannot be fetched, use unknown, not unlikely.",
+  "- unlikely: after useful web research, no German-dub evidence exists. This is the normal negative and sleeps for one year.",
+  "- unknown: the work identity is genuinely unclear, fetched sources directly conflict, or no useful source could be fetched. A provider page being inaccessible is NOT by itself a reason for unknown.",
   "</verdicts>",
   "A German title, German availability/date, German subtitles, CC, or German audio description does NOT prove a German dub.",
   "Positive proof must explicitly say German in the Audio section or identify a German voice cast, dubbing studio, or synchronization.",
   "The exact provider Audio list outranks aggregators and a missing Synchronkartei entry.",
+  "If German listings explicitly show only original-language Audio plus German subtitles, return unlikely, not unknown.",
+  "If the work is unavailable in Germany and no German-dub announcement or evidence exists, return unlikely, not unknown.",
+  "For a German production, an official German broadcaster/distributor page or an explicitly documented deutsche Fassung/voice-over proves exists even when Synchronkartei has no entry. A German title alone is still insufficient.",
   "If the official source says No Dialogue, return exists: no language replacement is needed.",
+  "A concert/performance film consisting of music rather than translatable spoken dialogue also counts as exists; stand-up comedy does not.",
   "<series_contract>",
   "For a series, return exactly one perSeason entry for EVERY requested season, even when all seasons are unlikely.",
   "One series-level research pass may support multiple seasons, but each season still needs an explicit verdict, confidence, evidence, and recheck interval.",
@@ -546,7 +568,8 @@ ${
 - Apply confirmedGermanSeasons directly as exists/confidence 1, then research all other requested seasons.
 `
     : ""
-}- Before reporting unlikely, confirm that every discovered provider's exact title-detail Audio section was fetched.
+}- Prefer every discovered provider's exact title-detail Audio section. If it is inaccessible, decide from the other successfully fetched German sources; do not choose unknown solely because that provider page failed.
+- If Netflix is discovered, search the public web for the exact matching netflix.com/de/title/<id> page instead of stopping at Netflix search/login or media pages.
 - Then call ${REPORT_TOOL_NAME} exactly once with your verdict.`;
 
   return {
@@ -560,9 +583,11 @@ ${
     fetchedOfficialProviderTitle: () =>
       state.fetchedPages.some((page) => isOfficialProviderTitleUrl(page.url)),
     providerAvailabilityDetected: (evidence) => evidenceClaimsProviderAvailability(evidence),
-    providerPageHasGermanAudio: () =>
+    titlePageHasGermanAudio: () =>
       state.fetchedPages.some(
-        (page) => isOfficialProviderTitleUrl(page.url) && providerPageListsGermanAudio(page.text),
+        (page) =>
+          (isOfficialProviderTitleUrl(page.url) || isGermanAggregatorTitleUrl(page.url)) &&
+          providerPageListsGermanAudio(page.text),
       ),
   };
 }
