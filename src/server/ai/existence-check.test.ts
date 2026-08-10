@@ -6,6 +6,7 @@ import {
   evidenceClaimsProviderAvailability,
   extractTextFromHtml,
   FETCH_URL_MAX_TEXT_CHARS,
+  fernsehserienSearchPageMatchesTitle,
   fetchUrlForOracle,
   finalizeDubVerdict,
   isGermanAggregatorTitleUrl,
@@ -157,9 +158,11 @@ describe("extractTextFromHtml", () => {
 
   it("preserves structured abbreviation labels used for audio and country metadata", () => {
     const text = extractTextFromHtml(
-      '<abbr class="label-sprache" title="Sprache: Deutsch">de</abbr> <abbr itemprop="countryOfOrigin" title="Deutschland">D</abbr> 2022',
+      '<title>Adam &amp; Ida – Die lange Suche der Zwillinge – fernsehserien.de</title><main><abbr class="label-sprache" title="Sprache: Deutsch">de</abbr> <abbr itemprop="countryOfOrigin" title="Deutschland">D</abbr> 2022</main>',
     );
-    expect(text).toBe("de (Sprache: Deutsch) D (Deutschland) 2022");
+    expect(text).toBe(
+      "Adam & Ida – Die lange Suche der Zwillinge – fernsehserien.de\nde (Sprache: Deutsch) D (Deutschland) 2022",
+    );
   });
 });
 
@@ -257,7 +260,7 @@ describe("buildDubCheckSession", () => {
       isGermanAggregatorTitleUrl(
         "https://www.fernsehserien.de/suche/adam-ida-die-lange-suche-der-zwillinge",
       ),
-    ).toBe(true);
+    ).toBe(false);
     expect(isGermanAggregatorTitleUrl("https://www.fernsehserien.de/suche?q=show")).toBe(false);
     expect(isGermanAggregatorTitleUrl("https://www.fernsehserien.de/filme")).toBe(false);
     expect(isGermanAggregatorTitleUrl("https://www.fernsehserien.de/news")).toBe(false);
@@ -277,6 +280,27 @@ describe("buildDubCheckSession", () => {
     ).toBe(false);
     expect(titlePageShowsGermanProduction("Adam & Ida\nD (Deutschland) 2022 (80 Min.)")).toBe(true);
     expect(titlePageShowsGermanProduction("Some Film\nUSA 2022\nDeutsche TV-Premiere")).toBe(false);
+    expect(
+      fernsehserienSearchPageMatchesTitle(
+        "https://www.fernsehserien.de/suche/adam-ida-die-lange-suche-der-zwillinge",
+        "Adam & Ida – Die lange Suche der Zwillinge – fernsehserien.de\nD (Deutschland) 2022",
+        "Adam & Ida - Die lange Suche der Zwillinge",
+      ),
+    ).toBe(true);
+    expect(
+      fernsehserienSearchPageMatchesTitle(
+        "https://www.fernsehserien.de/suche/anonymous-club",
+        "Vampire Club – fernsehserien.de\nde (Sprache: Deutsch)",
+        "Anonymous Club",
+      ),
+    ).toBe(false);
+    expect(
+      fernsehserienSearchPageMatchesTitle(
+        "https://www.fernsehserien.de/suche/r-xmas",
+        "Suche nach r-xmas – fernsehserien.de\nD (Deutschland) 2022",
+        "'R Xmas",
+      ),
+    ).toBe(false);
   });
 
   it("requires an affirmative provider availability claim instead of a provider name", () => {

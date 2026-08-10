@@ -4,7 +4,7 @@ import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent
 import { Type } from "typebox";
 import { AI_VERDICTS, type AiVerdictValue } from "../../shared/domain.js";
 
-export const PROMPT_VERSION = "dub-oracle-v7";
+export const PROMPT_VERSION = "dub-oracle-v8";
 export const REPORT_TOOL_NAME = "report_dub_verdict";
 
 export const RECHECK_MIN_DAYS = 90;
@@ -157,7 +157,7 @@ export function extractTextFromHtml(html: string): string {
         `${label} (${doubleQuoted ?? singleQuoted ?? bare ?? ""})`,
     )
     .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/(?:p|div|li|tr|h[1-6]|section|article)\s*>/gi, "\n")
+    .replace(/<\/(?:title|p|div|li|tr|h[1-6]|section|article)\s*>/gi, "\n")
     .replace(/<[^>]+>/g, " ");
   return decodeEntities(text)
     .replace(/[ \t\r]+/g, " ")
@@ -281,12 +281,45 @@ export function isGermanAggregatorTitleUrl(rawUrl: string): boolean {
     const canonicalPath = path.endsWith("/") ? path.slice(0, -1) : path;
     return (
       FERNSEHSERIEN_MOVIE_PATH_RE.test(path) ||
-      (FERNSEHSERIEN_SEARCH_TITLE_PATH_RE.test(path) && !url.search) ||
       FERNSEHSERIEN_SEASON_PATH_RE.test(path) ||
       (FERNSEHSERIEN_SERIES_PATH_RE.test(path) && !FERNSEHSERIEN_RESERVED_PATHS.has(canonicalPath))
     );
   }
   return false;
+}
+
+function normalizeComparableTitle(value: string): string {
+  return value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+/** Fernsehserien sometimes serves a fuzzy or generic result at `/suche/<slug>`. */
+export function fernsehserienSearchPageMatchesTitle(
+  rawUrl: string,
+  text: string,
+  subjectTitle: string,
+): boolean {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return false;
+  }
+  const host = url.hostname.toLowerCase();
+  if (host !== "fernsehserien.de" && !host.endsWith(".fernsehserien.de")) return false;
+  if (!FERNSEHSERIEN_SEARCH_TITLE_PATH_RE.test(url.pathname.toLowerCase()) || url.search)
+    return false;
+
+  const documentTitle = text
+    .split("\n", 1)[0]
+    ?.replace(/\s+[–—-]\s+fernsehserien\.de.*$/i, "")
+    .trim();
+  if (!documentTitle || /^Suche nach\b/i.test(documentTitle)) return false;
+  return normalizeComparableTitle(documentTitle) === normalizeComparableTitle(subjectTitle);
 }
 
 /** Inspect only the provider's Audio section, never subtitles or page locale. */
@@ -554,6 +587,7 @@ const SYSTEM_PROMPT = [
   "One series-level research pass may support multiple seasons, but each season still needs an explicit verdict, confidence, evidence, and recheck interval.",
   "A season in confirmedGermanSeasons is exists with confidence 1 because one downloaded German episode proves that complete season's dub.",
   "Never infer other seasons from a confirmed season. Do not omit, duplicate, or add seasons.",
+  "A title-wide provider offer or Audio section that does not explicitly identify a season number is NEVER proof for a requested season. Do not guess that an unspecified one-season offer means the newest/current season. A season-level exists verdict needs evidence tied explicitly to that exact season.",
   "</series_contract>",
   "confidence is 0..1. Report a confidence above 0.6 only when a fetched source confirms the verdict.",
   "evidence: short bullets citing what you found, each including its source URL.",
@@ -568,6 +602,9 @@ export function buildDubCheckSession(
   options: DubCheckSessionOptions = {},
 ): DubCheckSession {
   const state: WebEvidenceState = { fetchSucceeded: false, fetchedUrls: [], fetchedPages: [] };
+  const isMatchingTitlePage = (page: { url: string; text: string }) =>
+    isGermanAggregatorTitleUrl(page.url) ||
+    fernsehserienSearchPageMatchesTitle(page.url, page.text, subject.title);
   let captured: RawDubVerdict | undefined;
   const fetchOptions: FetchUrlOptions = {
     fetchImpl: options.fetchImpl,
@@ -631,12 +668,12 @@ ${
     titlePageHasGermanAudio: () =>
       state.fetchedPages.some(
         (page) =>
-          (isOfficialProviderTitleUrl(page.url) || isGermanAggregatorTitleUrl(page.url)) &&
+          (isOfficialProviderTitleUrl(page.url) || isMatchingTitlePage(page)) &&
           providerPageListsGermanAudio(page.text),
       ),
     titlePageShowsGermanProduction: () =>
       state.fetchedPages.some(
-        (page) => isGermanAggregatorTitleUrl(page.url) && titlePageShowsGermanProduction(page.text),
+        (page) => isMatchingTitlePage(page) && titlePageShowsGermanProduction(page.text),
       ),
   };
 }

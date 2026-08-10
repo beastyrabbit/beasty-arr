@@ -448,7 +448,7 @@ describe("OracleService.runDailyBatch", () => {
       subjectKind: "series",
       verdict: "unlikely",
       germanTitle: "Die Serie",
-      promptVersion: "dub-oracle-v7",
+      promptVersion: "dub-oracle-v8",
       checkedAt: NOW,
       recheckAfter: NOW + 365 * DAY, // local "no dub" policy overrides model suggestion
       confidence: 0.95,
@@ -701,7 +701,7 @@ describe("OracleService.runDailyBatch", () => {
 
   it("overrides a negative for a structured German production", async () => {
     const ctx = setup();
-    seedMovieSubject(ctx.db, 1);
+    seedMovieSubject(ctx.db, 1, { title: "Adam & Ida - Die lange Suche der Zwillinge" });
     const runner = scriptedRunner(async (req) => {
       await callTool(req, "fetch_url", {
         url: "https://www.fernsehserien.de/suche/adam-ida-die-lange-suche-der-zwillinge",
@@ -715,7 +715,7 @@ describe("OracleService.runDailyBatch", () => {
     });
     const result = await makeOracle(ctx, runner.runner, {
       fetchImpl: async () =>
-        new Response("Adam & Ida\nD (Deutschland) 2022 (80 Min.)", {
+        new Response("Adam & Ida - Die lange Suche der Zwillinge\nD (Deutschland) 2022 (80 Min.)", {
           headers: { "content-type": "text/plain" },
         }),
     }).runDailyBatch();
@@ -723,6 +723,33 @@ describe("OracleService.runDailyBatch", () => {
     expect(ctx.db.select().from(aiVerdicts).get()).toMatchObject({
       verdict: "exists",
       confidence: 1,
+    });
+  });
+
+  it("does not trust a fuzzy Fernsehserien search page for another title", async () => {
+    const ctx = setup();
+    seedMovieSubject(ctx.db, 1, { title: "Anonymous Club" });
+    const runner = scriptedRunner(async (req) => {
+      await callTool(req, "fetch_url", {
+        url: "https://www.fernsehserien.de/suche/anonymous-club",
+      });
+      await callTool(req, REPORT_TOOL_NAME, {
+        verdict: "unlikely",
+        confidence: 0.9,
+        evidence: ["No matching German dub evidence"],
+        recheckAfterDays: 365,
+      });
+    });
+    const result = await makeOracle(ctx, runner.runner, {
+      fetchImpl: async () =>
+        new Response("Vampire Club – fernsehserien.de\nde (Sprache: Deutsch)", {
+          headers: { "content-type": "text/plain" },
+        }),
+    }).runDailyBatch();
+    expect(result).toMatchObject({ checked: 1, failed: 0 });
+    expect(ctx.db.select().from(aiVerdicts).get()).toMatchObject({
+      verdict: "unlikely",
+      confidence: 0.9,
     });
   });
 
