@@ -244,6 +244,7 @@ describe("buildDubCheckSession", () => {
     expect(session.system).toContain("Provider search, browse, login, press/media");
     expect(session.system).toContain("provider page being inaccessible is NOT by itself");
     expect(session.system).toContain("German production");
+    expect(session.system).toContain("deutsche Version");
     expect(session.system).toContain("concert/performance film");
     expect(session.system).toContain("audience questions");
     expect(session.system).toContain("require normal German-audio proof");
@@ -286,12 +287,17 @@ describe("buildDubCheckSession", () => {
         "Netflix (Englisch)\nStreaming & Mediatheken\nen (ov) (Sprache: Englisch)\nUT de (Untertitel: Deutsch)",
       ),
     ).toBe(false);
-    expect(titlePageShowsGermanProduction("Adam & Ida\nD (Deutschland) 2022 (80 Min.)")).toBe(true);
-    expect(titlePageShowsGermanProduction("Some Film\nUSA 2022\nDeutsche TV-Premiere")).toBe(false);
+    expect(titlePageShowsGermanProduction("Adam & Ida\nD (Deutschland) 2022 (80 Min.)", 2022)).toBe(
+      true,
+    );
+    expect(titlePageShowsGermanProduction("Arena (ARD)\nD (Deutschland) 2025", 2011)).toBe(false);
+    expect(titlePageShowsGermanProduction("Some Film\nUSA 2022\nDeutsche TV-Premiere", 2022)).toBe(
+      false,
+    );
     expect(
       fernsehserienSearchPageMatchesTitle(
         "https://www.fernsehserien.de/suche/adam-ida-die-lange-suche-der-zwillinge",
-        "Adam & Ida – Die lange Suche der Zwillinge – fernsehserien.de\nD (Deutschland) 2022",
+        "Adam & Ida – fernsehserien.de\nSendetermine Adam & Ida – Die lange Suche der Zwillinge\nD (Deutschland) 2022",
         "Adam & Ida - Die lange Suche der Zwillinge",
       ),
     ).toBe(true);

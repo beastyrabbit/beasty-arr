@@ -4,7 +4,7 @@ import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent
 import { Type } from "typebox";
 import { AI_VERDICTS, type AiVerdictValue } from "../../shared/domain.js";
 
-export const PROMPT_VERSION = "dub-oracle-v13";
+export const PROMPT_VERSION = "dub-oracle-v14";
 export const REPORT_TOOL_NAME = "report_dub_verdict";
 
 export const RECHECK_MIN_DAYS = 90;
@@ -334,7 +334,11 @@ export function fernsehserienSearchPageMatchesTitle(
     ?.replace(FERNSEHSERIEN_SITE_TITLE_SUFFIX_RE, "")
     .trim();
   if (!documentTitle || FERNSEHSERIEN_GENERIC_SEARCH_TITLE_RE.test(documentTitle)) return false;
-  return normalizeComparableTitle(documentTitle) === normalizeComparableTitle(subjectTitle);
+  const pageTitle = normalizeComparableTitle(documentTitle);
+  const wanted = normalizeComparableTitle(subjectTitle);
+  if (pageTitle === wanted) return true;
+  const header = normalizeComparableTitle(text.slice(0, 8_000));
+  return wanted.startsWith(`${pageTitle} `) && header.includes(wanted);
 }
 
 /** Validate a canonical Fernsehserien page before using it for deterministic season evidence. */
@@ -494,10 +498,15 @@ export function providerPageListsGermanAudio(text: string): boolean {
   return /\b(?:Deutsch|German|Deutsch(?:land)?)\b/i.test(audio);
 }
 
-/** A structured country-of-origin label on an exact German title page proves a German production. */
-export function titlePageShowsGermanProduction(text: string): boolean {
+/** A structured country-of-origin label with the target year proves a German production. */
+export function titlePageShowsGermanProduction(
+  text: string,
+  expectedYear?: number | null,
+): boolean {
+  if (expectedYear == null) return false;
   const header = text.slice(0, 8_000);
-  return /\bD\s*\(\s*Deutschland\s*\)\s*\d{4}\b/i.test(header);
+  const match = header.match(/\bD\s*\(\s*Deutschland\s*\)\s*(\d{4})\b/i);
+  return Number(match?.[1]) === expectedYear;
 }
 
 function createFetchUrlTool(state: WebEvidenceState, options: FetchUrlOptions) {
@@ -723,7 +732,8 @@ const SYSTEM_PROMPT = [
   "3. If any source says the work is on a streaming provider, use search_web with the exact title and year to locate the provider's exact title-detail URL, then fetch it. Provider search, browse, login, press/media, and guessed-ID pages do not count.",
   "4. Confirm that the fetched provider page heading/metadata matches this exact work before using it. For Netflix, prefer a matching netflix.com/de/title/<id> result from web search over Netflix's internal search page.",
   "5. Read the Audio section. Keep Audio and Subtitles strictly separate. JustWatch may help locate an offer, but an aggregator audio claim alone NEVER proves a dub. Confirm every positive with an independent exact provider, Deutsche Synchronkartei, or exact Fernsehserien audio/broadcast source.",
-  "6. Only then decide. Every evidence URL must have been opened successfully with fetch_url during this check.",
+  "6. For a German broadcaster, distributor, producer, or German-titled documentary, search the exact title together with `deutsche Version` and `deutsche Fassung`. An exact official creator/broadcaster statement that a German version was released proves exists even when the interviews were originally recorded in another language.",
+  "7. Only then decide. Every evidence URL must have been opened successfully with fetch_url during this check.",
   "</research_contract>",
   "<verdicts>",
   "- exists: a German dub is released/available.",
@@ -817,6 +827,7 @@ ${
     : ""
 }- Prefer every discovered provider's exact title-detail Audio section. If it is inaccessible, decide from the other successfully fetched German sources; do not choose unknown solely because that provider page failed.
 - If Netflix is discovered, search the public web for the exact matching netflix.com/de/title/<id> page instead of stopping at Netflix search/login or media pages.
+- Before returning unlikely for a German broadcaster/distributor production or German-titled documentary, search the exact title with the phrases deutsche Version and deutsche Fassung and fetch any exact official creator or broadcaster result.
 - Then call ${REPORT_TOOL_NAME} exactly once with your verdict.`;
 
   return {
@@ -838,7 +849,8 @@ ${
       ),
     titlePageShowsGermanProduction: () =>
       state.fetchedPages.some(
-        (page) => isMatchingTitlePage(page) && titlePageShowsGermanProduction(page.text),
+        (page) =>
+          isMatchingTitlePage(page) && titlePageShowsGermanProduction(page.text, subject.year),
       ),
     localizedGermanSeasonReleases: () =>
       state.fetchedPages.flatMap((page) => {

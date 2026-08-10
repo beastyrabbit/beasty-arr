@@ -448,7 +448,7 @@ describe("OracleService.runDailyBatch", () => {
       subjectKind: "series",
       verdict: "unlikely",
       germanTitle: "Die Serie",
-      promptVersion: "dub-oracle-v13",
+      promptVersion: "dub-oracle-v14",
       checkedAt: NOW,
       recheckAfter: NOW + 365 * DAY, // local "no dub" policy overrides model suggestion
       confidence: 0.95,
@@ -854,7 +854,10 @@ describe("OracleService.runDailyBatch", () => {
 
   it("overrides a negative for a structured German production", async () => {
     const ctx = setup();
-    seedMovieSubject(ctx.db, 1, { title: "Adam & Ida - Die lange Suche der Zwillinge" });
+    seedMovieSubject(ctx.db, 1, {
+      title: "Adam & Ida - Die lange Suche der Zwillinge",
+      year: 2022,
+    });
     const runner = scriptedRunner(async (req) => {
       await callTool(req, "fetch_url", {
         url: "https://www.fernsehserien.de/suche/adam-ida-die-lange-suche-der-zwillinge",
@@ -876,6 +879,33 @@ describe("OracleService.runDailyBatch", () => {
     expect(ctx.db.select().from(aiVerdicts).get()).toMatchObject({
       verdict: "exists",
       confidence: 1,
+    });
+  });
+
+  it("does not transfer German production metadata from a same-title different-year work", async () => {
+    const ctx = setup();
+    seedMovieSubject(ctx.db, 1, { title: "Arena", year: 2011 });
+    const runner = scriptedRunner(async (req) => {
+      await callTool(req, "fetch_url", {
+        url: "https://www.fernsehserien.de/filme/arena",
+      });
+      await callTool(req, REPORT_TOOL_NAME, {
+        verdict: "unlikely",
+        confidence: 0.9,
+        evidence: ["No matching German dub evidence"],
+        recheckAfterDays: 365,
+      });
+    });
+    const result = await makeOracle(ctx, runner.runner, {
+      fetchImpl: async () =>
+        new Response("Arena (ARD) – fernsehserien.de\nD (Deutschland) 2025–", {
+          headers: { "content-type": "text/plain" },
+        }),
+    }).runDailyBatch();
+    expect(result).toMatchObject({ checked: 1, failed: 0 });
+    expect(ctx.db.select().from(aiVerdicts).get()).toMatchObject({
+      verdict: "unlikely",
+      confidence: 0.9,
     });
   });
 
