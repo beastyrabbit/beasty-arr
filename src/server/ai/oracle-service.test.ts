@@ -448,7 +448,7 @@ describe("OracleService.runDailyBatch", () => {
       subjectKind: "series",
       verdict: "unlikely",
       germanTitle: "Die Serie",
-      promptVersion: "dub-oracle-v6",
+      promptVersion: "dub-oracle-v7",
       checkedAt: NOW,
       recheckAfter: NOW + 365 * DAY, // local "no dub" policy overrides model suggestion
       confidence: 0.95,
@@ -646,7 +646,7 @@ describe("OracleService.runDailyBatch", () => {
     expect(ctx.db.select().from(aiVerdicts).all()).toHaveLength(0);
   });
 
-  it("discards a non-existing verdict contradicted by exact-title German audio", async () => {
+  it("overrides a movie verdict contradicted by exact-title German audio", async () => {
     const ctx = setup();
     seedMovieSubject(ctx.db, 1);
     const runner = scriptedRunner(async (req) => {
@@ -664,11 +664,14 @@ describe("OracleService.runDailyBatch", () => {
           headers: { "content-type": "text/plain" },
         }),
     }).runDailyBatch();
-    expect(result).toMatchObject({ checked: 0, failed: 1 });
-    expect(ctx.db.select().from(aiVerdicts).all()).toHaveLength(0);
+    expect(result).toMatchObject({ checked: 1, failed: 0 });
+    expect(ctx.db.select().from(aiVerdicts).get()).toMatchObject({
+      verdict: "exists",
+      confidence: 1,
+    });
   });
 
-  it("discards a negative contradicted by Fernsehserien structured German audio", async () => {
+  it("overrides a negative contradicted by Fernsehserien structured German audio", async () => {
     const ctx = setup();
     seedMovieSubject(ctx.db, 1);
     const runner = scriptedRunner(async (req) => {
@@ -689,8 +692,38 @@ describe("OracleService.runDailyBatch", () => {
           { headers: { "content-type": "text/plain" } },
         ),
     }).runDailyBatch();
-    expect(result).toMatchObject({ checked: 0, failed: 1 });
-    expect(ctx.db.select().from(aiVerdicts).all()).toHaveLength(0);
+    expect(result).toMatchObject({ checked: 1, failed: 0 });
+    expect(ctx.db.select().from(aiVerdicts).get()).toMatchObject({
+      verdict: "exists",
+      confidence: 1,
+    });
+  });
+
+  it("overrides a negative for a structured German production", async () => {
+    const ctx = setup();
+    seedMovieSubject(ctx.db, 1);
+    const runner = scriptedRunner(async (req) => {
+      await callTool(req, "fetch_url", {
+        url: "https://www.fernsehserien.de/suche/adam-ida-die-lange-suche-der-zwillinge",
+      });
+      await callTool(req, REPORT_TOOL_NAME, {
+        verdict: "unlikely",
+        confidence: 0.9,
+        evidence: ["incorrect negative"],
+        recheckAfterDays: 365,
+      });
+    });
+    const result = await makeOracle(ctx, runner.runner, {
+      fetchImpl: async () =>
+        new Response("Adam & Ida\nD (Deutschland) 2022 (80 Min.)", {
+          headers: { "content-type": "text/plain" },
+        }),
+    }).runDailyBatch();
+    expect(result).toMatchObject({ checked: 1, failed: 0 });
+    expect(ctx.db.select().from(aiVerdicts).get()).toMatchObject({
+      verdict: "exists",
+      confidence: 1,
+    });
   });
 
   it("allows a provider-backed negative when the exact provider page is inaccessible", async () => {

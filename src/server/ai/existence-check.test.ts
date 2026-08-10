@@ -17,6 +17,7 @@ import {
   RECHECK_MAX_DAYS,
   RECHECK_MIN_DAYS,
   REPORT_TOOL_NAME,
+  titlePageShowsGermanProduction,
 } from "./existence-check.js";
 
 const publicLookup: DnsLookupFn = async () => [{ address: "93.184.216.34" }];
@@ -153,6 +154,13 @@ describe("extractTextFromHtml", () => {
     expect(text).not.toContain("color:red");
     expect(text).not.toContain("<p>");
   });
+
+  it("preserves structured abbreviation labels used for audio and country metadata", () => {
+    const text = extractTextFromHtml(
+      '<abbr class="label-sprache" title="Sprache: Deutsch">de</abbr> <abbr itemprop="countryOfOrigin" title="Deutschland">D</abbr> 2022',
+    );
+    expect(text).toBe("de (Sprache: Deutsch) D (Deutschland) 2022");
+  });
 });
 
 describe("fetchUrlForOracle", () => {
@@ -245,6 +253,11 @@ describe("buildDubCheckSession", () => {
     expect(
       isGermanAggregatorTitleUrl("https://www.fernsehserien.de/batwheels/episodenguide/staffel-3"),
     ).toBe(true);
+    expect(
+      isGermanAggregatorTitleUrl(
+        "https://www.fernsehserien.de/suche/adam-ida-die-lange-suche-der-zwillinge",
+      ),
+    ).toBe(true);
     expect(isGermanAggregatorTitleUrl("https://www.fernsehserien.de/suche?q=show")).toBe(false);
     expect(isGermanAggregatorTitleUrl("https://www.fernsehserien.de/filme")).toBe(false);
     expect(isGermanAggregatorTitleUrl("https://www.fernsehserien.de/news")).toBe(false);
@@ -262,6 +275,8 @@ describe("buildDubCheckSession", () => {
         "Netflix (Englisch)\nStreaming & Mediatheken\nen (ov) (Sprache: Englisch)\nUT de (Untertitel: Deutsch)",
       ),
     ).toBe(false);
+    expect(titlePageShowsGermanProduction("Adam & Ida\nD (Deutschland) 2022 (80 Min.)")).toBe(true);
+    expect(titlePageShowsGermanProduction("Some Film\nUSA 2022\nDeutsche TV-Premiere")).toBe(false);
   });
 
   it("requires an affirmative provider availability claim instead of a provider name", () => {

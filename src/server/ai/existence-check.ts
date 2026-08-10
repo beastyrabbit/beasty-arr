@@ -4,7 +4,7 @@ import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent
 import { Type } from "typebox";
 import { AI_VERDICTS, type AiVerdictValue } from "../../shared/domain.js";
 
-export const PROMPT_VERSION = "dub-oracle-v6";
+export const PROMPT_VERSION = "dub-oracle-v7";
 export const REPORT_TOOL_NAME = "report_dub_verdict";
 
 export const RECHECK_MIN_DAYS = 90;
@@ -18,6 +18,7 @@ const SEARCH_TIMEOUT_MS = 10_000;
 const MAX_REDIRECTS = 5;
 const JUSTWATCH_GERMAN_TITLE_PATH_RE = /^\/de\/(?:film|serie)\//;
 const FERNSEHSERIEN_MOVIE_PATH_RE = /^\/filme\/[^/]+\/?$/;
+const FERNSEHSERIEN_SEARCH_TITLE_PATH_RE = /^\/suche\/[^/]+\/?$/;
 const FERNSEHSERIEN_SERIES_PATH_RE = /^\/[^/]+\/?$/;
 const FERNSEHSERIEN_SEASON_PATH_RE = /^\/[^/]+\/episodenguide\/staffel-\d+\/?$/;
 const FERNSEHSERIEN_GERMAN_AUDIO_RE = /\bde\s*\(\s*Sprache:\s*Deutsch\s*\)/i;
@@ -150,6 +151,11 @@ export function extractTextFromHtml(html: string): string {
     .replace(/<noscript[\s\S]*?<\/noscript\s*>/gi, " ")
     .replace(/<!--[\s\S]*?-->/g, " ");
   const text = withoutBlocks
+    .replace(
+      /<abbr\b[^>]*\btitle=(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>([\s\S]*?)<\/abbr\s*>/gi,
+      (_match, doubleQuoted: string, singleQuoted: string, bare: string, label: string) =>
+        `${label} (${doubleQuoted ?? singleQuoted ?? bare ?? ""})`,
+    )
     .replace(/<br\s*\/?>/gi, "\n")
     .replace(/<\/(?:p|div|li|tr|h[1-6]|section|article)\s*>/gi, "\n")
     .replace(/<[^>]+>/g, " ");
@@ -275,6 +281,7 @@ export function isGermanAggregatorTitleUrl(rawUrl: string): boolean {
     const canonicalPath = path.endsWith("/") ? path.slice(0, -1) : path;
     return (
       FERNSEHSERIEN_MOVIE_PATH_RE.test(path) ||
+      (FERNSEHSERIEN_SEARCH_TITLE_PATH_RE.test(path) && !url.search) ||
       FERNSEHSERIEN_SEASON_PATH_RE.test(path) ||
       (FERNSEHSERIEN_SERIES_PATH_RE.test(path) && !FERNSEHSERIEN_RESERVED_PATHS.has(canonicalPath))
     );
@@ -295,6 +302,12 @@ export function providerPageListsGermanAudio(text: string): boolean {
   );
   const audio = end > 0 ? tail.slice(0, end) : tail;
   return /\b(?:Deutsch|German|Deutsch(?:land)?)\b/i.test(audio);
+}
+
+/** A structured country-of-origin label on an exact German title page proves a German production. */
+export function titlePageShowsGermanProduction(text: string): boolean {
+  const header = text.slice(0, 8_000);
+  return /\bD\s*\(\s*Deutschland\s*\)\s*\d{4}\b/i.test(header);
 }
 
 function createFetchUrlTool(state: WebEvidenceState, options: FetchUrlOptions) {
@@ -499,6 +512,7 @@ export type DubCheckSession = {
   fetchedOfficialProviderTitle(): boolean;
   providerAvailabilityDetected(evidence: string[]): boolean;
   titlePageHasGermanAudio(): boolean;
+  titlePageShowsGermanProduction(): boolean;
 };
 
 const SYSTEM_PROMPT = [
@@ -619,6 +633,10 @@ ${
         (page) =>
           (isOfficialProviderTitleUrl(page.url) || isGermanAggregatorTitleUrl(page.url)) &&
           providerPageListsGermanAudio(page.text),
+      ),
+    titlePageShowsGermanProduction: () =>
+      state.fetchedPages.some(
+        (page) => isGermanAggregatorTitleUrl(page.url) && titlePageShowsGermanProduction(page.text),
       ),
   };
 }

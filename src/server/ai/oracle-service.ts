@@ -778,7 +778,7 @@ export class OracleService {
       throw error;
     }
 
-    const final = finalizeDubVerdict(rawVerdict, true);
+    let final = finalizeDubVerdict(rawVerdict, true);
     const discard = (message: string): never => {
       const error = new Error(message);
       this.bus.emit("ai.check.completed", {
@@ -799,10 +799,48 @@ export class OracleService {
         );
       }
     }
+    const titlePageHasGermanAudio = session.titlePageHasGermanAudio();
+    const titlePageShowsGermanProduction = session.titlePageShowsGermanProduction();
+    if (subject.subjectKind === "movie" && titlePageHasGermanAudio) {
+      final = {
+        ...final,
+        verdict: "exists",
+        confidence: 1,
+        perSeason: null,
+        evidence: ["Deterministic validation: a fetched exact-title Audio section lists German."],
+        expectedAvailability: null,
+        recheckAfterDays: settings.aiExistsRetryDays,
+      };
+    } else if (titlePageShowsGermanProduction) {
+      final = {
+        ...final,
+        verdict: "exists",
+        confidence: 1,
+        perSeason:
+          subject.subjectKind === "series" && subject.seasons?.length
+            ? subject.seasons.map((season) => ({
+                season,
+                verdict: "exists" as const,
+                confidence: 1,
+                note: "German production; no language replacement is needed.",
+                evidence: [
+                  "Deterministic validation: a fetched exact-title page identifies a German country of origin.",
+                ],
+                expectedAvailability: null,
+                recheckAfterDays: settings.aiExistsRetryDays,
+              }))
+            : null,
+        evidence: [
+          "Deterministic validation: a fetched exact-title page identifies a German country of origin.",
+        ],
+        expectedAvailability: null,
+        recheckAfterDays: settings.aiExistsRetryDays,
+      };
+    }
     const containsNonExistingVerdict =
       final.verdict !== "exists" ||
       Boolean(final.perSeason?.some((entry) => entry.verdict !== "exists"));
-    if (containsNonExistingVerdict && session.titlePageHasGermanAudio()) {
+    if (containsNonExistingVerdict && titlePageHasGermanAudio) {
       discard(
         "Dub oracle returned a non-existing verdict although a fetched exact-title Audio section lists German. Verdict was discarded.",
       );
