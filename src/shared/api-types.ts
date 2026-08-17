@@ -629,7 +629,7 @@ export type FixerAnalysisDto = {
   completedAt: number | null;
 };
 
-export type FixerApplyRequest = { candidateIds: string[] };
+export type FixerApplyRequest = { candidateIds?: string[] };
 export type FixerApplyResponse = MaybeDryRun<{ ok: boolean; message: string; commandId?: number }>;
 
 export type FixerRemoveRequest = Partial<QueueRemovalOptions>;

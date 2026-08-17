@@ -633,6 +633,26 @@ export class FixerService {
 
   // ============ mutations (server-side dry-run gate) ============
 
+  private applyRemovalProposal(
+    row: FixerAnalysisRow,
+    proposal: ResolutionProposal,
+    analysisId: string,
+    opts: FixerActionOpts,
+  ): Promise<FixerApplyOutcome> {
+    if (!proposal.queueRemovalOptions) {
+      return Promise.resolve({
+        ok: false,
+        dryRun: false,
+        message: "Removal proposal has no queue removal options.",
+      });
+    }
+    return this.removeQueueItem(row.service, row.queueItemId, proposal.queueRemovalOptions, {
+      sourceKind: opts.sourceKind ?? "ai_user",
+      analysisId,
+      confidence: opts.confidence ?? proposal.confidence,
+    });
+  }
+
   async apply(
     analysisId: string,
     candidateIds?: string[],
@@ -650,6 +670,9 @@ export class FixerService {
       };
     }
     const proposal = normalizeProposal(row.proposal as unknown as ResolutionProposal);
+    if (proposal.action === "remove_queue_item") {
+      return this.applyRemovalProposal(row, proposal, analysisId, opts);
+    }
     const candidates = (row.candidates ?? []) as ManualImportCandidate[];
     let effective = proposal;
     if (candidateIds) {

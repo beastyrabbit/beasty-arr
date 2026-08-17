@@ -140,7 +140,11 @@ export function registerFixerRoutes(app: FastifyInstance, ctx: AppContext): void
   app.post("/api/fixer/analyses/:id/apply", async (request, reply) => {
     const p = parse(reply, z.object({ id: z.string().min(1) }), request.params);
     if (!p.ok) return;
-    const b = parse(reply, z.object({ candidateIds: z.array(z.string()) }), request.body);
+    const b = parse(
+      reply,
+      z.object({ candidateIds: z.array(z.string()).optional() }),
+      request.body ?? {},
+    );
     if (!b.ok) return;
     if (!ctx.services.fixer.getAnalysis(p.data.id)) return notFound(reply, "analysis not found");
     const outcome = await ctx.services.fixer.apply(p.data.id, b.data.candidateIds);

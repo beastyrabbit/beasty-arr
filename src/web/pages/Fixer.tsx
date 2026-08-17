@@ -9,8 +9,16 @@ import {
   Sparkles,
 } from "lucide-react";
 import { useMemo, useState } from "react";
-import type { FixerAnalysisDto, FixerQueueItemDto } from "../../shared/api-types.js";
-import type { ResolverEvent } from "../../shared/fixer-types.js";
+import type {
+  FixerAnalysisDto,
+  FixerApplyRequest,
+  FixerQueueItemDto,
+} from "../../shared/api-types.js";
+import type {
+  ProposalAction,
+  QueueRemovalOptions,
+  ResolverEvent,
+} from "../../shared/fixer-types.js";
 import { ConfirmDialog } from "../components/ConfirmDialog.js";
 import { EmptyState, Panel, Skeleton } from "../components/Shell.js";
 import { Button } from "../components/ui/button.js";
@@ -37,6 +45,119 @@ import { cn } from "../lib/utils.js";
 
 type ItemKey = string;
 const keyOf = (item: { service: string; id: number }): ItemKey => `${item.service}:${item.id}`;
+
+function removalDescription(options: QueueRemovalOptions | undefined): string {
+  if (!options) return "The proposal is missing its queue removal options and cannot be applied.";
+  const download = options.removeFromClient
+    ? "remove the download from the client"
+    : "leave the download in the client";
+  const blocklist = options.blocklist
+    ? "blocklist this exact release"
+    : "do not blocklist the release";
+  const search = options.skipRedownload
+    ? "do not trigger a replacement search"
+    : "allow the arr to search for a replacement";
+  return `This will ${download}, ${blocklist}, and ${search}.`;
+}
+
+function RemovalOptionsSummary({
+  action,
+  options,
+}: {
+  action: ProposalAction;
+  options: QueueRemovalOptions | undefined;
+}) {
+  if (action !== "remove_queue_item") return null;
+  if (!options) {
+    return (
+      <div className="rounded-[6px] border border-missing/40 bg-missing/8 p-2 text-[12px] text-missing">
+        Queue removal options are missing. This proposal cannot be applied.
+      </div>
+    );
+  }
+  return (
+    <div className="grid grid-cols-2 gap-x-3 gap-y-1 rounded-[6px] border border-line bg-bg p-2 text-[12px]">
+      <span className="text-muted">Remove download</span>
+      <span className="font-mono text-ink">{options.removeFromClient ? "yes" : "no"}</span>
+      <span className="text-muted">Blocklist exact release</span>
+      <span className="font-mono text-ink">{options.blocklist ? "yes" : "no"}</span>
+      <span className="text-muted">Replacement search</span>
+      <span className="font-mono text-ink">{options.skipRedownload ? "no" : "yes"}</span>
+      <span className="text-muted">Change category</span>
+      <span className="font-mono text-ink">{options.changeCategory ? "yes" : "no"}</span>
+    </div>
+  );
+}
+
+function ProposalApplyButton({
+  action,
+  validationOk,
+  selectedCount,
+  removalOptions,
+  busy,
+  onClick,
+}: {
+  action: ProposalAction;
+  validationOk: boolean;
+  selectedCount: number;
+  removalOptions: QueueRemovalOptions | undefined;
+  busy: boolean;
+  onClick: () => void;
+}) {
+  if (action === "import_candidates") {
+    return (
+      <Button
+        variant="primary"
+        disabled={!validationOk || selectedCount === 0 || busy}
+        onClick={onClick}
+      >
+        Apply import ({selectedCount})
+      </Button>
+    );
+  }
+  if (action === "remove_queue_item") {
+    return (
+      <Button
+        variant="primary"
+        disabled={!validationOk || !removalOptions || busy}
+        onClick={onClick}
+      >
+        Apply proposed removal
+      </Button>
+    );
+  }
+  return null;
+}
+
+function proposalApplyDialog(
+  action: ProposalAction,
+  removalOptions: QueueRemovalOptions | undefined,
+  selectedIds: Set<string>,
+  itemTitle: string,
+): {
+  title: string;
+  description: string;
+  confirmLabel: string;
+  danger: boolean;
+  body: FixerApplyRequest;
+} {
+  if (action === "remove_queue_item") {
+    return {
+      title: "Apply proposed removal",
+      description: removalDescription(removalOptions),
+      confirmLabel: "Apply proposed removal",
+      danger: true,
+      body: {},
+    };
+  }
+  return {
+    title: "Apply import",
+    description: `Import ${selectedIds.size} file(s) for “${itemTitle}”.`,
+    confirmLabel: "Apply import",
+    danger: false,
+    body: { candidateIds: [...selectedIds] },
+  };
+}
 
 export function FixerPage() {
   const queue = useFixerQueue();
@@ -424,6 +545,7 @@ function ProposalCard({
   const [showDebug, setShowDebug] = useState(false);
 
   if (!proposal) return null;
+  const removalOptions = proposal.queueRemovalOptions;
   const validationOk = analysis.validation?.ok ?? true;
   const selectedIds =
     includes ?? new Set(proposal.selectedCandidateIds.filter((id) => id.length > 0));
@@ -432,6 +554,7 @@ function ProposalCard({
   const selectedImports = new Map(
     proposal.selectedImports.map((selectedImport) => [selectedImport.candidateId, selectedImport]),
   );
+  const applyDialog = proposalApplyDialog(proposal.action, removalOptions, selectedIds, item.title);
 
   const verdict =
     proposal.action === "remove_queue_item"
@@ -497,6 +620,8 @@ function ProposalCard({
         </div>
 
         <p className="text-[12px] text-muted">{proposal.reason}</p>
+
+        <RemovalOptionsSummary action={proposal.action} options={removalOptions} />
 
         {/* evidence + warnings */}
         {proposal.evidence.length > 0 ? (
@@ -598,13 +723,14 @@ function ProposalCard({
 
         {/* actions */}
         <div className="flex flex-wrap items-center gap-2 border-t border-line pt-3">
-          <Button
-            variant="primary"
-            disabled={!validationOk || selectedIds.size === 0 || apply.isPending}
+          <ProposalApplyButton
+            action={proposal.action}
+            validationOk={validationOk}
+            selectedCount={selectedIds.size}
+            removalOptions={removalOptions}
+            busy={apply.isPending}
             onClick={() => setConfirm("apply")}
-          >
-            Apply import ({selectedIds.size})
-          </Button>
+          />
           <Button variant="outline" onClick={() => setConfirm("ignore")}>
             Ignore
           </Button>
@@ -612,7 +738,7 @@ function ProposalCard({
             Remove
           </Button>
           <Button variant="danger" onClick={() => setConfirm("blocklist")}>
-            Delete + blocklist
+            Delete + blocklist + search
           </Button>
           {dryRun ? (
             <span className="ml-auto text-[11px] text-accent">dry-run: actions are simulated</span>
@@ -623,12 +749,16 @@ function ProposalCard({
       <ConfirmDialog
         open={confirm === "apply"}
         onOpenChange={(o) => !o && setConfirm(null)}
-        title="Apply import"
-        description={`Import ${selectedIds.size} file(s) for “${item.title}”.`}
-        confirmLabel="Apply import"
+        title={applyDialog.title}
+        description={applyDialog.description}
+        confirmLabel={applyDialog.confirmLabel}
+        danger={applyDialog.danger}
         busy={apply.isPending}
         onConfirm={() => {
-          apply.mutate({ analysisId: analysis.id, body: { candidateIds: [...selectedIds] } });
+          apply.mutate({
+            analysisId: analysis.id,
+            body: applyDialog.body,
+          });
           setConfirm(null);
         }}
       />
@@ -667,9 +797,9 @@ function ProposalCard({
       <ConfirmDialog
         open={confirm === "blocklist"}
         onOpenChange={(o) => !o && setConfirm(null)}
-        title="Delete + blocklist"
+        title="Delete + blocklist + search"
         description="Removes the download, blocklists this exact release, and lets the arr search for a different one."
-        confirmLabel="Delete + blocklist"
+        confirmLabel="Delete + blocklist + search"
         danger
         onConfirm={() => {
           remove.mutate({

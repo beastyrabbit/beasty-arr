@@ -670,7 +670,7 @@ export function useFixerApply() {
     mutationFn: ({ analysisId, body }: { analysisId: string; body: FixerApplyRequest }) =>
       api.post<FixerApplyResponse>(`/api/fixer/analyses/${analysisId}/apply`, body),
     onSuccess: (result) => {
-      toastMaybeDryRun(result, "Import command sent");
+      toastMaybeDryRun(result, "Proposal applied");
       qc.invalidateQueries({ queryKey: keys.fixerQueue });
       qc.invalidateQueries({ queryKey: ["fixer", "history"] });
     },

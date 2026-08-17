@@ -750,6 +750,77 @@ describe("FixerService apply", () => {
     expect(sonarr.applyCalls).toHaveLength(0);
   });
 
+  it("applies a removal proposal with its exact options and analysis metadata", async () => {
+    const options: QueueRemovalOptions = {
+      removeFromClient: true,
+      blocklist: true,
+      skipRedownload: true,
+      changeCategory: false,
+    };
+    const { svc, sonarr, settings, analysisId } = await analyzedHarness({
+      action: "remove_queue_item",
+      confidence: 0.97,
+      selectedCandidateIds: [],
+      selectedImports: [],
+      queueRemovalOptions: options,
+    });
+    settings.update({ dryRun: false });
+
+    const result = await svc.apply(analysisId);
+
+    expect(result).toMatchObject({ ok: true, dryRun: false });
+    expect(sonarr.applyCalls).toHaveLength(0);
+    expect(sonarr.removeCalls).toEqual([{ queueItemId: 1, options }]);
+    const entry = svc.listHistory().items[0];
+    expect(entry).toMatchObject({
+      action: "blocklist",
+      sourceKind: "ai_user",
+      analysisId,
+      confidence: 0.97,
+    });
+    expect(entry?.detail).toMatchObject({ options });
+  });
+
+  it("simulates a removal proposal with its exact options", async () => {
+    const options: QueueRemovalOptions = {
+      removeFromClient: true,
+      blocklist: true,
+      skipRedownload: true,
+      changeCategory: false,
+    };
+    const { svc, sonarr, analysisId } = await analyzedHarness({
+      action: "remove_queue_item",
+      selectedCandidateIds: [],
+      selectedImports: [],
+      queueRemovalOptions: options,
+    });
+
+    const result = await svc.apply(analysisId);
+
+    expect(result).toMatchObject({ ok: true, dryRun: true });
+    expect(sonarr.removeCalls).toHaveLength(0);
+    const entry = svc.listHistory().items[0];
+    expect(entry).toMatchObject({ sourceKind: "ai_user", analysisId });
+    expect(entry?.detail).toMatchObject({
+      wouldHave: { action: "blocklist", queueItemId: 1, options },
+    });
+  });
+
+  it("refuses a removal proposal without explicit removal options", async () => {
+    const { svc, sonarr, analysisId } = await analyzedHarness({
+      action: "remove_queue_item",
+      selectedCandidateIds: [],
+      selectedImports: [],
+      queueRemovalOptions: undefined,
+    });
+
+    const result = await svc.apply(analysisId);
+
+    expect(result).toMatchObject({ ok: false, dryRun: false });
+    expect(result.message).toContain("no queue removal options");
+    expect(sonarr.removeCalls).toHaveLength(0);
+  });
+
   it("refuses to apply non-import proposals", async () => {
     const { svc, analysisId } = await analyzedHarness({
       action: "needs_review",
