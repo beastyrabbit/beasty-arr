@@ -27,7 +27,13 @@ export function shouldAutoImportResult(
 }
 
 function canAutoApplyRemovalOptions(options: QueueRemovalOptions): boolean {
-  return options.removeFromClient && !options.skipRedownload && !options.changeCategory;
+  return (
+    options.removeFromClient &&
+    !options.changeCategory &&
+    // skipRedownload only has defined Sonarr/Radarr semantics when the
+    // release is also marked failed/blocklisted.
+    (!options.skipRedownload || options.blocklist)
+  );
 }
 
 export function autoRemovalOptionsForResult(

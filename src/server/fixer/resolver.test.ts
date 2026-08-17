@@ -390,7 +390,7 @@ describe("resolveQueueItem", () => {
         queueRemovalOptions: {
           removeFromClient: true,
           blocklist: true,
-          skipRedownload: false,
+          skipRedownload: true,
           changeCategory: false,
         },
       });
@@ -415,7 +415,7 @@ describe("resolveQueueItem", () => {
     expect(calls[0]?.prompt).toContain("The.Devils.Rejects.2005.MULTi.1080p.WEB.H265-CHiLL.mkv");
     expect(calls[0]?.prompt).toContain("No active Dub Oracle verdict is available for this movie.");
     expect(calls[0]?.prompt).toContain("even if it is higher quality");
-    expect(calls[0]?.prompt).toContain("Radarr searches for a German release");
+    expect(calls[0]?.prompt).toContain("do not start a replacement search");
     expect(result.status).toBe("proposal");
     expect(result.proposal).toMatchObject({
       action: "remove_queue_item",
@@ -423,7 +423,7 @@ describe("resolveQueueItem", () => {
       queueRemovalOptions: {
         removeFromClient: true,
         blocklist: true,
-        skipRedownload: false,
+        skipRedownload: true,
         changeCategory: false,
       },
     });
@@ -448,7 +448,7 @@ describe("resolveQueueItem", () => {
         queueRemovalOptions: {
           removeFromClient: true,
           blocklist: true,
-          skipRedownload: false,
+          skipRedownload: true,
           changeCategory: false,
         },
       });
@@ -472,7 +472,7 @@ describe("resolveQueueItem", () => {
       queueRemovalOptions: {
         removeFromClient: true,
         blocklist: true,
-        skipRedownload: false,
+        skipRedownload: true,
         changeCategory: false,
       },
     });

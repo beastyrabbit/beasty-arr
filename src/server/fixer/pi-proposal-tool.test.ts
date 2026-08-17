@@ -15,6 +15,18 @@ describe("createProposalTool", () => {
     );
   });
 
+  it("distinguishes a satisfied German target from a target that still needs searching", () => {
+    const tool = createProposalTool(["candidate_1"], () => undefined, "sonarr");
+    const guidance = JSON.stringify(tool);
+
+    expect(guidance).toContain("current library file has German audio");
+    expect(guidance).toContain("blocklist=true, skipRedownload=true, changeCategory=false");
+    expect(guidance).toContain(
+      "active Dub Oracle context says exists with confidence greater than 0.6",
+    );
+    expect(guidance).toContain("blocklist=true, skipRedownload=false, changeCategory=false");
+  });
+
   it("restricts candidate ids through the TypeBox schema", () => {
     const tool = createProposalTool(["candidate_1", "candidate_2"], () => undefined);
     const valid = {

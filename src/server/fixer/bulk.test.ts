@@ -238,7 +238,7 @@ describe("auto-apply gates", () => {
     expect(
       autoRemovalOptionsForResult({ ...base, proposal: removeProposal(0.94, safe) }, 0.95),
     ).toBeUndefined();
-    // options guard: keeping the download or skipping redownload is never auto-applied
+    // options guard: the download must be removed and categories are never changed
     expect(
       autoRemovalOptionsForResult(
         { ...base, proposal: removeProposal(0.99, { ...safe, removeFromClient: false }) },
@@ -248,6 +248,20 @@ describe("auto-apply gates", () => {
     expect(
       autoRemovalOptionsForResult(
         { ...base, proposal: removeProposal(0.99, { ...safe, skipRedownload: true }) },
+        0.95,
+      ),
+    ).toEqual({ ...safe, skipRedownload: true });
+    // skipRedownload is only meaningful/safe for an exact release blocklist
+    expect(
+      autoRemovalOptionsForResult(
+        {
+          ...base,
+          proposal: removeProposal(0.99, {
+            ...safe,
+            blocklist: false,
+            skipRedownload: true,
+          }),
+        },
         0.95,
       ),
     ).toBeUndefined();
