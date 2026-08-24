@@ -64,11 +64,11 @@ export type DeriveStateInput = {
   now: number;
 };
 
-/** Minimum ai_paused duration; the actual horizon is max(checkedAt + this, recheckAfter). */
-export const AI_PAUSE_MIN_MS = 180 * 24 * 60 * 60 * 1000;
+/** Minimum pause for merely unproven dub availability. */
+export const AI_PAUSE_MIN_MS = 60 * 24 * 60 * 60 * 1000;
 export const DEFAULT_AI_PAUSE_CONFIDENCE = 0.7;
 
-/** Pause horizon for an `unlikely` verdict: max(180d after check, recheckAfter). */
+/** Pause horizon for an `unlikely` verdict: max(60d after check, recheckAfter). */
 export function aiPausedUntilFor(verdict: { checkedAt: number; recheckAfter: number }): number {
   return Math.max(verdict.checkedAt + AI_PAUSE_MIN_MS, verdict.recheckAfter);
 }
@@ -80,7 +80,7 @@ export function originalLanguageAccepted(
 ): boolean {
   const lang = originalLanguage?.trim().toLowerCase();
   if (!lang) return false;
-  if (lang === "german" || lang === "deutsch") return true;
+  if (lang === "german" || lang === "deutsch" || lang === "de") return true;
   return acceptedOriginalLanguages.some((l) => l.trim().toLowerCase() === lang);
 }
 
@@ -138,8 +138,10 @@ export function deriveState(input: DeriveStateInput): HuntState {
   if (input.override?.targetMode === "ignore") return "ignored";
   if (germanSatisfied(input)) return "german";
   if (profileBlocked(input)) return "profile_blocked";
-  if (aiPauseActive(input)) return "ai_paused";
+  // A dub-unavailability verdict controls only German upgrades. It must never
+  // prevent the arr from acquiring an original-language interim file.
   if (!input.hasFile) return "missing";
+  if (aiPauseActive(input)) return "ai_paused";
   return "non_german";
 }
 

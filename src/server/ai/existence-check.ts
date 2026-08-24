@@ -4,7 +4,7 @@ import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent
 import { Type } from "typebox";
 import { AI_VERDICTS, type AiVerdictValue } from "../../shared/domain.js";
 
-export const PROMPT_VERSION = "dub-oracle-v14";
+export const PROMPT_VERSION = "dub-oracle-v15";
 export const REPORT_TOOL_NAME = "report_dub_verdict";
 
 export const RECHECK_MIN_DAYS = 90;
@@ -188,10 +188,16 @@ export type FetchUrlOptions = {
   timeoutMs?: number;
 };
 
+export type OracleFetchedPage = {
+  text: string;
+  /** Canonical URL after every validated redirect hop. */
+  finalUrl: string;
+};
+
 export async function fetchUrlForOracle(
   rawUrl: string,
   options: FetchUrlOptions = {},
-): Promise<string> {
+): Promise<OracleFetchedPage> {
   const fetchImpl = options.fetchImpl ?? fetch;
   let url = await assertPublicHttpUrl(rawUrl, options.lookupFn);
   for (let hop = 0; ; hop += 1) {
@@ -217,9 +223,13 @@ export async function fetchUrlForOracle(
     const looksLikeHtml = /html|xml/i.test(contentType) || /^\s*</.test(body);
     const text = (looksLikeHtml ? extractTextFromHtml(body) : body).trim();
     if (!text) throw new Error(`Empty document from ${url.hostname}.`);
-    return text.length > FETCH_URL_MAX_TEXT_CHARS
-      ? `${text.slice(0, FETCH_URL_MAX_TEXT_CHARS)}\n[truncated]`
-      : text;
+    return {
+      text:
+        text.length > FETCH_URL_MAX_TEXT_CHARS
+          ? `${text.slice(0, FETCH_URL_MAX_TEXT_CHARS)}\n[truncated]`
+          : text,
+      finalUrl: url.href,
+    };
   }
 }
 
@@ -520,21 +530,31 @@ function createFetchUrlTool(state: WebEvidenceState, options: FetchUrlOptions) {
     }),
     async execute(_toolCallId, params) {
       try {
-        const text = await fetchUrlForOracle(params.url, options);
+        const page = await fetchUrlForOracle(params.url, options);
         state.fetchSucceeded = true;
-        if (!state.fetchedUrls.includes(params.url)) state.fetchedUrls.push(params.url);
-        const previous = state.fetchedPages.find((page) => page.url === params.url);
-        if (previous) previous.text = text;
-        else state.fetchedPages.push({ url: params.url, text });
+        if (!state.fetchedUrls.includes(page.finalUrl)) state.fetchedUrls.push(page.finalUrl);
+        const previous = state.fetchedPages.find((entry) => entry.url === page.finalUrl);
+        if (previous) previous.text = page.text;
+        else state.fetchedPages.push({ url: page.finalUrl, text: page.text });
         return {
-          content: [{ type: "text" as const, text }],
-          details: { url: params.url, ok: true },
+          content: [{ type: "text" as const, text: page.text }],
+          details: {
+            requestedUrl: params.url,
+            finalUrl: page.finalUrl,
+            redirected: page.finalUrl !== new URL(params.url).href,
+            ok: true,
+          },
         };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         return {
           content: [{ type: "text" as const, text: `fetch_url failed: ${message}` }],
-          details: { url: params.url, ok: false },
+          details: {
+            requestedUrl: params.url,
+            finalUrl: params.url,
+            redirected: false,
+            ok: false,
+          },
         };
       }
     },

@@ -201,7 +201,9 @@ function AiTab() {
                             : undefined,
                   }}
                 >
-                  {v.verdict}
+                  {new Set(v.perSeason?.map((entry) => entry.verdict) ?? []).size > 1
+                    ? "mixed"
+                    : v.verdict}
                 </span>
               </Td>
               <Td>

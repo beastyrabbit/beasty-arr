@@ -193,6 +193,11 @@ export class SyncService {
     this.upsertProfiles("sonarr", profiles, now);
     await this.pace();
     const seriesDtos = await sonarr.getSeries();
+    if (seriesDtos.length === 0 && this.db.select({ id: series.id }).from(series).get()) {
+      throw new Error(
+        "Sonarr returned an empty series list while the mirror is populated; refusing to prune.",
+      );
+    }
 
     // Prune deleted series: hunt_state first (no FK), then series (cascades episodes).
     const keepIds = seriesDtos.map((s) => s.id);
@@ -234,7 +239,12 @@ export class SyncService {
         originalLanguage: dto.originalLanguage?.name ?? null,
         qualityProfileId: dto.qualityProfileId ?? null,
       };
-      this.syncSeriesEpisodes(ctx, meta, eps, files);
+      if (!this.syncSeriesEpisodes(ctx, meta, eps, files)) {
+        this.log.warn(
+          { seriesId: dto.id, title: dto.title },
+          "Sonarr returned an empty episode list for a populated series; kept its mirror and continued",
+        );
+      }
     }
     await this.seedHistoryCursor("sonarr", sonarr);
     this.setSyncStateValue("sonarr.lastFullSyncAt", String(now));
@@ -246,6 +256,11 @@ export class SyncService {
     this.upsertProfiles("radarr", profiles, now);
     await this.pace();
     const movieDtos = await radarr.getMovies();
+    if (movieDtos.length === 0 && this.db.select({ id: movies.id }).from(movies).get()) {
+      throw new Error(
+        "Radarr returned an empty movie list while the mirror is populated; refusing to prune.",
+      );
+    }
 
     const keepIds = movieDtos.map((m) => m.id);
     this.db
@@ -565,7 +580,12 @@ export class SyncService {
       originalLanguage: seriesRow.originalLanguage,
       qualityProfileId: seriesRow.qualityProfileId,
     };
-    this.syncSeriesEpisodes(ctx, meta, eps, files);
+    if (!this.syncSeriesEpisodes(ctx, meta, eps, files)) {
+      this.log.warn(
+        { seriesId, title: seriesRow.title },
+        "Sonarr targeted refresh returned an empty episode list; kept the existing mirror",
+      );
+    }
   }
 
   async targetedRefreshMovie(movieId: number): Promise<void> {
@@ -588,7 +608,13 @@ export class SyncService {
     meta: SeriesMeta,
     eps: SonarrEpisodeDto[],
     files: SonarrEpisodeFileDto[],
-  ): void {
+  ): boolean {
+    if (
+      eps.length === 0 &&
+      this.db.select({ id: episodes.id }).from(episodes).where(eq(episodes.seriesId, meta.id)).get()
+    ) {
+      return false;
+    }
     const now = ctx.now;
     const fileById = new Map(files.map((f) => [f.id, f]));
 
@@ -636,6 +662,7 @@ export class SyncService {
         now,
       });
     }
+    return true;
   }
 
   private upsertMovie(ctx: SourceCtx, dto: RadarrMovieDto): void {
@@ -947,15 +974,22 @@ export class SyncService {
     const row = ctx.verdicts.get(subjectKey);
     if (!row) return null;
     let value: AiVerdictValue = row.verdict;
+    let confidence = row.confidence;
+    let recheckAfter = row.recheckAfter;
     if (seasonNumber != null && row.perSeason) {
       const entry = row.perSeason.find((p) => p.season === seasonNumber);
-      if (entry && isAiVerdictValue(entry.verdict)) value = entry.verdict;
+      // Modern series verdicts are exact-season scoped. Never let the overall
+      // summary pause a newly added/uncovered season.
+      if (!entry || !isAiVerdictValue(entry.verdict)) return null;
+      value = entry.verdict;
+      confidence = entry.confidence ?? row.confidence;
+      recheckAfter = entry.recheckAfter ?? row.recheckAfter;
     }
     return {
       verdict: value,
-      confidence: row.confidence,
-      recheckAfter: row.recheckAfter,
-      until: aiPausedUntilFor(row),
+      confidence,
+      recheckAfter,
+      until: aiPausedUntilFor({ checkedAt: row.checkedAt, recheckAfter }),
     };
   }
 

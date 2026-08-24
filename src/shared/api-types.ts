@@ -217,6 +217,7 @@ export type AiVerdictSummary = {
   expectedAvailability: number | null;
   evidence: string[];
   germanTitle?: string | null;
+  perSeason?: AiSeasonVerdict[] | null;
 };
 
 export type PauseInfo = {

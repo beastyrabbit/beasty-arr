@@ -5,6 +5,7 @@ import type { SettingsService } from "../config/settings.js";
 import type { Db } from "../db/index.js";
 import {
   activityLog,
+  aiCheckAttempts,
   aiVerdicts,
   dubCatalogEvidence,
   episodes,
@@ -14,7 +15,11 @@ import {
   series,
 } from "../db/schema.js";
 import type { EventBus } from "../events/bus.js";
-import { type DubCatalogEvidence, lookupDubCatalog } from "./dub-catalog.js";
+import {
+  type DubCatalogEvidence,
+  type DubCatalogLookupResult,
+  lookupDubCatalog,
+} from "./dub-catalog.js";
 import {
   buildDubCheckSession,
   type DnsLookupFn,
@@ -27,11 +32,17 @@ export type AiVerdictRow = typeof aiVerdicts.$inferSelect;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_POST_SEARCH_GRACE_MS = 2 * 60 * 1000;
+const AI_FAILURE_COOLDOWN_MS = DAY_MS;
+const CATALOG_RECHECK_MS = 30 * DAY_MS;
+const CATALOG_NO_MATCH_SOURCE = "wikidata-no-match";
+const WIKIDATA_QUERY_URL = "https://query.wikidata.org/sparql";
 /** Sentinel for manual invalidation: non-null "superseded" without a successor row. */
 export const INVALIDATED_SENTINEL = 0;
 
 /** States that make a subject a candidate for an oracle check. */
 const HUNTABLE_STATES = ["missing", "non_german", "exhausted"] as const;
+const AI_FIRST_AGE_MS = 180 * DAY_MS;
+const UNPROVEN_RECHECK_DAYS = 90;
 
 const GERMAN_ORIGINAL = new Set(["german", "deutsch", "de"]);
 
@@ -72,7 +83,11 @@ export type OracleServiceOptions = {
   fetchImpl?: typeof fetch;
   lookupFn?: DnsLookupFn;
   catalogFetchImpl?: typeof fetch;
-  catalogLookup?: typeof lookupDubCatalog;
+  catalogLookup?: (
+    subjects: OracleCheckSubject[],
+    fetchImpl?: typeof fetch,
+    signal?: AbortSignal,
+  ) => Promise<DubCatalogLookupResult | Map<string, DubCatalogEvidence>>;
 };
 
 export type OracleBulkStatus = {
@@ -96,7 +111,6 @@ export class OracleService {
   private readonly postSearchGraceMs: number;
   private readonly refreshAutomaticState: () => Promise<void>;
   private readonly checksInFlight = new Set<string>();
-  private reservedChecks = 0;
   private automaticCheckChain: Promise<void> = Promise.resolve();
   private bulkAbort: AbortController | null = null;
   private bulkStatus: OracleBulkStatus = OracleService.idleBulkStatus();
@@ -113,6 +127,21 @@ export class OracleService {
     this.sleep = opts.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
     this.postSearchGraceMs = opts.postSearchGraceMs ?? DEFAULT_POST_SEARCH_GRACE_MS;
     this.refreshAutomaticState = opts.refreshAutomaticState ?? (async () => undefined);
+    const recoveryAt = this.now();
+    this.db
+      .update(aiCheckAttempts)
+      .set({
+        status: "failed",
+        completedAt: recoveryAt,
+        error: "Application restarted before the AI attempt completed.",
+      })
+      .where(
+        and(
+          eq(aiCheckAttempts.status, "running"),
+          lt(aiCheckAttempts.startedAt, recoveryAt - 60 * 60 * 1000),
+        ),
+      )
+      .run();
   }
 
   private static idleBulkStatus(): OracleBulkStatus {
@@ -177,12 +206,27 @@ export class OracleService {
    */
   async runDailyBatch(signal?: AbortSignal): Promise<OracleBatchResult> {
     const settings = this.settings.get();
-    if (settings.aiProvider === "off") {
-      return { selected: 0, checked: 0, failed: 0, skippedReason: "provider_off" };
-    }
     if (settings.dryRun) {
       this.log.info("dub oracle: skipped (dry-run)");
       return { selected: 0, checked: 0, failed: 0, skippedReason: "dry_run" };
+    }
+
+    // The free deterministic catalog is useful before both searches and paid
+    // AI. Run it for unsearched subjects as part of normal automation, with a
+    // durable negative-result cache so WDQS is not queried every night.
+    const catalogCandidates = this.selectSubjects({ includeUnsearched: true }).filter((subject) =>
+      this.catalogCheckDue(subject.subjectKey),
+    );
+    if (catalogCandidates.length > 0 && !signal?.aborted) {
+      try {
+        await this.prepareBulkSubjects(catalogCandidates, signal ?? new AbortController().signal);
+      } catch (error) {
+        this.log.warn({ err: error }, "nightly dub catalog lookup failed; continuing with AI");
+      }
+    }
+
+    if (settings.aiProvider === "off") {
+      return { selected: 0, checked: 0, failed: 0, skippedReason: "provider_off" };
     }
     const remaining = this.remainingDailyChecks();
     if (remaining <= 0) {
@@ -206,6 +250,19 @@ export class OracleService {
     const now = this.now();
     const overrides = this.subjectOverrides();
     const validVerdicts = this.validVerdictScopes(now);
+    const recentFailures = new Set(
+      this.db
+        .select({ subjectKey: aiCheckAttempts.subjectKey })
+        .from(aiCheckAttempts)
+        .where(
+          and(
+            eq(aiCheckAttempts.status, "failed"),
+            gte(aiCheckAttempts.startedAt, now - AI_FAILURE_COOLDOWN_MS),
+          ),
+        )
+        .all()
+        .map((row) => row.subjectKey),
+    );
     const germanSeasons = new Set(
       this.db
         .selectDistinct({
@@ -285,7 +342,13 @@ export class OracleService {
       if (
         !options.includeUnsearched &&
         row.state !== "exhausted" &&
-        row.searchCount < settings.aiMinSearchesBeforeCheck
+        row.searchCount < settings.aiMinSearchesBeforeCheck &&
+        !(
+          row.state === "non_german" &&
+          row.searchCount === 0 &&
+          row.airDateUtc != null &&
+          row.airDateUtc <= now - AI_FIRST_AGE_MS
+        )
       ) {
         continue;
       }
@@ -337,7 +400,13 @@ export class OracleService {
       if (
         !options.includeUnsearched &&
         row.state !== "exhausted" &&
-        row.searchCount < settings.aiMinSearchesBeforeCheck
+        row.searchCount < settings.aiMinSearchesBeforeCheck &&
+        !(
+          row.state === "non_german" &&
+          row.searchCount === 0 &&
+          (row.digitalRelease ?? row.physicalRelease) != null &&
+          (row.digitalRelease ?? row.physicalRelease ?? now) <= now - AI_FIRST_AGE_MS
+        )
       ) {
         continue;
       }
@@ -363,6 +432,7 @@ export class OracleService {
     const selected: OracleSubject[] = [];
     for (const agg of aggregates.values()) {
       const { subject } = agg;
+      if (recentFailures.has(subject.subjectKey)) continue;
       const lang = subject.originalLanguage?.trim().toLowerCase();
       if (lang && GERMAN_ORIGINAL.has(lang)) continue;
       const override = overrides.get(
@@ -371,6 +441,7 @@ export class OracleService {
       if (override === "original_ok" || override === "ignore") continue;
       selected.push({
         ...subject,
+        catalogEvidence: this.catalogEvidenceFor(subject.subjectKey) ?? undefined,
         seasons: agg.seasons.size ? [...agg.seasons].sort((a, b) => a - b) : undefined,
         confirmedGermanSeasons:
           subject.subjectKind === "series"
@@ -465,16 +536,18 @@ export class OracleService {
     if (settings.aiProvider === "off") {
       throw new Error("AI provider is disabled (aiProvider=off).");
     }
-    if (!force && this.remainingDailyChecks() <= 0) {
-      throw new Error("Daily AI check budget exhausted — use force to override.");
-    }
     const subject = this.loadSubject(subjectKey);
     if (!subject) throw new Error(`Unknown oracle subject: ${subjectKey}`);
-    this.invalidateVerdicts(subjectKey);
-    return await this.runCheck(subject);
+    const attemptId = this.tryStartAttempt(subject, force);
+    if (attemptId === null) {
+      throw new Error("Daily AI check budget exhausted — use force to override.");
+    }
+    // Keep the last good verdict active until its replacement succeeds. The
+    // insert path supersedes it atomically after a validated result exists.
+    return await this.runTrackedCheck(subject, attemptId);
   }
 
-  /** Mark all active verdict rows for a subject invalid without a successor. */
+  /** Explicit invalidation without replacement; rechecks keep the old row until success. */
   invalidateVerdicts(subjectKey: string): void {
     this.db
       .update(aiVerdicts)
@@ -488,12 +561,11 @@ export class OracleService {
     const dayStart = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
     const row = this.db
       .select({ n: count() })
-      .from(aiVerdicts)
+      .from(aiCheckAttempts)
       .where(
         and(
-          gte(aiVerdicts.checkedAt, dayStart),
-          lt(aiVerdicts.checkedAt, dayStart + DAY_MS),
-          ne(aiVerdicts.provider, "wikidata"),
+          gte(aiCheckAttempts.startedAt, dayStart),
+          lt(aiCheckAttempts.startedAt, dayStart + DAY_MS),
         ),
       )
       .get();
@@ -503,16 +575,33 @@ export class OracleService {
   private remainingDailyChecks(): number {
     const cfg = this.settings.get();
     return cfg.aiDailyLimitEnabled
-      ? Math.max(0, cfg.aiMaxChecksPerDay - this.countCheckedToday() - this.reservedChecks)
+      ? Math.max(0, cfg.aiMaxChecksPerDay - this.countCheckedToday())
       : Number.POSITIVE_INFINITY;
   }
 
-  /** `null` means exhausted, `false` unlimited, `true` reserved one capped slot. */
-  private tryReserveDailyCheck(): boolean | null {
-    if (!this.settings.get().aiDailyLimitEnabled) return false;
-    if (this.remainingDailyChecks() <= 0) return null;
-    this.reservedChecks += 1;
-    return true;
+  /** SQLite insert is synchronous, so parallel workers cannot oversubscribe the cap. */
+  private tryStartAttempt(subject: OracleCheckSubject, force = false): number | null {
+    if (!force && this.remainingDailyChecks() <= 0) return null;
+    const cfg = this.settings.get();
+    return this.db
+      .insert(aiCheckAttempts)
+      .values({
+        subjectKey: subject.subjectKey,
+        provider: cfg.aiProvider,
+        model: cfg.aiModel,
+        status: "running",
+        startedAt: this.now(),
+      })
+      .returning({ id: aiCheckAttempts.id })
+      .get().id;
+  }
+
+  private finishAttempt(id: number, status: "succeeded" | "failed" | "cancelled", error?: string) {
+    this.db
+      .update(aiCheckAttempts)
+      .set({ status, completedAt: this.now(), error: error ?? null })
+      .where(eq(aiCheckAttempts.id, id))
+      .run();
   }
 
   private async runSubjects(
@@ -531,13 +620,13 @@ export class OracleService {
         const subject = subjects[cursor++];
         if (!subject) return;
         if (this.checksInFlight.has(subject.subjectKey)) continue;
-        const reserved = this.tryReserveDailyCheck();
-        if (reserved === null) return;
+        const attemptId = this.tryStartAttempt(subject);
+        if (attemptId === null) return;
         this.checksInFlight.add(subject.subjectKey);
         hooks.started?.(subject);
         let subjectFailed = false;
         try {
-          await this.runCheck(subject, signal);
+          await this.runTrackedCheck(subject, attemptId, signal);
           checked += 1;
         } catch (error) {
           subjectFailed = true;
@@ -555,7 +644,6 @@ export class OracleService {
           }
         } finally {
           this.checksInFlight.delete(subject.subjectKey);
-          if (reserved) this.reservedChecks -= 1;
           hooks.completed?.(subject, subjectFailed);
         }
       }
@@ -622,12 +710,53 @@ export class OracleService {
       return { pending: [], catalogCompleted: 0 };
     }
     const lookup = this.opts.catalogLookup ?? lookupDubCatalog;
-    const evidence = await lookup(subjects, this.opts.catalogFetchImpl, signal);
+    const lookupResult = await lookup(subjects, this.opts.catalogFetchImpl, signal);
+    const evidence = lookupResult instanceof Map ? lookupResult : lookupResult.evidence;
+    const checkedSubjectKeys =
+      lookupResult instanceof Map
+        ? new Set(subjects.map((subject) => subject.subjectKey))
+        : lookupResult.checkedSubjectKeys;
+    if (!(lookupResult instanceof Map) && lookupResult.failures.length > 0) {
+      this.log.warn(
+        {
+          failedBatches: lookupResult.failures.length,
+          failedSubjects: lookupResult.failures.reduce(
+            (total, failure) => total + failure.subjectKeys.length,
+            0,
+          ),
+          errors: lookupResult.failures.map((failure) => failure.error),
+        },
+        "dub catalog lookup partially failed; uncached subjects continue without catalog evidence",
+      );
+    }
     const pending: OracleCheckSubject[] = [];
     let catalogCompleted = 0;
     for (const subject of subjects) {
       const match = evidence.get(subject.subjectKey);
       if (!match) {
+        if (!checkedSubjectKeys.has(subject.subjectKey)) {
+          pending.push(subject);
+          continue;
+        }
+        this.db
+          .insert(dubCatalogEvidence)
+          .values({
+            subjectKey: subject.subjectKey,
+            source: CATALOG_NO_MATCH_SOURCE,
+            sourceId: "",
+            url: WIKIDATA_QUERY_URL,
+            checkedAt: this.now(),
+          })
+          .onConflictDoUpdate({
+            target: dubCatalogEvidence.subjectKey,
+            set: {
+              source: CATALOG_NO_MATCH_SOURCE,
+              sourceId: "",
+              url: WIKIDATA_QUERY_URL,
+              checkedAt: this.now(),
+            },
+          })
+          .run();
         pending.push(subject);
         continue;
       }
@@ -709,6 +838,22 @@ export class OracleService {
       source: "wikidata",
     });
     return inserted;
+  }
+
+  private async runTrackedCheck(
+    subject: OracleCheckSubject,
+    attemptId: number,
+    signal?: AbortSignal,
+  ): Promise<AiVerdictRow> {
+    try {
+      const verdict = await this.runCheck(subject, signal);
+      this.finishAttempt(attemptId, "succeeded");
+      return verdict;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.finishAttempt(attemptId, signal?.aborted ? "cancelled" : "failed", message);
+      throw error;
+    }
   }
 
   private async runCheck(subject: OracleCheckSubject, signal?: AbortSignal): Promise<AiVerdictRow> {
@@ -952,9 +1097,15 @@ export class OracleService {
             const reported = final.perSeason?.find((entry) => entry.season === season);
             if (!reported) throw new Error(`validated season ${season} is missing`);
             const { recheckAfterDays, ...seasonVerdict } = reported;
+            const explicitOriginalOnly =
+              /\bOmU\b|original with subtitles|original mit untertiteln/i.test(
+                [reported.note, ...(reported.evidence ?? [])].filter(Boolean).join(" "),
+              );
             const effectiveRecheckDays =
               reported.verdict === "unlikely"
-                ? settings.aiUnlikelyRetryDays
+                ? explicitOriginalOnly
+                  ? settings.aiUnlikelyRetryDays
+                  : Math.min(settings.aiUnlikelyRetryDays, UNPROVEN_RECHECK_DAYS)
                 : reported.verdict === "exists"
                   ? settings.aiExistsRetryDays
                   : recheckAfterDays;
@@ -984,7 +1135,11 @@ export class OracleService {
         : final.confidence;
     const recheckDays =
       overallVerdict === "unlikely"
-        ? settings.aiUnlikelyRetryDays
+        ? /\bOmU\b|original with subtitles|original mit untertiteln/i.test(
+            [final.germanTitle, ...final.evidence].filter(Boolean).join(" "),
+          )
+          ? settings.aiUnlikelyRetryDays
+          : Math.min(settings.aiUnlikelyRetryDays, UNPROVEN_RECHECK_DAYS)
         : overallVerdict === "exists"
           ? settings.aiExistsRetryDays
           : final.recheckAfterDays;
@@ -1084,6 +1239,7 @@ export class OracleService {
         externalIds: { tvdbId: row.tvdbId ?? undefined, imdbId: row.imdbId ?? undefined },
         seasons: seasons.length ? seasons : undefined,
         confirmedGermanSeasons: confirmedGermanSeasons.length ? confirmedGermanSeasons : undefined,
+        catalogEvidence: this.catalogEvidenceFor(subjectKey) ?? undefined,
       };
     }
     const row = this.db.select().from(movies).where(eq(movies.id, id)).get();
@@ -1097,6 +1253,7 @@ export class OracleService {
       year: row.year,
       originalLanguage: row.originalLanguage,
       externalIds: { tmdbId: row.tmdbId ?? undefined, imdbId: row.imdbId ?? undefined },
+      catalogEvidence: this.catalogEvidenceFor(subjectKey) ?? undefined,
     };
   }
 
@@ -1147,6 +1304,30 @@ export class OracleService {
       }
     }
     return { subjects, seasons };
+  }
+
+  private catalogEvidenceFor(subjectKey: string): DubCatalogEvidence | null {
+    const row = this.db
+      .select()
+      .from(dubCatalogEvidence)
+      .where(eq(dubCatalogEvidence.subjectKey, subjectKey))
+      .get();
+    if (!row || row.source !== "wikidata-synchronkartei") return null;
+    return {
+      subjectKey,
+      source: "wikidata-synchronkartei",
+      sourceId: row.sourceId,
+      url: row.url,
+    };
+  }
+
+  private catalogCheckDue(subjectKey: string): boolean {
+    const row = this.db
+      .select({ checkedAt: dubCatalogEvidence.checkedAt })
+      .from(dubCatalogEvidence)
+      .where(eq(dubCatalogEvidence.subjectKey, subjectKey))
+      .get();
+    return !row || row.checkedAt <= this.now() - CATALOG_RECHECK_MS;
   }
 
   private logActivity(level: "info" | "warn", message: string, data: Record<string, unknown>) {

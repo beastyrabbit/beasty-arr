@@ -7,6 +7,14 @@ function verdictCopy(verdict: AiVerdictSummaryValue): {
   action: string;
   color: string;
 } {
+  const seasonStates = new Set(verdict.perSeason?.map((entry) => entry.verdict) ?? []);
+  if (seasonStates.size > 1) {
+    return {
+      answer: "Mixed — see individual seasons",
+      action: "German availability differs by season; hunting follows each season's verdict.",
+      color: "text-nongerman",
+    };
+  }
   switch (verdict.verdict) {
     case "exists":
       return {

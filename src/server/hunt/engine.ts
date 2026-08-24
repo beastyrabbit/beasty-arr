@@ -1,4 +1,4 @@
-import { and, eq, gt, inArray, isNull, ne, notInArray, sql } from "drizzle-orm";
+import { and, count, eq, gt, gte, inArray, isNull, lt, ne, notInArray, sql } from "drizzle-orm";
 import type { FastifyBaseLogger } from "fastify";
 import type { AppEventPayloads } from "../../shared/api-types.js";
 import {
@@ -14,6 +14,7 @@ import type { AppSettings, SettingsService } from "../config/settings.js";
 import type { Db } from "../db/index.js";
 import {
   activityLog,
+  aiCheckAttempts,
   aiVerdicts,
   episodes,
   huntState,
@@ -39,6 +40,8 @@ import { isAiVerdictValue } from "./state.js";
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** `announced` verdict without expectedAvailability: re-check in 30 days. */
 const ANNOUNCED_FALLBACK_MS = 30 * DAY_MS;
+const AI_FIRST_AGE_MS = 180 * DAY_MS;
+const AI_FAILURE_COOLDOWN_MS = DAY_MS;
 const BACKOFF_JITTER_FRACTION = 0.1;
 const DEFAULT_POLL_INTERVAL_MS = 10_000;
 const DEFAULT_COMMAND_TIMEOUT_MS = 10 * 60 * 1000;
@@ -697,12 +700,15 @@ export class HuntEngine {
 
     const manualAiPending = trigger === "forced" && this.manualAiRequestedFor(cmd.covered);
     const relationById = this.retryRelations(cmd.covered, now);
+    const retryAtByGroup = new Map<string, number>();
     for (const c of cmd.covered) {
       const row = this.db.select().from(huntState).where(eq(huntState.id, c.huntStateId)).get();
       if (!row) continue;
       const patch: Partial<typeof huntState.$inferInsert> = {
         searchCount: row.searchCount + 1,
-        lastSearchAt: now,
+        // Imports can land while Sonarr/Radarr is still polling the command.
+        // Compare them against dispatch time, not completion time.
+        lastSearchAt: attempt?.createdAt ?? now,
       };
       const grabPending = row.awaitingImportSince != null;
       if (!grabPending && HUNTABLE_STATES.includes(row.state)) {
@@ -714,13 +720,25 @@ export class HuntEngine {
         );
         const newTier = relatedTier + 1;
         patch.tier = newTier;
-        let retryDelay = this.jittered(backoffForTier(relatedTier));
-        if (row.targetKind === "movie") {
-          retryDelay = Math.max(retryDelay, this.settings.get().movieRetryDays * DAY_MS);
-        } else if (relation?.releasing) {
-          retryDelay = Math.max(retryDelay, this.settings.get().releasingSeasonRetryDays * DAY_MS);
+        const retryGroup =
+          row.targetKind === "episode"
+            ? `${row.source}:${row.seriesId}:${row.seasonNumber}:${relatedTier}`
+            : `${row.source}:${row.targetId}:${relatedTier}`;
+        let retryAt = retryAtByGroup.get(retryGroup);
+        if (retryAt == null) {
+          let retryDelay = this.jittered(backoffForTier(relatedTier));
+          if (row.targetKind === "movie") {
+            retryDelay = Math.max(retryDelay, this.settings.get().movieRetryDays * DAY_MS);
+          } else if (relation?.releasing) {
+            retryDelay = Math.max(
+              retryDelay,
+              this.settings.get().releasingSeasonRetryDays * DAY_MS,
+            );
+          }
+          retryAt = now + retryDelay;
+          retryAtByGroup.set(retryGroup, retryAt);
         }
-        patch.nextEligibleAt = now + retryDelay;
+        patch.nextEligibleAt = retryAt;
         if (newTier >= EXHAUSTED_TIER && row.state !== "exhausted") {
           patch.state = "exhausted";
           patch.stateChangedAt = now;
@@ -860,9 +878,8 @@ export class HuntEngine {
   }
 
   /**
-   * Retry pressure is shared at three levels. The episode keeps its own tier,
-   * inherits the highest tier in its season, and also considers the average
-   * failed-search count across still-huntable episodes in the series.
+   * Retry pressure is item/season scoped. A fresh season must not inherit a
+   * long-running series' lifetime search count.
    */
   private retryRelations(
     covered: HuntCandidate[],
@@ -877,12 +894,6 @@ export class HuntEngine {
     for (const seriesId of seriesIds) {
       const rows = this.episodeJoinRows([eq(huntState.seriesId, seriesId)]);
       const huntable = rows.filter((row) => HUNTABLE_STATES.includes(row.hs.state));
-      const seriesTier =
-        huntable.length === 0
-          ? 0
-          : Math.floor(
-              huntable.reduce((sum, row) => sum + row.hs.searchCount, 0) / huntable.length,
-            );
       for (const candidate of covered.filter((item) => item.seriesId === seriesId)) {
         const seasonRows = rows.filter((row) => row.ep.seasonNumber === candidate.seasonNumber);
         const seasonTier = seasonRows.reduce((max, row) => Math.max(max, row.hs.tier), 0);
@@ -892,7 +903,7 @@ export class HuntEngine {
             row.ep.airDateUtc != null &&
             row.ep.airDateUtc >= now - 28 * DAY_MS,
         );
-        out.set(candidate.huntStateId, { seasonTier, seriesTier, releasing });
+        out.set(candidate.huntStateId, { seasonTier, seriesTier: 0, releasing });
       }
     }
     return out;
@@ -1062,6 +1073,8 @@ export class HuntEngine {
     const verdicts = this.loadVerdicts();
     const germanSeasons = this.germanSeasonKeys();
     const lag = this.loadDubLagOverrides();
+    const aiFirstEnabled = this.aiFirstSlotsAvailable(cfg, now);
+    const recentAiFailures = aiFirstEnabled ? this.recentAiFailureSubjects(now) : new Set<string>();
     const missingBucket: HuntCandidate[] = [];
     const upgradeBucket: HuntCandidate[] = [];
     const filters = [
@@ -1077,6 +1090,24 @@ export class HuntEngine {
         if (row.hs.state === "exhausted" && row.hs.nextEligibleAt == null) continue;
         if (!cfg.huntSpecials && row.ep.seasonNumber === 0) continue;
         if (row.hs.state === "non_german") {
+          const subjectKey = `sonarr:${row.ep.seriesId}`;
+          const verdict = verdicts.get(subjectKey) ?? null;
+          const exactVerdict =
+            verdict?.perSeason?.find((entry) => entry.season === row.ep.seasonNumber) ?? null;
+          const currentSeasonVerdict = verdict?.perSeason?.length
+            ? Boolean(exactVerdict && (exactVerdict.recheckAfter ?? verdict.recheckAfter) > now)
+            : Boolean(verdict && verdict.recheckAfter > now);
+          if (
+            aiFirstEnabled &&
+            row.hs.searchCount === 0 &&
+            row.ep.airDateUtc != null &&
+            row.ep.airDateUtc <= now - AI_FIRST_AGE_MS &&
+            !germanSeasons.has(`${row.ep.seriesId}:${row.ep.seasonNumber}`) &&
+            !recentAiFailures.has(subjectKey) &&
+            !currentSeasonVerdict
+          ) {
+            continue;
+          }
           const lagDays =
             lag.season.get(`${row.ep.seriesId}:${row.ep.seasonNumber}`) ??
             lag.series.get(row.ep.seriesId) ??
@@ -1096,6 +1127,19 @@ export class HuntEngine {
       for (const row of this.movieJoinRows(filters)) {
         if (row.hs.state === "exhausted" && row.hs.nextEligibleAt == null) continue;
         if (row.hs.state === "non_german") {
+          const subjectKey = `radarr:${row.m.id}`;
+          const release = row.m.digitalRelease ?? row.m.physicalRelease;
+          const verdict = verdicts.get(subjectKey) ?? null;
+          if (
+            aiFirstEnabled &&
+            row.hs.searchCount === 0 &&
+            release != null &&
+            release <= now - AI_FIRST_AGE_MS &&
+            !recentAiFailures.has(subjectKey) &&
+            !(verdict && verdict.recheckAfter > now)
+          ) {
+            continue;
+          }
           const lagDays =
             lag.movie.get(row.m.id) ?? Math.max(cfg.dubLagDaysDefault, cfg.movieRetryDays);
           const blockedUntil = firstUpgradeBlockedUntil({
@@ -1113,6 +1157,40 @@ export class HuntEngine {
     missingBucket.sort(byScore);
     upgradeBucket.sort(byScore);
     return interleaveByRatio(missingBucket, upgradeBucket, parseRatio(cfg.missingToUpgradeRatio));
+  }
+
+  private aiFirstSlotsAvailable(cfg: AppSettings, now: number): boolean {
+    if (cfg.aiProvider === "off" || cfg.dryRun) return false;
+    if (!cfg.aiDailyLimitEnabled) return true;
+    const date = new Date(now);
+    const dayStart = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+    const row = this.db
+      .select({ n: count() })
+      .from(aiCheckAttempts)
+      .where(
+        and(
+          gte(aiCheckAttempts.startedAt, dayStart),
+          lt(aiCheckAttempts.startedAt, dayStart + DAY_MS),
+        ),
+      )
+      .get();
+    return (row?.n ?? 0) < cfg.aiMaxChecksPerDay;
+  }
+
+  private recentAiFailureSubjects(now: number): Set<string> {
+    return new Set(
+      this.db
+        .select({ subjectKey: aiCheckAttempts.subjectKey })
+        .from(aiCheckAttempts)
+        .where(
+          and(
+            eq(aiCheckAttempts.status, "failed"),
+            gte(aiCheckAttempts.startedAt, now - AI_FAILURE_COOLDOWN_MS),
+          ),
+        )
+        .all()
+        .map((row) => row.subjectKey),
+    );
   }
 
   private germanSeasonKeys(): Set<string> {
@@ -1177,11 +1255,8 @@ export class HuntEngine {
       const detail = effectiveVerdictDetail(verdict, row.seasonNumber);
       if (detail === null) continue;
       const eff = detail.verdict;
-      const seasonDetail =
-        row.seasonNumber == null
-          ? undefined
-          : verdict.perSeason?.find((entry) => entry.season === row.seasonNumber);
       const patch: Partial<typeof huntState.$inferInsert> = { aiVerdictId: verdict.id };
+      const mirrorState = mirrorStates.get(row.id) ?? "missing";
       const germanSeasonEvidence =
         source === "sonarr" &&
         row.seriesId != null &&
@@ -1190,13 +1265,11 @@ export class HuntEngine {
       if (
         eff === "unlikely" &&
         !germanSeasonEvidence &&
+        mirrorState !== "missing" &&
         detail.confidence >= cfg.aiPauseConfidence
       ) {
         patch.state = "ai_paused";
-        patch.nextEligibleAt = Math.max(
-          detail.recheckAfter,
-          verdict.checkedAt + cfg.aiUnlikelyRetryDays * DAY_MS,
-        );
+        patch.nextEligibleAt = detail.recheckAfter;
         if (row.state !== "ai_paused") patch.stateChangedAt = now;
       } else {
         if (eff === "announced") {
@@ -1207,13 +1280,12 @@ export class HuntEngine {
               : now + ANNOUNCED_FALLBACK_MS;
         } else if (eff === "exists" || germanSeasonEvidence) {
           patch.tier = 2;
-          patch.nextEligibleAt =
-            row.searchCount === 0 || germanSeasonEvidence
-              ? null
-              : (seasonDetail?.recheckAfter ?? verdict.checkedAt + cfg.aiExistsRetryDays * DAY_MS);
+          // Positive evidence increases urgency. Use a concrete timestamp so
+          // exhausted rows are eligible too (null means unscheduled for them).
+          patch.nextEligibleAt = now;
         }
         if (row.state === "ai_paused") {
-          patch.state = mirrorStates.get(row.id) ?? "missing";
+          patch.state = mirrorState;
           patch.stateChangedAt = now;
           if (eff !== "announced" && eff !== "exists" && !germanSeasonEvidence) {
             patch.nextEligibleAt = null;
@@ -1315,7 +1387,7 @@ export class HuntEngine {
         patch.stateChangedAt = now;
         patch.nextEligibleAt = null;
       }
-      if (req.force) patch.nextEligibleAt = null;
+      if (req.force) patch.nextEligibleAt = now;
       this.db.update(huntState).set(patch).where(eq(huntState.id, row.id)).run();
     }
     this.bus.emit("queue.updated", { reason: "resumed", subject: this.subjectString(req) });

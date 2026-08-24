@@ -180,11 +180,14 @@ describe("fetchUrlForOracle", () => {
       fakeResponse(
         "<html><body><p>Deutsche Synchronfassung existiert.</p></body></html>",
       )) as unknown as typeof fetch;
-    const text = await fetchUrlForOracle("https://example.com/", {
+    const page = await fetchUrlForOracle("https://example.com/", {
       fetchImpl,
       lookupFn: publicLookup,
     });
-    expect(text).toBe("Deutsche Synchronfassung existiert.");
+    expect(page).toEqual({
+      text: "Deutsche Synchronfassung existiert.",
+      finalUrl: "https://example.com/",
+    });
   });
 
   it("re-validates every redirect hop and blocks private targets", async () => {
@@ -204,12 +207,12 @@ describe("fetchUrlForOracle", () => {
       fakeResponse("x".repeat(FETCH_URL_MAX_TEXT_CHARS + 5000), {
         headers: { "content-type": "text/plain" },
       })) as unknown as typeof fetch;
-    const text = await fetchUrlForOracle("https://example.com/", {
+    const page = await fetchUrlForOracle("https://example.com/", {
       fetchImpl,
       lookupFn: publicLookup,
     });
-    expect(text.length).toBeLessThanOrEqual(FETCH_URL_MAX_TEXT_CHARS + 20);
-    expect(text.endsWith("[truncated]")).toBe(true);
+    expect(page.text.length).toBeLessThanOrEqual(FETCH_URL_MAX_TEXT_CHARS + 20);
+    expect(page.text.endsWith("[truncated]")).toBe(true);
   });
 
   it("throws on error statuses", async () => {
@@ -463,6 +466,34 @@ describe("buildDubCheckSession", () => {
         url: "https://www.fernsehserien.de/some-show/episodenguide/staffel-1",
       },
     ]);
+    expect(session.originalOnlySeasonReleases()).toEqual([]);
+  });
+
+  it("does not attribute a redirected series guide to the requested season", async () => {
+    const fetchImpl = (async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.endsWith("/episodenguide/staffel-13")) {
+        return fakeResponse("", {
+          status: 301,
+          ok: false,
+          headers: { location: "/impractical-jokers-die-lachflasher/episodenguide" },
+        });
+      }
+      return fakeResponse(
+        "Impractical Jokers – Die Lachflasher! Episodenguide – fernsehserien.de\nStaffel 6\nDeutsche TV-Premiere 18.09.2019 DMAX",
+        { headers: { "content-type": "text/plain" } },
+      );
+    }) as unknown as typeof fetch;
+    const redirectedSubject = { ...subject, title: "Impractical Jokers", seasons: [13] };
+    const session = buildDubCheckSession(redirectedSubject, { fetchImpl, lookupFn: publicLookup });
+    const fetchTool = session.tools.find((tool) => tool.name === "fetch_url");
+    await runTool(fetchTool as never, {
+      url: "https://www.fernsehserien.de/impractical-jokers/episodenguide/staffel-13",
+    });
+    expect(session.fetchedUrls()).toEqual([
+      "https://www.fernsehserien.de/impractical-jokers-die-lachflasher/episodenguide",
+    ]);
+    expect(session.localizedGermanSeasonReleases()).toEqual([]);
     expect(session.originalOnlySeasonReleases()).toEqual([]);
   });
 

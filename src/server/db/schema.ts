@@ -268,6 +268,25 @@ export const aiVerdicts = sqliteTable(
   (t) => [index("idx_verdicts_subject").on(t.subjectKey, t.checkedAt)],
 );
 
+/** Durable quota/cooldown ledger. Every paid oracle invocation gets one row. */
+export const aiCheckAttempts = sqliteTable(
+  "ai_check_attempts",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    subjectKey: text("subject_key").notNull(),
+    provider: text("provider").notNull(),
+    model: text("model").notNull(),
+    status: text("status").notNull(), // running|succeeded|failed|cancelled
+    startedAt: integer("started_at").notNull(),
+    completedAt: integer("completed_at"),
+    error: text("error"),
+  },
+  (t) => [
+    index("idx_ai_attempts_started").on(t.startedAt),
+    index("idx_ai_attempts_subject").on(t.subjectKey, t.startedAt),
+  ],
+);
+
 // ============ fixer ============
 
 export const fixerAnalyses = sqliteTable(

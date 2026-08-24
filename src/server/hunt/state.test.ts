@@ -240,9 +240,9 @@ describe("deriveState — table", () => {
 
     // ai_paused
     [
-      "unlikely verdict at confidence pauses a missing item",
+      "unlikely verdict never pauses acquisition of a missing original file",
       base({ verdict: unlikelyVerdict, aiPausedUntil: NOW + 100 * DAY, aiPauseConfidence: 0.7 }),
-      "ai_paused",
+      "missing",
     ],
     [
       "unlikely verdict pauses upgrade hunts on a non-German file too",
@@ -277,8 +277,8 @@ describe("deriveState — table", () => {
       "missing",
     ],
     [
-      "falls back to recheckAfter when no aiPausedUntil is given",
-      base({ verdict: unlikelyVerdict }),
+      "falls back to recheckAfter for a non-German upgrade",
+      base({ hasFile: true, fileLanguages: [ENGLISH], verdict: unlikelyVerdict }),
       "ai_paused",
     ],
     [

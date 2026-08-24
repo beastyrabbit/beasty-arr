@@ -182,6 +182,17 @@ describe("groupCommands", () => {
     ]);
     expect(commands[0].anime).toBe(true);
   });
+
+  it("uses individually budgetable EpisodeSearch commands for anime seasons", () => {
+    const commands = groupCommands([
+      cand({ huntStateId: 1, anime: true }),
+      cand({ huntStateId: 2, anime: true }),
+      cand({ huntStateId: 3, anime: true }),
+    ]);
+    expect(commands).toHaveLength(3);
+    expect(commands.every((command) => command.name === "EpisodeSearch")).toBe(true);
+    expect(commands.every((command) => command.anime && command.searchOps === 1)).toBe(true);
+  });
 });
 
 describe("labels", () => {

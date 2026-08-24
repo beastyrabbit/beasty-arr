@@ -13,6 +13,12 @@ export type DubCatalogEvidence = {
   url: string;
 };
 
+export type DubCatalogLookupResult = {
+  evidence: Map<string, DubCatalogEvidence>;
+  checkedSubjectKeys: Set<string>;
+  failures: { subjectKeys: string[]; error: string }[];
+};
+
 type SparqlBinding = Record<string, { value?: string } | undefined>;
 
 function literal(value: string): string {
@@ -70,6 +76,53 @@ function subjectQuery(subjects: OracleCheckSubject[]): string {
   }`;
 }
 
+async function fetchBatch(
+  batch: OracleCheckSubject[],
+  fetchImpl: typeof fetch,
+  signal?: AbortSignal,
+): Promise<{ results?: { bindings?: SparqlBinding[] } }> {
+  const response = await fetchImpl(WDQS_URL, {
+    method: "POST",
+    signal: signal
+      ? AbortSignal.any([signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)])
+      : AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    headers: {
+      accept: "application/sparql-results+json",
+      "content-type": "application/x-www-form-urlencoded;charset=UTF-8",
+      "user-agent": "beasty-arr/0.3 (German dub catalog prefilter)",
+    },
+    body: new URLSearchParams({ query: subjectQuery(batch) }),
+  });
+  if (!response.ok) throw new Error(`Wikidata dub catalog returned HTTP ${response.status}.`);
+  return (await response.json()) as { results?: { bindings?: SparqlBinding[] } };
+}
+
+function evidenceFromBinding(
+  batch: OracleCheckSubject[],
+  binding: SparqlBinding,
+): DubCatalogEvidence | null {
+  const imdb = binding.imdb?.value;
+  const tvdb = binding.tvdb?.value;
+  const tmdb = binding.tmdb?.value;
+  const subject = batch.find(
+    (candidate) =>
+      (imdb && candidate.externalIds.imdbId === imdb) ||
+      (tvdb && String(candidate.externalIds.tvdbId ?? "") === tvdb) ||
+      (tmdb && String(candidate.externalIds.tmdbId ?? "") === tmdb),
+  );
+  if (!subject) return null;
+  const sourceId =
+    subject.subjectKind === "movie" ? binding.filmDub?.value : binding.seriesDub?.value;
+  if (!sourceId || !NUMERIC_ID_RE.test(sourceId)) return null;
+  const kind = subject.subjectKind === "movie" ? "film" : "serie";
+  return {
+    subjectKey: subject.subjectKey,
+    source: "wikidata-synchronkartei",
+    sourceId,
+    url: `https://www.synchronkartei.de/${kind}/${sourceId}`,
+  };
+}
+
 /**
  * Batch-match library IDs against Wikidata's CC0 Synchronkartei identifiers.
  * A film identifier confirms a German film dub. A series identifier is only a
@@ -79,48 +132,31 @@ export async function lookupDubCatalog(
   subjects: OracleCheckSubject[],
   fetchImpl: typeof fetch = fetch,
   signal?: AbortSignal,
-): Promise<Map<string, DubCatalogEvidence>> {
-  const result = new Map<string, DubCatalogEvidence>();
+): Promise<DubCatalogLookupResult> {
+  const evidence = new Map<string, DubCatalogEvidence>();
+  const checkedSubjectKeys = new Set<string>();
+  const failures: DubCatalogLookupResult["failures"] = [];
   for (const batch of chunks(subjects, BATCH_SIZE)) {
     if (!batch.some((s) => s.externalIds.imdbId || s.externalIds.tvdbId || s.externalIds.tmdbId)) {
+      for (const subject of batch) checkedSubjectKeys.add(subject.subjectKey);
       continue;
     }
-    const response = await fetchImpl(WDQS_URL, {
-      method: "POST",
-      signal: signal
-        ? AbortSignal.any([signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)])
-        : AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-      headers: {
-        accept: "application/sparql-results+json",
-        "content-type": "application/x-www-form-urlencoded;charset=UTF-8",
-        "user-agent": "beasty-arr/0.3 (German dub catalog prefilter)",
-      },
-      body: new URLSearchParams({ query: subjectQuery(batch) }),
-    });
-    if (!response.ok) throw new Error(`Wikidata dub catalog returned HTTP ${response.status}.`);
-    const payload = (await response.json()) as { results?: { bindings?: SparqlBinding[] } };
-    for (const binding of payload.results?.bindings ?? []) {
-      const imdb = binding.imdb?.value;
-      const tvdb = binding.tvdb?.value;
-      const tmdb = binding.tmdb?.value;
-      const subject = batch.find(
-        (candidate) =>
-          (imdb && candidate.externalIds.imdbId === imdb) ||
-          (tvdb && String(candidate.externalIds.tvdbId ?? "") === tvdb) ||
-          (tmdb && String(candidate.externalIds.tmdbId ?? "") === tmdb),
-      );
-      if (!subject) continue;
-      const sourceId =
-        subject.subjectKind === "movie" ? binding.filmDub?.value : binding.seriesDub?.value;
-      if (!sourceId || !NUMERIC_ID_RE.test(sourceId)) continue;
-      const kind = subject.subjectKind === "movie" ? "film" : "serie";
-      result.set(subject.subjectKey, {
-        subjectKey: subject.subjectKey,
-        source: "wikidata-synchronkartei",
-        sourceId,
-        url: `https://www.synchronkartei.de/${kind}/${sourceId}`,
+    let payload: { results?: { bindings?: SparqlBinding[] } };
+    try {
+      payload = await fetchBatch(batch, fetchImpl, signal);
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      failures.push({
+        subjectKeys: batch.map((subject) => subject.subjectKey),
+        error: error instanceof Error ? error.message : String(error),
       });
+      continue;
+    }
+    for (const subject of batch) checkedSubjectKeys.add(subject.subjectKey);
+    for (const binding of payload.results?.bindings ?? []) {
+      const match = evidenceFromBinding(batch, binding);
+      if (match) evidence.set(match.subjectKey, match);
     }
   }
-  return result;
+  return { evidence, checkedSubjectKeys, failures };
 }

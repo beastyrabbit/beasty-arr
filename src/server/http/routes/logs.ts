@@ -159,7 +159,6 @@ export function registerLogRoutes(app: FastifyInstance, ctx: AppContext): void {
     if (!q.ok) return;
     const row = ctx.db.select().from(aiVerdicts).where(eq(aiVerdicts.id, p.data.id)).get();
     if (!row) return notFound(reply, "verdict not found");
-    ctx.services.oracle.invalidateVerdicts(row.subjectKey);
     if (q.data.recheck) {
       // Explicit user re-check; runs live (even in dry-run) so do it in the
       // background — the SSE ai.check.completed event refreshes the GUI.
@@ -168,6 +167,8 @@ export function registerLogRoutes(app: FastifyInstance, ctx: AppContext): void {
         .catch((err) =>
           request.log.warn({ err, subjectKey: row.subjectKey }, "verdict recheck failed"),
         );
+    } else {
+      ctx.services.oracle.invalidateVerdicts(row.subjectKey);
     }
     return { ok: true };
   });

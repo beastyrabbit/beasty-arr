@@ -49,4 +49,18 @@ describe("DubVerdictSummary", () => {
     expect(container.textContent).toContain(action);
     expect(container.querySelector("details")?.open).toBe(false);
   });
+
+  it("does not present mixed season coverage as a series-wide yes", () => {
+    render(
+      verdict({
+        verdict: "exists",
+        perSeason: [
+          { season: 1, verdict: "exists" },
+          { season: 2, verdict: "unlikely" },
+        ],
+      }),
+    );
+    expect(container.textContent).toContain("Mixed — see individual seasons");
+    expect(container.textContent).not.toContain("Yes — German dub exists");
+  });
 });

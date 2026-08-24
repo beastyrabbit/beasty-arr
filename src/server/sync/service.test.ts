@@ -359,19 +359,53 @@ describe("fullReconcile", () => {
     expect(updated?.payload).not.toHaveProperty("targetId");
   });
 
-  it("prunes deleted series/movies including their hunt_state rows", async () => {
+  it("refuses to wipe a populated mirror when both arrs return empty lists", async () => {
     const h = makeHarness();
     seedStandardFixture(h);
     await h.svc.fullReconcile();
     h.sonarr.seriesList = [];
     h.sonarr.episodesBySeries.clear();
     h.radarr.moviesList = [];
+    await expect(h.svc.fullReconcile()).rejects.toThrow(/refusing to prune/);
+
+    expect(h.db.select().from(series).all()).not.toHaveLength(0);
+    expect(h.db.select().from(episodes).all()).not.toHaveLength(0);
+    expect(h.db.select().from(movies).all()).not.toHaveLength(0);
+    expect(h.db.select().from(huntState).all()).not.toHaveLength(0);
+  });
+
+  it("still prunes confirmed deleted episodes and movies from non-empty responses", async () => {
+    const h = makeHarness();
+    seedStandardFixture(h);
+    await h.svc.fullReconcile();
+    h.sonarr.episodesBySeries.set(
+      1,
+      (h.sonarr.episodesBySeries.get(1) ?? []).filter((episode) => episode.id !== 104),
+    );
+    h.radarr.moviesList = h.radarr.moviesList.filter((movie) => movie.id !== 202);
     await h.svc.fullReconcile();
 
-    expect(h.db.select().from(series).all()).toHaveLength(0);
-    expect(h.db.select().from(episodes).all()).toHaveLength(0);
-    expect(h.db.select().from(movies).all()).toHaveLength(0);
-    expect(h.db.select().from(huntState).all()).toHaveLength(0);
+    expect(h.db.select().from(episodes).where(eq(episodes.id, 104)).get()).toBeUndefined();
+    expect(h.huntRow("sonarr", "episode", 104)).toBeUndefined();
+    expect(h.db.select().from(movies).where(eq(movies.id, 202)).get()).toBeUndefined();
+    expect(h.huntRow("radarr", "movie", 202)).toBeUndefined();
+  });
+
+  it("keeps one series on an empty episode response and continues reconciling later series", async () => {
+    const h = makeHarness();
+    seedStandardFixture(h);
+    h.sonarr.seriesList.push(seriesDto({ id: 2, title: "Second Series" }));
+    h.sonarr.episodesBySeries.set(2, [episodeDto({ id: 201, seriesId: 2 })]);
+    await h.svc.fullReconcile();
+
+    h.sonarr.episodesBySeries.set(1, []);
+    h.sonarr.episodesBySeries.set(2, [
+      episodeDto({ id: 201, seriesId: 2 }),
+      episodeDto({ id: 202, seriesId: 2, episodeNumber: 2 }),
+    ]);
+    await expect(h.svc.fullReconcile()).resolves.toBeUndefined();
+    expect(h.db.select().from(episodes).where(eq(episodes.id, 101)).get()).toBeDefined();
+    expect(h.db.select().from(episodes).where(eq(episodes.id, 202)).get()).toBeDefined();
   });
 
   it("skips missing arr clients gracefully", async () => {

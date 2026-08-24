@@ -34,7 +34,7 @@ export type PlannedCommand = {
   kind: "tv" | "movie";
   name: PlannedCommandName;
   payload: { name: string } & Record<string, unknown>;
-  /** Search operations for budget estimates: SeasonSearch=1, else per-item. */
+  /** Search operations for budget estimates; anime season searches fan out per episode. */
   searchOps: number;
   anime: boolean;
   label: string;
@@ -147,7 +147,8 @@ function removeAll(list: HuntCandidate[], batch: HuntCandidate[]): void {
 /**
  * Group an ordered candidate list into arr commands, preserving priority order
  * of the heads. Rules: >=3 selected episodes sharing series+season → one
- * SeasonSearch (searchOps=1, best budget value); other episodes of the same
+ * SeasonSearch (searchOps=1, best budget value); anime uses single-episode
+ * searches because Sonarr fans anime season searches out internally. Other episodes of the same
  * series merge into an EpisodeSearch (<=5 ids); movies batch into MoviesSearch
  * (<=3 ids). Seasons that will form their own SeasonSearch are never split
  * into an EpisodeSearch.
@@ -183,7 +184,7 @@ export function groupCommands(ordered: HuntCandidate[]): PlannedCommand[] {
       seasonCounts.set(seasonOf(c), (seasonCounts.get(seasonOf(c)) ?? 0) + 1);
     }
     const headSeason = seasonOf(head);
-    if ((seasonCounts.get(headSeason) ?? 0) >= SEASON_SEARCH_MIN_EPISODES) {
+    if (!head.anime && (seasonCounts.get(headSeason) ?? 0) >= SEASON_SEARCH_MIN_EPISODES) {
       const batch = seriesCands.filter((c) => seasonOf(c) === headSeason);
       removeAll(remaining, batch);
       commands.push({
@@ -191,7 +192,7 @@ export function groupCommands(ordered: HuntCandidate[]): PlannedCommand[] {
         kind: "tv",
         name: "SeasonSearch",
         payload: { name: "SeasonSearch", seriesId: head.seriesId, seasonNumber: headSeason },
-        searchOps: 1,
+        searchOps: batch.some((c) => c.anime) ? batch.length : 1,
         anime: batch.some((c) => c.anime),
         label: `${head.title} ${seasonCode(headSeason)}`,
         covered: batch,
@@ -199,8 +200,8 @@ export function groupCommands(ordered: HuntCandidate[]): PlannedCommand[] {
       continue;
     }
     const batch = seriesCands
-      .filter((c) => (seasonCounts.get(seasonOf(c)) ?? 0) < SEASON_SEARCH_MIN_EPISODES)
-      .slice(0, EPISODE_SEARCH_MAX_IDS);
+      .filter((c) => c.anime || (seasonCounts.get(seasonOf(c)) ?? 0) < SEASON_SEARCH_MIN_EPISODES)
+      .slice(0, head.anime ? 1 : EPISODE_SEARCH_MAX_IDS);
     removeAll(remaining, batch);
     commands.push({
       source: head.source,

@@ -8,7 +8,9 @@ import { type AppSettings, SettingsService } from "../config/settings.js";
 import { createDb, type Db } from "../db/index.js";
 import {
   activityLog,
+  aiCheckAttempts,
   aiVerdicts,
+  dubCatalogEvidence,
   episodes,
   huntState,
   itemOverrides,
@@ -252,11 +254,24 @@ function makeOracle(
         headers: { "content-type": "text/plain" },
       }),
     lookupFn: async () => [{ address: "93.184.216.34" }],
+    catalogLookup: async () => new Map(),
     ...opts,
   });
 }
 
 describe("OracleService.selectSubjects (trigger policy)", () => {
+  it("checks old unsearched upgrades before search but not missing originals or recent releases", () => {
+    const ctx = setup({ aiMinSearchesBeforeCheck: 4 });
+    seedSeriesSubject(ctx.db, 1, { searchCount: 0, state: "non_german", airDateUtc: OLD });
+    seedSeriesSubject(ctx.db, 2, { searchCount: 0, state: "missing", airDateUtc: OLD });
+    seedSeriesSubject(ctx.db, 3, { searchCount: 0, state: "non_german", airDateUtc: RECENT });
+    expect(
+      makeOracle(ctx, scriptedRunner().runner)
+        .selectSubjects()
+        .map((s) => s.subjectKey),
+    ).toEqual(["sonarr:1"]);
+  });
+
   it("selects after configured failures and skips german-original/override/valid-verdict ones", () => {
     const ctx = setup({ aiMinSearchesBeforeCheck: 4 });
     seedSeriesSubject(ctx.db, 1); // searched enough → selected
@@ -420,6 +435,33 @@ describe("OracleService.selectSubjects (trigger policy)", () => {
 });
 
 describe("OracleService.runDailyBatch", () => {
+  it("uses the free catalog in normal automation before paid AI", async () => {
+    const ctx = setup();
+    seedMovieSubject(ctx.db, 1, { searchCount: 0 });
+    const scripted = scriptedRunner(reportVerdict());
+    const oracle = makeOracle(ctx, scripted.runner, {
+      catalogLookup: async () =>
+        new Map([
+          [
+            "radarr:1",
+            {
+              subjectKey: "radarr:1",
+              source: "wikidata-synchronkartei" as const,
+              sourceId: "123",
+              url: "https://www.synchronkartei.de/film/123",
+            },
+          ],
+        ]),
+    });
+    expect(await oracle.runDailyBatch()).toMatchObject({ selected: 0, checked: 0, failed: 0 });
+    expect(scripted.calls).toHaveLength(0);
+    expect(ctx.db.select().from(aiVerdicts).get()).toMatchObject({
+      subjectKey: "radarr:1",
+      provider: "wikidata",
+      verdict: "exists",
+    });
+  });
+
   it("stores the verdict with clamps, supersedes the old row and notifies", async () => {
     const ctx = setup();
     seedSeriesSubject(ctx.db, 1);
@@ -448,9 +490,9 @@ describe("OracleService.runDailyBatch", () => {
       subjectKind: "series",
       verdict: "unlikely",
       germanTitle: "Die Serie",
-      promptVersion: "dub-oracle-v14",
+      promptVersion: "dub-oracle-v15",
       checkedAt: NOW,
-      recheckAfter: NOW + 365 * DAY, // local "no dub" policy overrides model suggestion
+      recheckAfter: NOW + 90 * DAY, // unproven dub availability gets a short retry
       confidence: 0.95,
       perSeason: [{ season: 1, verdict: "unlikely", confidence: 0.95 }],
       supersededBy: null,
@@ -1009,6 +1051,30 @@ describe("OracleService.runDailyBatch", () => {
     ).toMatchObject({ verdict: "exists", provider: "wikidata", confidence: 1 });
   });
 
+  it("caches no-match only for subjects from successful catalog batches", async () => {
+    const ctx = setup({ aiDailyLimitEnabled: false, aiParallelism: 2 });
+    seedMovieSubject(ctx.db, 1, { searchCount: 0 });
+    seedMovieSubject(ctx.db, 2, { searchCount: 0 });
+    const scripted = scriptedRunner(reportVerdict());
+    const oracle = makeOracle(ctx, scripted.runner, {
+      catalogLookup: async () => ({
+        evidence: new Map(),
+        checkedSubjectKeys: new Set(["radarr:1"]),
+        failures: [{ subjectKeys: ["radarr:2"], error: "Wikidata unavailable" }],
+      }),
+    });
+
+    expect(oracle.startBulk()).toMatchObject({ ok: true, total: 2 });
+    while (oracle.getBulkStatus().running) {
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+
+    expect(scripted.calls).toHaveLength(2);
+    expect(ctx.db.select().from(dubCatalogEvidence).all()).toEqual([
+      expect.objectContaining({ subjectKey: "radarr:1", source: "wikidata-no-match" }),
+    ]);
+  });
+
   it("limits an initial bulk to an explicit validation batch size", async () => {
     const ctx = setup({ aiDailyLimitEnabled: false, aiParallelism: 5 });
     for (let id = 1; id <= 30; id += 1) seedMovieSubject(ctx.db, id, { searchCount: 0 });
@@ -1110,6 +1176,10 @@ describe("OracleService.runDailyBatch", () => {
     const result = await oracle.runDailyBatch();
     expect(result).toMatchObject({ selected: 1, checked: 0, failed: 1 });
     expect(ctx.db.select().from(aiVerdicts).all()).toHaveLength(0);
+    expect(ctx.db.select().from(aiCheckAttempts).all()).toMatchObject([
+      { subjectKey: "sonarr:1", status: "failed", completedAt: NOW },
+    ]);
+    expect(oracle.selectSubjects()).toEqual([]); // 24h failure cooldown
     const warn = ctx.db.select().from(activityLog).all();
     expect(warn.some((row) => row.level === "warn" && row.type === "ai.check")).toBe(true);
   });
@@ -1207,12 +1277,39 @@ describe("OracleService.recheckSubject", () => {
   it("respects the daily cap unless forced", async () => {
     const ctx = setup({ aiMaxChecksPerDay: 1 });
     seedSeriesSubject(ctx.db, 1);
-    seedVerdict(ctx.db, "sonarr:999", { checkedAt: NOW - 1000 }); // today's budget is spent
+    ctx.db
+      .insert(aiCheckAttempts)
+      .values({
+        subjectKey: "sonarr:999",
+        provider: "codex",
+        model: "gpt-5.6-sol",
+        status: "failed",
+        startedAt: NOW - 1000,
+        completedAt: NOW - 500,
+        error: "seed failure",
+      })
+      .run(); // failed attempts consume today's budget too
     const { runner } = scriptedRunner(reportVerdict());
     const oracle = makeOracle(ctx, runner);
     await expect(oracle.recheckSubject("sonarr:1")).rejects.toThrow(/budget exhausted/);
     const row = await oracle.recheckSubject("sonarr:1", true);
     expect(row.subjectKey).toBe("sonarr:1");
+  });
+
+  it("keeps the previous good verdict active when a manual recheck fails", async () => {
+    const ctx = setup();
+    seedSeriesSubject(ctx.db, 1);
+    const old = seedVerdict(ctx.db, "sonarr:1");
+    const oracle = makeOracle(
+      ctx,
+      scriptedRunner(() => {
+        throw new Error("provider unavailable");
+      }).runner,
+    );
+    await expect(oracle.recheckSubject("sonarr:1")).rejects.toThrow(/provider unavailable/);
+    expect(
+      ctx.db.select().from(aiVerdicts).where(eq(aiVerdicts.id, old.id)).get()?.supersededBy,
+    ).toBe(null);
   });
 
   it("rejects unknown subjects and disabled provider", async () => {

@@ -88,6 +88,7 @@ function verdictSummary(row: VerdictRow | undefined): AiVerdictSummary | null {
     expectedAvailability: row.expectedAvailability,
     evidence: row.evidence,
     germanTitle: row.germanTitle,
+    perSeason: row.perSeason,
   };
 }
 
