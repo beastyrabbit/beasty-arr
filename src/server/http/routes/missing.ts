@@ -21,7 +21,7 @@ import type {
 } from "../../../shared/api-types.js";
 import type { AppContext } from "../../context.js";
 import { episodes, huntState, searchAttempts, series } from "../../db/schema.js";
-import { dryRunResult, pageOffset, parse, serviceUnavailable } from "./util.js";
+import { dryRunResult, notFound, pageOffset, parse, serviceUnavailable } from "./util.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MINIMUM_AGE_DAYS = 14;
@@ -237,6 +237,7 @@ export function registerMissingRoutes(app: FastifyInstance, ctx: AppContext): vo
       });
       accepted += result.queuedTargets;
     }
+    if (accepted === 0) return notFound(reply, "no eligible missing episodes selected");
     if (accepted > 0) void ctx.scheduler.trigger("hunt.cycle");
     if (ctx.settings.get().dryRun) {
       const response: MissingForceResponse = dryRunResult(

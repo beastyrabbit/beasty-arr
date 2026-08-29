@@ -152,6 +152,7 @@ export function registerItemRoutes(app: FastifyInstance, ctx: AppContext): void 
       return serviceUnavailable(reply, `${source} is not configured`);
     }
     engine.forceSubject({ source, kind: kind as SubjectKind, id, withAiRecheck: false });
+    void ctx.scheduler.trigger("hunt.cycle");
     if (ctx.settings.get().dryRun) {
       const response: ResumeResponse = dryRunResult(
         `would resume and force a search for ${subjectLabel(source, kind, id)}`,

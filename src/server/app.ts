@@ -178,8 +178,9 @@ export async function buildApp(
       run: async (signal) => {
         // Incremental sync first so the cycle selects against fresh state.
         await sync.incrementalSync(signal);
-        if (isEnginePaused(db)) return; // user paused hunting; sync stays live
-        await engine.runCycle(signal);
+        // Pausing disables automatic hunting, not explicit Force/Missing work.
+        // A manual-only cycle drains those requests without selecting scheduled candidates.
+        await engine.runCycle(signal, { manualOnly: isEnginePaused(db) });
       },
     });
     ctx.scheduler.registerJob({

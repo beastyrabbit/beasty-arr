@@ -429,6 +429,11 @@ describe("missing episodes", () => {
       withAiRecheck: false,
       trigger: "missing",
     });
+
+    const empty = await post(b.app, "/api/missing/force", {
+      episodeIds: [101, 106],
+    });
+    expect(empty.statusCode).toBe(404);
   });
 });
 

@@ -826,6 +826,60 @@ describe("runCycle — gates and holds", () => {
     expect(calls).toEqual([{ keys: ["sonarr:1"], force: true }]);
   });
 
+  it("preserves a Force with AI that arrives during a scheduled command", async () => {
+    const { db, engine, settings, sync } = makeHarness();
+    settings.update({ dryRun: false });
+    seedSeries(db, { id: 1 });
+    const huntStateId = seedEpisode(
+      db,
+      { id: 11, seriesId: 1, hasFile: true },
+      { state: "non_german" },
+    );
+    const calls: { keys: string[]; force: boolean }[] = [];
+    engine.onAiCheckRequested = (keys, force) => calls.push({ keys, force });
+    sync.onSeriesRefresh = () => {
+      sync.onSeriesRefresh = null;
+      engine.forceSubject({
+        source: "sonarr",
+        kind: "episode",
+        id: 11,
+        withAiRecheck: true,
+      });
+    };
+
+    await engine.runCycle();
+
+    expect(huntRow(db, huntStateId).manualPriority).toBeGreaterThan(0);
+    expect(db.select().from(manualRequests).get()).toMatchObject({
+      status: "pending",
+      withAiRecheck: true,
+    });
+    expect(calls).toEqual([]);
+
+    await engine.runCycle();
+
+    expect(huntRow(db, huntStateId).manualPriority).toBe(0);
+    expect(db.select().from(manualRequests).get()).toMatchObject({
+      status: "done",
+      withAiRecheck: false,
+    });
+    expect(calls).toEqual([{ keys: ["sonarr:1"], force: true }]);
+  });
+
+  it("runs only manual work while automatic hunting is paused", async () => {
+    const { db, engine, settings, sonarr, radarr } = makeHarness();
+    settings.update({ dryRun: false });
+    seedSeries(db, { id: 1 });
+    seedEpisode(db, { id: 11, seriesId: 1, hasFile: true }, { state: "non_german" });
+    seedMovie(db, { id: 9, hasFile: true }, { state: "non_german" });
+    engine.forceSubject({ source: "sonarr", kind: "episode", id: 11 });
+
+    await engine.runCycle(undefined, { manualOnly: true });
+
+    expect(sonarr.sent).toEqual([{ name: "EpisodeSearch", episodeIds: [11] }]);
+    expect(radarr.sent).toEqual([]);
+  });
+
   it("continues with a smaller command after a command-scoped budget rejection", async () => {
     const { db, engine, settings, sonarr, radarr, budget } = makeHarness();
     settings.update({ dryRun: false });

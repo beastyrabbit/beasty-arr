@@ -327,7 +327,7 @@ export class HuntEngine {
 
   // ============ cycle ============
 
-  async runCycle(signal?: AbortSignal): Promise<void> {
+  async runCycle(signal?: AbortSignal, opts: { manualOnly?: boolean } = {}): Promise<void> {
     if (this.cycleRunning) return;
     this.cycleRunning = true;
     const cycleStart = this.now();
@@ -361,11 +361,9 @@ export class HuntEngine {
         return;
       }
 
-      const scheduledSources = await this.openScheduledSources(
-        reachable,
-        cfg.queueGateEnabled,
-        cfg.queueGateThreshold,
-      );
+      const scheduledSources = opts.manualOnly
+        ? new Set<ArrSource>()
+        : await this.openScheduledSources(reachable, cfg.queueGateEnabled, cfg.queueGateThreshold);
 
       if (this.budget) {
         try {
@@ -718,7 +716,9 @@ export class HuntEngine {
       { attemptId, source: cmd.source, result, status: finalStatus },
     );
 
-    const manualAiPending = trigger === "forced" && this.manualAiRequestedFor(cmd.covered);
+    // A Force+AI request may be queued while a scheduled command is in flight.
+    // Suppress the automatic analysis until that explicit request is dispatched.
+    const manualAiPending = this.manualAiRequestedFor(cmd.covered);
     const relationById = this.retryRelations(cmd.covered, now);
     const retryAtByGroup = new Map<string, number>();
     for (const c of cmd.covered) {
@@ -764,12 +764,16 @@ export class HuntEngine {
           patch.stateChangedAt = now;
         }
       }
-      if (row.manualPriority > 0) patch.manualPriority = 0;
+      // A Force/Missing request can arrive while a scheduled command is in flight.
+      // Only the immediate command is allowed to consume that manual priority;
+      // otherwise the scheduler follow-up must still dispatch the explicit request.
+      if (this.isImmediateTrigger(trigger) && row.manualPriority > 0) patch.manualPriority = 0;
       this.db.update(huntState).set(patch).where(eq(huntState.id, row.id)).run();
     }
     // Preserve an explicit AI recheck even when an overlapping Missing request
     // caused the final covered target to be dispatched as a Missing command.
-    const forcedAiRecheck = this.consumeCompletedManualAiRequestFor(cmd.covered);
+    const forcedAiRecheck =
+      this.isImmediateTrigger(trigger) && this.consumeCompletedManualAiRequestFor(cmd.covered);
     if (this.isImmediateTrigger(trigger)) this.markManualRequestsDone(now);
     const subjectKeys = this.subjectKeysFor(cmd.covered);
     if (forcedAiRecheck) this.onAiCheckRequested?.(subjectKeys, true);
