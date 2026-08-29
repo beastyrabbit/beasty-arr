@@ -356,9 +356,9 @@ export function registerHuntRoutes(app: FastifyInstance, ctx: AppContext): void 
 
   app.post("/api/engine/cycle", async () => {
     const job = ctx.scheduler.status().find((j) => j.name === "hunt.cycle");
-    const started = Boolean(job && !job.running);
-    if (started) void ctx.scheduler.trigger("hunt.cycle");
-    const response: CycleResponse = { ok: true, started };
+    const accepted = Boolean(job);
+    if (accepted) void ctx.scheduler.trigger("hunt.cycle");
+    const response: CycleResponse = { ok: true, started: accepted };
     return response;
   });
 

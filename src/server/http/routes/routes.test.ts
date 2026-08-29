@@ -365,6 +365,17 @@ describe("missing episodes", () => {
           status: "completed",
           dryRun: false,
         },
+        {
+          createdAt: now,
+          source: "sonarr",
+          commandName: "EpisodeSearch",
+          payload: {},
+          targetIds: [huntIds.get(104) as number],
+          trigger: "missing",
+          estimatedQueries: 1,
+          status: "completed",
+          dryRun: true,
+        },
       ])
       .run();
   });
@@ -377,6 +388,7 @@ describe("missing episodes", () => {
     expect(body.minimumAgeDays).toBe(14);
     expect(body.total).toBe(4);
     expect(body.items.map((item: { id: number }) => item.id)).toEqual([105, 104, 102, 201]);
+    expect(body.items.find((item: { id: number }) => item.id === 104).manualAttempts).toBe(2);
   });
 
   it("filters by title, air year, prior Missing attempts, and exact neighbors", async () => {
@@ -474,6 +486,20 @@ describe("hunt + engine", () => {
     expect(item).toBeUndefined();
     expect(body.total).toBeGreaterThanOrEqual(body.items.length);
     expect(body.counts.forced).toBe(0);
+  });
+
+  it("requests a follow-up when Run cycle is clicked during an active cycle", async () => {
+    const status = vi
+      .spyOn(b.ctx.scheduler, "status")
+      .mockReturnValue([{ name: "hunt.cycle", running: true, lastRunAt: null, lastError: null }]);
+    const trigger = vi.spyOn(b.ctx.scheduler, "trigger").mockResolvedValue(true);
+
+    const response = await post(b.app, "/api/engine/cycle");
+
+    expect(response.json()).toEqual({ ok: true, started: true });
+    expect(trigger).toHaveBeenCalledWith("hunt.cycle");
+    status.mockRestore();
+    trigger.mockRestore();
   });
 
   it("reports manual pause timing and groups a series AI verdict", async () => {

@@ -5,8 +5,6 @@ import {
   firstUpgradeBlockedUntil,
   groupCommands,
   type HuntCandidate,
-  interleaveByRatio,
-  parseRatio,
   priorityScore,
 } from "./selection.js";
 
@@ -50,27 +48,6 @@ describe("priorityScore", () => {
     expect(priorityScore({ ...base, daysSinceRelease: 400 })).toBe(0);
     // Future dates (negative days) clamp to the max boost, not beyond.
     expect(priorityScore({ ...base, daysSinceRelease: -10 })).toBe(730);
-  });
-});
-
-describe("parseRatio / interleaveByRatio", () => {
-  it("parses a:b and falls back to 1:2 on malformed input", () => {
-    expect(parseRatio("1:2")).toEqual({ missing: 1, upgrade: 2 });
-    expect(parseRatio("3:1")).toEqual({ missing: 3, upgrade: 1 });
-    expect(parseRatio("bogus")).toEqual({ missing: 1, upgrade: 2 });
-    expect(parseRatio("0:0")).toEqual({ missing: 1, upgrade: 2 });
-  });
-
-  it("interleaves 1 missing : 2 upgrades and drains leftovers", () => {
-    const out = interleaveByRatio(["m1", "m2", "m3"], ["u1", "u2", "u3", "u4"], {
-      missing: 1,
-      upgrade: 2,
-    });
-    expect(out).toEqual(["m1", "u1", "u2", "m2", "u3", "u4", "m3"]);
-  });
-
-  it("handles a degenerate 0:n ratio without hanging", () => {
-    expect(interleaveByRatio(["m1", "m2"], [], { missing: 0, upgrade: 2 })).toEqual(["m1", "m2"]);
   });
 });
 

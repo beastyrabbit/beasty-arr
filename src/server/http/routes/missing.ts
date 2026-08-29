@@ -61,6 +61,7 @@ function manualAttemptCount(): SQL<number> {
     FROM search_attempts AS manual_attempt
     JOIN json_each(manual_attempt.target_ids) AS manual_target
     WHERE manual_attempt.trigger = 'missing'
+      AND manual_attempt.dry_run = 0
       AND CAST(manual_target.value AS INTEGER) IN (
         SELECT manual_hunt_state.id
         FROM hunt_state AS manual_hunt_state

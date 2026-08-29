@@ -258,8 +258,7 @@ function seedVerdict(db: Db, over: Partial<typeof aiVerdicts.$inferInsert> = {})
 
 describe("selection ordering", () => {
   it("keeps missing and forced work out of the automatic queue", () => {
-    const { db, engine, settings } = makeHarness();
-    settings.update({ missingToUpgradeRatio: "1:2" });
+    const { db, engine } = makeHarness();
     for (const id of [1, 2, 3, 4, 5, 6]) seedSeries(db, { id });
     // missing: A (score 710), B (score 530)
     const a = seedEpisode(db, { id: 11, seriesId: 1, airDateUtc: T0 - 10 * DAY_MS });
@@ -792,6 +791,39 @@ describe("runCycle — gates and holds", () => {
       payload: { name: "EpisodeSearch", episodeIds: [11, 12, 13] },
     });
     expect(calls).toEqual([]);
+  });
+
+  it("preserves an explicit AI recheck when a Missing request overlaps its last target", async () => {
+    const { db, engine, settings } = makeHarness();
+    settings.update({ dryRun: false });
+    seedSeries(db, { id: 1 });
+    seedEpisode(db, { id: 11, seriesId: 1 });
+    seedEpisode(db, { id: 12, seriesId: 1, episodeNumber: 2 });
+    const calls: { keys: string[]; force: boolean }[] = [];
+    engine.onAiCheckRequested = (keys, force) => calls.push({ keys, force });
+    engine.forceSubject({
+      source: "sonarr",
+      kind: "series",
+      id: 1,
+      withAiRecheck: true,
+    });
+    engine.forceSubject({
+      source: "sonarr",
+      kind: "episode",
+      id: 12,
+      trigger: "missing",
+    });
+
+    await engine.runCycle();
+
+    expect(
+      db
+        .select()
+        .from(searchAttempts)
+        .all()
+        .map((attempt) => attempt.trigger),
+    ).toEqual(["forced", "missing"]);
+    expect(calls).toEqual([{ keys: ["sonarr:1"], force: true }]);
   });
 
   it("continues with a smaller command after a command-scoped budget rejection", async () => {

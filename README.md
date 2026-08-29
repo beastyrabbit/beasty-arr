@@ -4,14 +4,14 @@ German-hunting companion for Sonarr and Radarr. The arrs only pick up releases v
 time — German dubs that appear months later are never found unless something re-triggers a search.
 beasty-arr is that something:
 
-- **Hunts continuously**: loops over the whole library forcing missing + upgrade searches until
-  every series and movie has a file with **German audio** (English/original is fine in the interim —
-  your quality profiles decide what gets grabbed; beasty-arr only triggers searches and reads state).
+- **Hunts continuously**: loops over existing non-German files and forces German upgrade searches
+  until every series and movie has **German audio**. Missing episodes are handled separately in the
+  manual Missing workspace, where completeness matters and audio language does not.
 - **Budget-aware**: a demand-adaptive controller keeps a low search trickle, forecasts the arrs'
   organic Prowlarr usage, and automatically ramps up to consume leftover daily indexer budget —
   never overrunning any indexer's cap.
 - **AI Dub Oracle**: asks an LLM (Codex / local Ollama) with web verification whether a German dub
-  even exists for a title; hopeless items are paused for months instead of wasting searches.
+  even exists for a title; confident negative seasons are paused for at least a year.
 - **Fixer**: absorbed from the sonarr_fixer project — AI-assisted resolution of stuck import-queue
   items with deterministic validation and confidence-gated auto-apply.
 - **Web GUI** (dark, dense, live via SSE), **Homepage widget** (`GET /api/status`), and a

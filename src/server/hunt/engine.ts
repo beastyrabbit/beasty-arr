@@ -559,8 +559,9 @@ export class HuntEngine {
     if (this.isImmediateTrigger(trigger)) {
       // The manual request was serviced (simulated) — keep the queue moving in dry-run.
       this.clearManualPriorities(cmd.covered.map((c) => c.huntStateId));
-      const forcedAiRecheck =
-        trigger === "forced" && this.consumeCompletedManualAiRequestFor(cmd.covered);
+      // A separate forced request may overlap this Missing command. Consume
+      // its explicit AI flag once the last covered target has been serviced.
+      const forcedAiRecheck = this.consumeCompletedManualAiRequestFor(cmd.covered);
       this.markManualRequestsDone(now);
       if (forcedAiRecheck) {
         this.onAiCheckRequested?.(this.subjectKeysFor(cmd.covered), true);
@@ -766,8 +767,9 @@ export class HuntEngine {
       if (row.manualPriority > 0) patch.manualPriority = 0;
       this.db.update(huntState).set(patch).where(eq(huntState.id, row.id)).run();
     }
-    const forcedAiRecheck =
-      trigger === "forced" && this.consumeCompletedManualAiRequestFor(cmd.covered);
+    // Preserve an explicit AI recheck even when an overlapping Missing request
+    // caused the final covered target to be dispatched as a Missing command.
+    const forcedAiRecheck = this.consumeCompletedManualAiRequestFor(cmd.covered);
     if (this.isImmediateTrigger(trigger)) this.markManualRequestsDone(now);
     const subjectKeys = this.subjectKeysFor(cmd.covered);
     if (forcedAiRecheck) this.onAiCheckRequested?.(subjectKeys, true);

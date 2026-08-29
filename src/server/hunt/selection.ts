@@ -69,37 +69,6 @@ export function priorityScore(input: ScoreInput): number {
   );
 }
 
-export function parseRatio(ratio: string): { missing: number; upgrade: number } {
-  const match = /^(\d+):(\d+)$/.exec(ratio.trim());
-  if (!match) return { missing: 1, upgrade: 2 };
-  const missing = Number(match[1]);
-  const upgrade = Number(match[2]);
-  if (missing < 1 && upgrade < 1) return { missing: 1, upgrade: 2 };
-  return { missing, upgrade };
-}
-
-/** Interleave two score-sorted buckets missing:upgrade per ratio; drains leftovers. */
-export function interleaveByRatio<T>(
-  missing: T[],
-  upgrade: T[],
-  ratio: { missing: number; upgrade: number },
-): T[] {
-  const out: T[] = [];
-  let mi = 0;
-  let ui = 0;
-  while (mi < missing.length || ui < upgrade.length) {
-    const before = out.length;
-    for (let k = 0; k < ratio.missing && mi < missing.length; k++) out.push(missing[mi++]);
-    for (let k = 0; k < ratio.upgrade && ui < upgrade.length; k++) out.push(upgrade[ui++]);
-    if (out.length === before) {
-      // Degenerate ratio (e.g. "0:1" with only missing left): drain the rest.
-      while (mi < missing.length) out.push(missing[mi++]);
-      while (ui < upgrade.length) out.push(upgrade[ui++]);
-    }
-  }
-  return out;
-}
-
 /**
  * Dub-lag gate: after a (non-German) import, the FIRST upgrade search waits
  * `dubLagDays`. Returns the epoch-ms the item unblocks, or null when not gated

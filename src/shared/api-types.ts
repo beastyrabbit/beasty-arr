@@ -717,7 +717,6 @@ export type HuntSettingsDto = {
   maxCommandsPerCycle: number;
   queueGateEnabled: boolean;
   queueGateThreshold: number;
-  missingToUpgradeRatio: string;
   huntSpecials: boolean;
   dubLagDaysDefault: number;
   releasingSeasonRetryDays: number;

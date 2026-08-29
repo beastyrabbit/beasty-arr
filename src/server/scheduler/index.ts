@@ -120,21 +120,23 @@ export class Scheduler {
 
   private async execute(state: JobState): Promise<void> {
     if (state.running || this.stopped) return;
-    state.running = true;
-    const started = Date.now();
-    try {
-      await state.def.run(this.abort.signal);
-      state.lastError = null;
-    } catch (error) {
-      state.lastError = error instanceof Error ? error.message : String(error);
-      this.log.error({ job: state.def.name, err: error }, "scheduled job failed");
-    } finally {
-      state.running = false;
-      state.lastRunAt = started;
-      if (state.rerunRequested && !this.stopped) {
-        state.rerunRequested = false;
-        await this.execute(state);
+    do {
+      state.rerunRequested = false;
+      state.running = true;
+      const started = Date.now();
+      try {
+        await state.def.run(this.abort.signal);
+        state.lastError = null;
+      } catch (error) {
+        state.lastError = error instanceof Error ? error.message : String(error);
+        this.log.error({ job: state.def.name, err: error }, "scheduled job failed");
+      } finally {
+        state.running = false;
+        state.lastRunAt = started;
       }
-    }
+      // Multiple triggers during one run coalesce into one immediate follow-up.
+      // A trigger during that follow-up may request another iteration without
+      // growing an async recursion chain.
+    } while (state.rerunRequested && !this.stopped);
   }
 }

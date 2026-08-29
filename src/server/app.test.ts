@@ -53,7 +53,6 @@ describe("app skeleton", () => {
       maxCommandsPerCycle: 20,
       queueGateEnabled: true,
       queueGateThreshold: 10,
-      missingToUpgradeRatio: "1:1",
       dubLagDaysDefault: 14,
       releasingSeasonRetryDays: 21,
       movieRetryDays: 30,
