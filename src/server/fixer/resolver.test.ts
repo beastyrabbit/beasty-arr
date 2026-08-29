@@ -288,6 +288,11 @@ describe("resolveQueueItem", () => {
       candidateOverrides: {},
       selectedEpisodeIds: [88256],
     },
+    {
+      caseName: "wrong series",
+      candidateOverrides: { seriesId: 78, seriesTitle: "Another Show" },
+      selectedEpisodeIds: [88255],
+    },
   ])("keeps the TBA exception blocked for a $caseName", async (testCase) => {
     const runner: FixerPiRunner = async (req) => {
       await invokeProposalTool(

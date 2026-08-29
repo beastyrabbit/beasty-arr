@@ -187,6 +187,7 @@ ${JSON.stringify(
   {
     id: queueItem.id,
     title: queueItem.title,
+    seriesId: queueItem.seriesId,
     seriesTitle: queueItem.seriesTitle,
     seriesType: queueItem.seriesType,
     targetEpisodeIds: queueItem.episodeIds,
@@ -238,7 +239,7 @@ Rules:
 - Do not select sample-like candidates even if Sonarr guessed an episode.
 - Do not import Blu-ray disc structure chunks such as BDMV/STREAM/*.m2ts.
 - If all candidates are Blu-ray disc structure chunks, use remove_queue_item.
-- Use needs_review for genuinely blocking Sonarr rejections or unclear episode/series mapping, but do not classify the explicit German-audio quality-revision exception above as blocking.
+- Use needs_review for genuinely blocking Sonarr rejections or unclear episode/series mapping, but do not classify the explicit TBA/future-air-date or German-audio quality-revision exceptions above as blocking.
 - Call propose_sonarr_resolution now.`;
 }
 

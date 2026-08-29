@@ -68,6 +68,18 @@ describe("validateProposalForImport", () => {
     expect(result.issues.some((issue) => issue.message.includes("sample"))).toBe(true);
   });
 
+  it("blocks a candidate from a different Sonarr series", () => {
+    const result = validateProposalForImport(
+      [candidate({ seriesId: 13 })],
+      importProposal,
+      queueItem({ seriesId: 12 }),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.issues.some((issue) => issue.message.includes("not queued series 12"))).toBe(
+      true,
+    );
+  });
+
   it("blocks duplicate episode ids across selected candidates", () => {
     const result = validateProposalForImport(
       [

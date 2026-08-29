@@ -238,6 +238,19 @@ export function validateProposalForImport(
       });
     }
 
+    if (
+      service === "sonarr" &&
+      queueItem?.seriesId &&
+      candidate.seriesId &&
+      candidate.seriesId !== queueItem.seriesId
+    ) {
+      issues.push({
+        severity: "error",
+        message: `Candidate ${candidate.id} belongs to Sonarr series ${candidate.seriesId}, not queued series ${queueItem.seriesId}.`,
+        candidateId: candidate.id,
+      });
+    }
+
     if (!candidate.quality) {
       issues.push({
         severity: "error",
