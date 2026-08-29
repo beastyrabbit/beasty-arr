@@ -41,3 +41,6 @@ full local quality suite.
 
 Runs on Node 24, Fastify 5, SQLite (Drizzle), React 19 + Vite. Deployed to the homelab cluster via
 Forgejo Actions → `git.heerlab.com/beasty/beasty-arr` → Flux (see kub-homelab `apps/media/beasty-arr`).
+Deployments should set `SONARR_EXTERNAL_URL` and `RADARR_EXTERNAL_URL` to the HTTPS origins users
+open in their browsers. These public URLs contain no API keys and are separate from the internal arr
+connection URLs.

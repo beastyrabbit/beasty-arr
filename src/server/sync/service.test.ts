@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { and, eq } from "drizzle-orm";
@@ -32,6 +32,7 @@ import {
   AWAITING_IMPORT_TIMEOUT_MS,
   SyncService,
 } from "./service.js";
+import { reconcileMirrorOnStartup } from "./startup.js";
 
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
@@ -422,6 +423,85 @@ describe("fullReconcile", () => {
     });
     await expect(svc.fullReconcile()).resolves.toBeUndefined();
     await expect(svc.incrementalSync()).resolves.toBeUndefined();
+  });
+});
+
+describe("startup mirror reconcile", () => {
+  it("migrates a populated v0.4.18 mirror and backfills both authoritative slugs once", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "beasty-sync-upgrade-"));
+    const oldMigrations = path.join(dir, "drizzle-v0.4.18");
+    const oldMeta = path.join(oldMigrations, "meta");
+    const currentMigrations = path.resolve(process.cwd(), "drizzle");
+    mkdirSync(oldMeta, { recursive: true });
+    const journal = JSON.parse(
+      readFileSync(path.join(currentMigrations, "meta", "_journal.json"), "utf8"),
+    ) as { entries: { idx: number; tag: string }[] };
+    for (let index = 0; index <= 7; index += 1) {
+      const entry = journal.entries.find((candidate) => candidate.idx === index);
+      if (!entry) throw new Error(`missing migration journal entry ${index}`);
+      copyFileSync(
+        path.join(currentMigrations, `${entry.tag}.sql`),
+        path.join(oldMigrations, `${entry.tag}.sql`),
+      );
+    }
+    journal.entries = journal.entries.filter((entry) => entry.idx <= 7);
+    writeFileSync(path.join(oldMeta, "_journal.json"), JSON.stringify(journal));
+
+    const old = createDb(dir, { migrationsFolder: oldMigrations });
+    old.sqlite
+      .prepare("INSERT INTO series (id, title, monitored, last_synced_at) VALUES (?, ?, ?, ?)")
+      .run(1, "Dark Matters", 1, T0 - DAY);
+    old.sqlite
+      .prepare(
+        "INSERT INTO movies (id, title, monitored, has_file, last_synced_at) VALUES (?, ?, ?, ?, ?)",
+      )
+      .run(201, "Heat", 1, 0, T0 - DAY);
+    old.sqlite.close();
+
+    const upgraded = createDb(dir, { migrationsFolder: currentMigrations });
+    cleanups.push({ sqlite: upgraded.sqlite, dir });
+    expect(upgraded.db.select().from(series).get()?.titleSlug).toBeNull();
+    expect(upgraded.db.select().from(movies).get()?.titleSlug).toBeNull();
+
+    const sonarr = new FakeSonarr();
+    sonarr.profiles = [
+      { id: 10, name: "German TRaSH", upgradeAllowed: true, cutoffFormatScore: 10000 },
+    ];
+    sonarr.seriesList = [seriesDto()];
+    sonarr.episodesBySeries.set(1, [episodeDto()]);
+    const radarr = new FakeRadarr();
+    radarr.profiles = [{ id: 20, name: "Movie German", upgradeAllowed: true }];
+    radarr.moviesList = [movieDto()];
+    const sync = new SyncService(
+      upgraded.db,
+      new SettingsService(upgraded.db),
+      sonarr,
+      radarr,
+      new EventBus(),
+      fakeLog(),
+      { paceMs: 0, now: () => T0 },
+    );
+    let reconciles = 0;
+    const ran = await reconcileMirrorOnStartup(
+      upgraded.db,
+      {
+        fullReconcile: async () => {
+          reconciles += 1;
+          await sync.fullReconcile();
+        },
+      },
+      { sonarr: true, radarr: true },
+    );
+
+    expect(ran).toBe(true);
+    expect(reconciles).toBe(1);
+    expect(sonarr.calls.filter((call) => call === "getSeries")).toHaveLength(1);
+    expect(radarr.calls.filter((call) => call === "getMovies")).toHaveLength(1);
+    expect(upgraded.db.select().from(series).get()?.titleSlug).toBe("dark-matters");
+    expect(upgraded.db.select().from(movies).get()?.titleSlug).toBe("heat-1995");
+    await expect(
+      reconcileMirrorOnStartup(upgraded.db, sync, { sonarr: true, radarr: true }),
+    ).resolves.toBe(false);
   });
 });
 
