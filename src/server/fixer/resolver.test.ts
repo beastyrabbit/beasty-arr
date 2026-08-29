@@ -217,6 +217,65 @@ describe("resolveQueueItem", () => {
     expect(events.some((e) => e.kind === "text")).toBe(true);
   });
 
+  it("treats an exact year-season TBA match and future air date as advisory", async () => {
+    const calls: FixerPiRunRequest[] = [];
+    const runner: FixerPiRunner = async (req) => {
+      calls.push(req);
+      await invokeLookupTool(req, "sonarr_get_upgrade_context");
+      await invokeProposalTool(
+        req,
+        importProposal("candidate_tba", {
+          selectedImports: [{ candidateId: "candidate_tba", episodeIds: [88255] }],
+          reason: "The full-size German S2026E135 file exactly maps to the queued TBA episode.",
+          issueSummary: "Sonarr reports only an advisory TBA/future-air-date warning.",
+        }),
+      );
+      return { log: [] };
+    };
+
+    const result = await resolveQueueItem({
+      queueItem: makeQueueItem({
+        id: 135,
+        title: "Das.perfekte.Dinner.S2026E135.GERMAN.1080p.WEB.H264",
+        seriesId: 77,
+        seriesTitle: "Das perfekte Dinner",
+        episodeIds: [88255],
+        episodeLabels: ["S2026E135 TBA"],
+        seasonEpisode: "S2026E135",
+        statusMessages: ["Episode has a TBA title and a future air date."],
+      }),
+      candidates: [
+        makeCandidate("candidate_tba", {
+          path: "/downloads/Das.perfekte.Dinner.S2026E135.GERMAN.1080p.WEB.H264.mkv",
+          episodeIds: [88255],
+          episodeLabels: ["S2026E135 TBA"],
+          qualityLabel: "WEBDL-1080p",
+          seriesId: 77,
+          seriesTitle: "Das perfekte Dinner",
+          rejections: ["Episode has a TBA title and a future air date."],
+          size: 2_000_000_000,
+        }),
+      ],
+      client: new FakeArrClient(),
+      runner,
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.systemPrompt).toContain(
+      "A TBA episode title and a future air date are advisory, not blocking",
+    );
+    expect(calls[0]?.systemPrompt).toContain(
+      "Do not apply the TBA exception to a sample, Blu-ray disc structure chunk, conflicting episode identity, wrong-series candidate, or a candidate that fails the normal language or quality safety rules.",
+    );
+    expect(calls[0]?.prompt).toContain("A future air date alone is not blocking.");
+    expect(result.status).toBe("proposal");
+    expect(result.proposal.action).toBe("import_candidates");
+    expect(result.proposal.selectedImports).toEqual([
+      { candidateId: "candidate_tba", episodeIds: [88255] },
+    ]);
+    expect(result.validation.ok).toBe(true);
+  });
+
   it("re-prompts once via followUp and still captures the proposal", async () => {
     const runner: FixerPiRunner = async (req) => {
       // first prompt: no tool call; runner honors the followUp contract
