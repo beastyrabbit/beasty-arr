@@ -155,7 +155,7 @@ function buildSonarrSystemPrompt(): string {
     "Never import Blu-ray disc structure stream chunks such as BDMV/STREAM/*.m2ts.",
     "If the download is only Blu-ray disc structure stream chunks, use remove_queue_item.",
     "Treat Sonarr status messages as the main diagnostic clue.",
-    "A TBA episode title and a future air date are advisory, not blocking, when the candidate belongs to the same series and its exact SYYYYE... numbering maps to the queued Sonarr episode id. In that case, propose import_candidates unless another safety rule blocks it.",
+    "When Sonarr's only rejection is the TBA episode title and/or future air date, it is advisory, not blocking, when the candidate belongs to the same series and its exact SYYYYE... numbering maps to the queued Sonarr episode id. In that case, propose import_candidates unless another safety rule blocks it.",
     "Do not apply the TBA exception to a sample, Blu-ray disc structure chunk, conflicting episode identity, wrong-series candidate, or a candidate that fails the normal language or quality safety rules.",
     "Use sonarr_get_upgrade_context on every analysis and compare the candidate to the current episode file, quality profile, custom format score, and languages.",
     "A Sonarr 'Not a quality revision upgrade' rejection is advisory when the candidate maps exactly to the queued episode, adds German audio to a current file without German, stays within the allowed quality profile, and has a materially higher custom-format score. In that specific case, propose import_candidates with the exact mapping: the intended German-audio upgrade outweighs the revision label.",
@@ -213,7 +213,7 @@ ${dubVerdict ? JSON.stringify(dubVerdict, null, 2) : "No active Dub Oracle verdi
 Rules:
 - Read Sonarr's statusMessages first. They describe the actual failure mode.
 - Always call sonarr_get_upgrade_context before the proposal tool, even when the only warning is sample detection. The initial payload does not say whether a library file already exists.
-- When Sonarr's only rejection is a TBA episode title or future air date, propose import_candidates if the candidate belongs to the same series and its exact SYYYYE... numbering maps to the queued Sonarr episode id. A future air date alone is not blocking.
+- When Sonarr's only rejection is the TBA episode title and/or future air date, propose import_candidates if the candidate belongs to the same series and its exact SYYYYE... numbering maps to the queued Sonarr episode id. A future air date alone is not blocking.
 - The TBA exception never overrides sample, Blu-ray disc structure, conflicting episode identity, wrong-series, language, or quality safety rules.
 - Use sonarr_find_episodes when Sonarr mentions an unexpected episode, anime absolute numbers, or scene numbering.
 - Compare Sonarr's target episode ids, the queue folder/title, the candidate filename/title, and Sonarr's episode lookup before deciding.

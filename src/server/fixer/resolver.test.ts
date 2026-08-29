@@ -249,6 +249,7 @@ describe("resolveQueueItem", () => {
           path: "/downloads/Das.perfekte.Dinner.S2026E135.GERMAN.1080p.WEB.H264.mkv",
           episodeIds: [88255],
           episodeLabels: ["S2026E135 TBA"],
+          quality: { quality: { id: 3, name: "WEBDL-1080p" } },
           qualityLabel: "WEBDL-1080p",
           seriesId: 77,
           seriesTitle: "Das perfekte Dinner",
@@ -262,7 +263,7 @@ describe("resolveQueueItem", () => {
 
     expect(calls).toHaveLength(1);
     expect(calls[0]?.systemPrompt).toContain(
-      "A TBA episode title and a future air date are advisory, not blocking",
+      "When Sonarr's only rejection is the TBA episode title and/or future air date",
     );
     expect(calls[0]?.systemPrompt).toContain(
       "Do not apply the TBA exception to a sample, Blu-ray disc structure chunk, conflicting episode identity, wrong-series candidate, or a candidate that fails the normal language or quality safety rules.",
@@ -274,6 +275,58 @@ describe("resolveQueueItem", () => {
       { candidateId: "candidate_tba", episodeIds: [88255] },
     ]);
     expect(result.validation.ok).toBe(true);
+  });
+
+  it.each([
+    {
+      caseName: "sample file",
+      candidateOverrides: { isLikelySample: true, sampleReason: "filename contains sample" },
+      selectedEpisodeIds: [88255],
+    },
+    {
+      caseName: "unrelated episode mapping",
+      candidateOverrides: {},
+      selectedEpisodeIds: [88256],
+    },
+  ])("keeps the TBA exception blocked for a $caseName", async (testCase) => {
+    const runner: FixerPiRunner = async (req) => {
+      await invokeProposalTool(
+        req,
+        importProposal("candidate_tba", {
+          selectedImports: [
+            { candidateId: "candidate_tba", episodeIds: testCase.selectedEpisodeIds },
+          ],
+        }),
+      );
+      return { log: [] };
+    };
+
+    const result = await resolveQueueItem({
+      queueItem: makeQueueItem({
+        seriesId: 77,
+        seriesTitle: "Das perfekte Dinner",
+        episodeIds: [88255],
+        episodeLabels: ["S2026E135 TBA"],
+        seasonEpisode: "S2026E135",
+        statusMessages: ["Episode has a TBA title and a future air date."],
+      }),
+      candidates: [
+        makeCandidate("candidate_tba", {
+          seriesId: 77,
+          seriesTitle: "Das perfekte Dinner",
+          episodeIds: [88255],
+          episodeLabels: ["S2026E135 TBA"],
+          rejections: ["Episode has a TBA title and a future air date."],
+          ...testCase.candidateOverrides,
+        }),
+      ],
+      client: new FakeArrClient(),
+      runner,
+    });
+
+    expect(result.proposal.action).toBe("import_candidates");
+    expect(result.validation.ok).toBe(false);
+    expect(result.status).toBe("needs_review");
   });
 
   it("re-prompts once via followUp and still captures the proposal", async () => {
