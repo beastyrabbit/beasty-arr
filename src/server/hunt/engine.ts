@@ -731,7 +731,9 @@ export class HuntEngine {
         lastSearchAt: attempt?.createdAt ?? now,
       };
       const grabPending = row.awaitingImportSince != null;
-      if (!grabPending && HUNTABLE_STATES.includes(row.state)) {
+      // Missing is a separate, manual completeness workflow. Its attempts must
+      // not advance the German-hunt retry ladder shared by a season/series.
+      if (trigger !== "missing" && !grabPending && HUNTABLE_STATES.includes(row.state)) {
         const relation = relationById.get(row.id);
         const relatedTier = Math.max(
           row.tier,

@@ -9,7 +9,8 @@ beasty-arr is that something:
   manual Missing workspace, where completeness matters and audio language does not.
 - **Budget-aware**: a demand-adaptive controller keeps a low search trickle, forecasts the arrs'
   organic Prowlarr usage, and automatically ramps up to consume leftover daily indexer budget —
-  never overrunning any indexer's cap.
+  automatic hunts never overrun an indexer's cap. Explicit Force and manual Missing searches run
+  immediately and intentionally bypass that automatic budget gate.
 - **AI Dub Oracle**: asks an LLM (Codex / local Ollama) with web verification whether a German dub
   even exists for a title; confident negative seasons are paused for at least a year.
 - **Fixer**: absorbed from the sonarr_fixer project — AI-assisted resolution of stuck import-queue

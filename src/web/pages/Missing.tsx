@@ -15,7 +15,7 @@ export function MissingPage() {
   const [titleInput, setTitleInput] = useState("");
   const [title, setTitle] = useState("");
   const [year, setYear] = useState<string>("all");
-  const [minimumAgeDays, setMinimumAgeDays] = useState(14);
+  const [minimumAgeInput, setMinimumAgeInput] = useState("14");
   const [maximumAttempts, setMaximumAttempts] = useState("");
   const [gap, setGap] = useState<MissingGapFilter>("any");
   const [page, setPage] = useState(1);
@@ -32,7 +32,7 @@ export function MissingPage() {
   const query: MissingEpisodesQuery = {
     q: title || undefined,
     year: year === "all" ? undefined : Number(year),
-    minimumAgeDays,
+    minimumAgeDays: Math.min(3650, Math.max(14, Number(minimumAgeInput) || 14)),
     maximumManualAttempts: maximumAttempts === "" ? undefined : Number(maximumAttempts),
     gap,
     page,
@@ -114,10 +114,15 @@ export function MissingPage() {
               type="number"
               min={14}
               max={3650}
-              value={minimumAgeDays}
+              value={minimumAgeInput}
               onChange={(event) => {
-                setMinimumAgeDays(Math.max(14, Number(event.target.value) || 14));
+                setMinimumAgeInput(event.target.value);
                 setPage(1);
+              }}
+              onBlur={() => {
+                setMinimumAgeInput(
+                  String(Math.min(3650, Math.max(14, Number(minimumAgeInput) || 14))),
+                );
               }}
               className="font-mono"
             />

@@ -771,8 +771,9 @@ describe("runCycle — gates and holds", () => {
     const { db, engine, settings } = makeHarness();
     settings.update({ dryRun: false, maxCommandsPerCycle: 1 });
     seedSeries(db, { id: 1 });
+    const huntStateIds: number[] = [];
     for (let episodeNumber = 1; episodeNumber <= 3; episodeNumber++) {
-      seedEpisode(db, { id: 10 + episodeNumber, seriesId: 1, episodeNumber });
+      huntStateIds.push(seedEpisode(db, { id: 10 + episodeNumber, seriesId: 1, episodeNumber }));
     }
     const calls: { keys: string[]; force: boolean }[] = [];
     engine.onAiCheckRequested = (keys, force) => calls.push({ keys, force });
@@ -790,6 +791,14 @@ describe("runCycle — gates and holds", () => {
       commandName: "EpisodeSearch",
       payload: { name: "EpisodeSearch", episodeIds: [11, 12, 13] },
     });
+    for (const huntStateId of huntStateIds) {
+      expect(huntRow(db, huntStateId)).toMatchObject({
+        tier: 0,
+        nextEligibleAt: null,
+        state: "missing",
+        searchCount: 1,
+      });
+    }
     expect(calls).toEqual([]);
   });
 
