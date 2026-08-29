@@ -31,4 +31,25 @@ describe("Scheduler", () => {
     expect(scheduler.updateInterval("missing", 1_000)).toBe(false);
     scheduler.stop();
   });
+
+  it("runs one immediate follow-up when triggered during an active job", async () => {
+    const scheduler = new Scheduler(log);
+    let releaseFirst: (() => void) | undefined;
+    const firstRun = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const run = vi.fn(async () => {
+      if (run.mock.calls.length === 1) await firstRun;
+    });
+    scheduler.registerJob({ name: "hunt.cycle", intervalMs: 60_000, jitter: 0, run });
+
+    const active = scheduler.trigger("hunt.cycle");
+    await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(1));
+    expect(await scheduler.trigger("hunt.cycle")).toBe(true);
+    releaseFirst?.();
+    await active;
+
+    expect(run).toHaveBeenCalledTimes(2);
+    scheduler.stop();
+  });
 });

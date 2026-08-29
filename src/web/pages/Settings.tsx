@@ -202,7 +202,6 @@ function HuntTab({ settings }: { settings: AppSettingsDto }) {
     maxCommandsPerCycle: settings.maxCommandsPerCycle,
     queueGateEnabled: settings.queueGateEnabled,
     queueGateThreshold: settings.queueGateThreshold,
-    missingToUpgradeRatio: settings.missingToUpgradeRatio,
     dubLagDaysDefault: settings.dubLagDaysDefault,
     releasingSeasonRetryDays: settings.releasingSeasonRetryDays,
     movieRetryDays: settings.movieRetryDays,
@@ -272,18 +271,6 @@ function HuntTab({ settings }: { settings: AppSettingsDto }) {
               value={form.queueGateThreshold}
               onChange={num("queueGateThreshold")}
               disabled={!form.queueGateEnabled}
-              className="font-mono"
-            />
-          </Field>
-        </SettingRow>
-        <SettingRow
-          label="Missing versus upgrade mix"
-          description="Controls how candidates are interleaved. For example, 1:2 means one missing-file search followed by two German-audio upgrades."
-        >
-          <Field label="Missing : upgrade">
-            <Input
-              value={form.missingToUpgradeRatio}
-              onChange={(e) => setForm((f) => ({ ...f, missingToUpgradeRatio: e.target.value }))}
               className="font-mono"
             />
           </Field>
@@ -637,6 +624,8 @@ function AiTab({ settings }: { settings: AppSettingsDto }) {
           <Field label="Days">
             <Input
               type="number"
+              min={365}
+              max={730}
               value={form.aiUnlikelyRetryDays}
               onChange={(e) =>
                 setForm((f) => ({

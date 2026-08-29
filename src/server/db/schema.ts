@@ -172,7 +172,7 @@ export const searchAttempts = sqliteTable(
     payload: text("payload", { mode: "json" }).$type<Record<string, unknown>>().notNull(),
     targetIds: text("target_ids", { mode: "json" }).$type<number[]>().notNull(), // hunt_state ids
     targetLabel: text("target_label"), // denorm "Series S02" for history after deletes
-    trigger: text("trigger").notNull().default("scheduled"), // scheduled|forced|retry
+    trigger: text("trigger").notNull().default("scheduled"), // scheduled|forced|missing|retry
     estimatedQueries: integer("estimated_queries").notNull(),
     status: text("status").notNull(), // dispatched|queued|started|completed|failed|timeout
     result: text("result"), // grabbed|no_grab|error

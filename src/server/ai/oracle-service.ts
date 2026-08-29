@@ -15,6 +15,7 @@ import {
   series,
 } from "../db/schema.js";
 import type { EventBus } from "../events/bus.js";
+import { AI_PAUSE_MIN_MS } from "../hunt/state.js";
 import {
   type DubCatalogEvidence,
   type DubCatalogLookupResult,
@@ -42,7 +43,6 @@ export const INVALIDATED_SENTINEL = 0;
 /** States that make a subject a candidate for an oracle check. */
 const HUNTABLE_STATES = ["missing", "non_german", "exhausted"] as const;
 const AI_FIRST_AGE_MS = 180 * DAY_MS;
-const UNPROVEN_RECHECK_DAYS = 90;
 
 const GERMAN_ORIGINAL = new Set(["german", "deutsch", "de"]);
 
@@ -142,6 +142,32 @@ export class OracleService {
         ),
       )
       .run();
+    this.normalizeUnlikelyVerdictHorizons();
+  }
+
+  /** Bring verdicts written under the old short retry policy up to the one-year contract. */
+  private normalizeUnlikelyVerdictHorizons(): void {
+    const rows = this.db.select().from(aiVerdicts).where(isNull(aiVerdicts.supersededBy)).all();
+    for (const row of rows) {
+      const minimum = row.checkedAt + AI_PAUSE_MIN_MS;
+      let changed = false;
+      const perSeason = row.perSeason?.map((entry) => {
+        if (entry.verdict !== "unlikely" || (entry.recheckAfter ?? row.recheckAfter) >= minimum) {
+          return entry;
+        }
+        changed = true;
+        return { ...entry, recheckAfter: minimum };
+      });
+      const recheckAfter =
+        row.verdict === "unlikely" && row.recheckAfter < minimum ? minimum : row.recheckAfter;
+      if (recheckAfter !== row.recheckAfter) changed = true;
+      if (!changed) continue;
+      this.db
+        .update(aiVerdicts)
+        .set({ recheckAfter, perSeason: perSeason ?? row.perSeason })
+        .where(eq(aiVerdicts.id, row.id))
+        .run();
+    }
   }
 
   private static idleBulkStatus(): OracleBulkStatus {
@@ -307,6 +333,7 @@ export class OracleService {
       .select({
         state: huntState.state,
         searchCount: huntState.searchCount,
+        hasFile: episodes.hasFile,
         seasonNumber: huntState.seasonNumber,
         airDateUtc: episodes.airDateUtc,
         seriesId: series.id,
@@ -329,6 +356,7 @@ export class OracleService {
       )
       .all();
     for (const row of seriesRows) {
+      if (!row.hasFile) continue;
       const subjectKey = `sonarr:${row.seriesId}`;
       if (
         validVerdicts.subjects.has(subjectKey) ||
@@ -375,6 +403,7 @@ export class OracleService {
       .select({
         state: huntState.state,
         searchCount: huntState.searchCount,
+        hasFile: movies.hasFile,
         movieId: movies.id,
         title: movies.title,
         year: movies.year,
@@ -396,6 +425,7 @@ export class OracleService {
       )
       .all();
     for (const row of movieRows) {
+      if (!row.hasFile) continue;
       if (validVerdicts.subjects.has(`radarr:${row.movieId}`)) continue;
       if (
         !options.includeUnsearched &&
@@ -1097,15 +1127,9 @@ export class OracleService {
             const reported = final.perSeason?.find((entry) => entry.season === season);
             if (!reported) throw new Error(`validated season ${season} is missing`);
             const { recheckAfterDays, ...seasonVerdict } = reported;
-            const explicitOriginalOnly =
-              /\bOmU\b|original with subtitles|original mit untertiteln/i.test(
-                [reported.note, ...(reported.evidence ?? [])].filter(Boolean).join(" "),
-              );
             const effectiveRecheckDays =
               reported.verdict === "unlikely"
-                ? explicitOriginalOnly
-                  ? settings.aiUnlikelyRetryDays
-                  : Math.min(settings.aiUnlikelyRetryDays, UNPROVEN_RECHECK_DAYS)
+                ? settings.aiUnlikelyRetryDays
                 : reported.verdict === "exists"
                   ? settings.aiExistsRetryDays
                   : recheckAfterDays;
@@ -1135,11 +1159,7 @@ export class OracleService {
         : final.confidence;
     const recheckDays =
       overallVerdict === "unlikely"
-        ? /\bOmU\b|original with subtitles|original mit untertiteln/i.test(
-            [final.germanTitle, ...final.evidence].filter(Boolean).join(" "),
-          )
-          ? settings.aiUnlikelyRetryDays
-          : Math.min(settings.aiUnlikelyRetryDays, UNPROVEN_RECHECK_DAYS)
+        ? settings.aiUnlikelyRetryDays
         : overallVerdict === "exists"
           ? settings.aiExistsRetryDays
           : final.recheckAfterDays;

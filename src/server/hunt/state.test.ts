@@ -240,9 +240,9 @@ describe("deriveState — table", () => {
 
     // ai_paused
     [
-      "unlikely verdict never pauses acquisition of a missing original file",
+      "unlikely verdict pauses a missing episode for the whole checked scope",
       base({ verdict: unlikelyVerdict, aiPausedUntil: NOW + 100 * DAY, aiPauseConfidence: 0.7 }),
-      "missing",
+      "ai_paused",
     ],
     [
       "unlikely verdict pauses upgrade hunts on a non-German file too",
@@ -339,7 +339,7 @@ describe("reconcileDerivedState", () => {
 });
 
 describe("helpers", () => {
-  it("aiPausedUntilFor takes the max of 180d and recheckAfter", () => {
+  it("aiPausedUntilFor takes the max of one year and recheckAfter", () => {
     const checkedAt = NOW;
     expect(aiPausedUntilFor({ checkedAt, recheckAfter: NOW + DAY })).toBe(
       checkedAt + AI_PAUSE_MIN_MS,

@@ -30,7 +30,7 @@ const settingValidators = {
   aiPauseConfidence: z.number().min(0).max(1),
   aiMinSearchesBeforeCheck: z.number().int().min(1).max(20),
   aiExistsRetryDays: z.number().int().min(1).max(365),
-  aiUnlikelyRetryDays: z.number().int().min(30).max(730),
+  aiUnlikelyRetryDays: z.number().int().min(365).max(730),
   fixerAutoImportConfidence: z.number().min(0).max(1),
   fixerAutoRemoveConfidence: z.number().min(0).max(1),
   fixerParallelism: z.number().int().min(1).max(10),
@@ -104,6 +104,10 @@ export class SettingsService {
     const rows = this.db.select().from(settings).all();
     const raw: Record<string, unknown> = {};
     for (const row of rows) raw[row.key] = row.value;
+    if (typeof raw.aiUnlikelyRetryDays === "number" && raw.aiUnlikelyRetryDays < 365) {
+      raw.aiUnlikelyRetryDays = 365;
+      this.persist("aiUnlikelyRetryDays", raw.aiUnlikelyRetryDays);
+    }
     if (raw[DEFAULTS_V024_MIGRATION_KEY] !== true) {
       // v0.2.3's non-sparse config parser wrote these old defaults whenever
       // any unrelated setting (including auto-apply) was changed.

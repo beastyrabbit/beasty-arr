@@ -15,6 +15,7 @@ type JobState = {
   def: JobDefinition;
   timer: NodeJS.Timeout | null;
   running: boolean;
+  rerunRequested: boolean;
   lastRunAt: number | null;
   lastError: string | null;
 };
@@ -32,15 +33,26 @@ export class Scheduler {
 
   registerJob(def: JobDefinition): void {
     if (this.jobs.has(def.name)) throw new Error(`Job already registered: ${def.name}`);
-    const state: JobState = { def, timer: null, running: false, lastRunAt: null, lastError: null };
+    const state: JobState = {
+      def,
+      timer: null,
+      running: false,
+      rerunRequested: false,
+      lastRunAt: null,
+      lastError: null,
+    };
     this.jobs.set(def.name, state);
     this.schedule(state, this.initialDelay(def));
   }
 
-  /** Run a job immediately (out of schedule). No-op if already running. */
+  /** Run a job immediately. A trigger received mid-run schedules one immediate follow-up. */
   async trigger(name: string): Promise<boolean> {
     const state = this.jobs.get(name);
-    if (!state || state.running) return false;
+    if (!state) return false;
+    if (state.running) {
+      state.rerunRequested = true;
+      return true;
+    }
     await this.execute(state);
     return true;
   }
@@ -119,6 +131,10 @@ export class Scheduler {
     } finally {
       state.running = false;
       state.lastRunAt = started;
+      if (state.rerunRequested && !this.stopped) {
+        state.rerunRequested = false;
+        await this.execute(state);
+      }
     }
   }
 }

@@ -8,6 +8,7 @@ import { FixerPage } from "./pages/Fixer.js";
 import { FixerHistoryPage } from "./pages/FixerHistory.js";
 import { HuntPage } from "./pages/Hunt.js";
 import { LibraryPage } from "./pages/Library.js";
+import { MissingPage } from "./pages/Missing.js";
 import { MovieDetailPage } from "./pages/MovieDetail.js";
 import { SeriesDetailPage } from "./pages/SeriesDetail.js";
 import { SettingsPage } from "./pages/Settings.js";
@@ -72,6 +73,12 @@ const huntRoute = createRoute({
   component: HuntPage,
 });
 
+const missingRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "/missing",
+  component: MissingPage,
+});
+
 const fixerRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "/fixer",
@@ -129,6 +136,7 @@ const routeTree = rootRoute.addChildren([
     seriesDetailRoute,
     movieDetailRoute,
     huntRoute,
+    missingRoute,
     fixerRoute,
     fixerHistoryRoute,
     activitySearchesRoute,

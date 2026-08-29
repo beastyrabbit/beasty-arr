@@ -30,12 +30,10 @@ import {
   firstUpgradeBlockedUntil,
   groupCommands,
   type HuntCandidate,
-  interleaveByRatio,
   type PlannedCommand,
-  parseRatio,
   priorityScore,
 } from "./selection.js";
-import { isAiVerdictValue } from "./state.js";
+import { aiPausedUntilFor, isAiVerdictValue } from "./state.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** `announced` verdict without expectedAvailability: re-check in 30 days. */
@@ -100,6 +98,8 @@ export type ForceSubjectRequest = {
   id: number;
   seasonNumber?: number;
   withAiRecheck?: boolean;
+  /** Manual Missing searches are tracked separately from German-audio forces. */
+  trigger?: "forced" | "missing";
 };
 
 export type PauseSubjectRequest = {
@@ -382,8 +382,21 @@ export class HuntEngine {
       const nowMs = this.now();
       const manual = this.loadManualBatch(reachableSources, cfg, nowMs);
       const scheduled = this.loadScheduledCandidates(scheduledSources, cfg, nowMs);
+      // Human force requests are commands, not planning suggestions. Drain all
+      // of them before applying the normal command ceiling to scheduled work.
+      const missingManualIds = this.missingManualHuntStateIds(manual);
+      const forcedManual = manual.filter(
+        (candidate) => !missingManualIds.has(candidate.huntStateId),
+      );
+      const missingManual = manual.filter((candidate) =>
+        missingManualIds.has(candidate.huntStateId),
+      );
       const plan: { cmd: PlannedCommand; trigger: SearchTrigger }[] = [
-        ...groupCommands(manual).map((cmd) => ({ cmd, trigger: "forced" as const })),
+        ...groupCommands(forcedManual).map((cmd) => ({ cmd, trigger: "forced" as const })),
+        ...groupCommands(missingManual, { episodeIdsOnly: true }).map((cmd) => ({
+          cmd,
+          trigger: "missing" as const,
+        })),
         ...groupCommands(scheduled).map((cmd) => ({ cmd, trigger: "scheduled" as const })),
       ];
       if (plan.length === 0) return;
@@ -395,11 +408,12 @@ export class HuntEngine {
       const clientBySource = new Map(reachable.map((r) => [r.source, r.client]));
       const chains = new Map<ArrSource, Promise<void>>();
       const budgetHolds = new Set<string>();
-      let dispatched = 0;
+      let scheduledDispatched = 0;
       try {
         for (const { cmd, trigger } of plan) {
           if (signal?.aborted) break;
-          if (dispatched >= cfg.maxCommandsPerCycle) break;
+          if (!this.isImmediateTrigger(trigger) && scheduledDispatched >= cfg.maxCommandsPerCycle)
+            break;
           await chains.get(cmd.source);
           let estimates: Map<number, number> | null = null;
           if (this.budget) {
@@ -408,18 +422,22 @@ export class HuntEngine {
               searchOps: cmd.searchOps,
               anime: cmd.anime,
             });
-            const decision = this.budget.mayDispatch(estimates);
-            if (!decision.ok) {
-              if (!budgetHolds.has(decision.holdReason)) {
-                budgetHolds.add(decision.holdReason);
-                this.setHold(decision.holdReason, { type: "budget", level: "warn" });
+            // Force is explicit permission to spend the required queries now.
+            // Keep estimating and recording usage so later scheduled work sees it.
+            if (!this.isImmediateTrigger(trigger)) {
+              const decision = this.budget.mayDispatch(estimates);
+              if (!decision.ok) {
+                if (!budgetHolds.has(decision.holdReason)) {
+                  budgetHolds.add(decision.holdReason);
+                  this.setHold(decision.holdReason, { type: "budget", level: "warn" });
+                }
+                // A later, smaller command or the other arr may still fit. Budget
+                // rejection is command-scoped, not a reason to abandon the plan.
+                continue;
               }
-              // A later, smaller command or the other arr may still fit. Budget
-              // rejection is command-scoped, not a reason to abandon the plan.
-              continue;
             }
           }
-          dispatched += 1;
+          if (!this.isImmediateTrigger(trigger)) scheduledDispatched += 1;
           const attemptId = this.insertAttempt(cmd, trigger, cfg.dryRun, estimates);
           if (cfg.dryRun) {
             this.completeDryRun(cmd, trigger, attemptId, estimates);
@@ -538,10 +556,11 @@ export class HuntEngine {
       status: "completed",
       dryRun: true,
     });
-    if (trigger === "forced") {
+    if (this.isImmediateTrigger(trigger)) {
       // The manual request was serviced (simulated) — keep the queue moving in dry-run.
       this.clearManualPriorities(cmd.covered.map((c) => c.huntStateId));
-      const forcedAiRecheck = this.consumeCompletedManualAiRequestFor(cmd.covered);
+      const forcedAiRecheck =
+        trigger === "forced" && this.consumeCompletedManualAiRequestFor(cmd.covered);
       this.markManualRequestsDone(now);
       if (forcedAiRecheck) {
         this.onAiCheckRequested?.(this.subjectKeysFor(cmd.covered), true);
@@ -749,10 +768,10 @@ export class HuntEngine {
     }
     const forcedAiRecheck =
       trigger === "forced" && this.consumeCompletedManualAiRequestFor(cmd.covered);
-    if (trigger === "forced") this.markManualRequestsDone(now);
+    if (this.isImmediateTrigger(trigger)) this.markManualRequestsDone(now);
     const subjectKeys = this.subjectKeysFor(cmd.covered);
     if (forcedAiRecheck) this.onAiCheckRequested?.(subjectKeys, true);
-    else if (result !== "error" && !manualAiPending) {
+    else if (trigger !== "missing" && result !== "error" && !manualAiPending) {
       this.onAiCheckRequested?.(subjectKeys, false);
     }
     this.bus.emit("queue.updated", { attemptId });
@@ -893,7 +912,6 @@ export class HuntEngine {
     ];
     for (const seriesId of seriesIds) {
       const rows = this.episodeJoinRows([eq(huntState.seriesId, seriesId)]);
-      const huntable = rows.filter((row) => HUNTABLE_STATES.includes(row.hs.state));
       for (const candidate of covered.filter((item) => item.seriesId === seriesId)) {
         const seasonRows = rows.filter((row) => row.ep.seasonNumber === candidate.seasonNumber);
         const seasonTier = seasonRows.reduce((max, row) => Math.max(max, row.hs.tier), 0);
@@ -1075,7 +1093,6 @@ export class HuntEngine {
     const lag = this.loadDubLagOverrides();
     const aiFirstEnabled = this.aiFirstSlotsAvailable(cfg, now);
     const recentAiFailures = aiFirstEnabled ? this.recentAiFailureSubjects(now) : new Set<string>();
-    const missingBucket: HuntCandidate[] = [];
     const upgradeBucket: HuntCandidate[] = [];
     const filters = [
       inArray(huntState.state, [...HUNTABLE_STATES]),
@@ -1086,7 +1103,9 @@ export class HuntEngine {
     ];
     if (reachable.has("sonarr")) {
       for (const row of this.episodeJoinRows(filters)) {
-        // Exhausted items only re-enter once their (90d-capped) backoff passed.
+        // Missing media is handled only by the explicit Missing workflow.
+        if (!row.ep.hasFile) continue;
+        // Exhausted upgrades only re-enter once their backoff passed.
         if (row.hs.state === "exhausted" && row.hs.nextEligibleAt == null) continue;
         if (!cfg.huntSpecials && row.ep.seasonNumber === 0) continue;
         if (row.hs.state === "non_german") {
@@ -1120,11 +1139,12 @@ export class HuntEngine {
           if (blockedUntil != null && blockedUntil > now) continue;
         }
         const cand = this.buildEpisodeCandidate(row, verdicts, now, germanSeasons);
-        (cand.bucket === "missing" ? missingBucket : upgradeBucket).push(cand);
+        upgradeBucket.push(cand);
       }
     }
     if (reachable.has("radarr")) {
       for (const row of this.movieJoinRows(filters)) {
+        if (!row.m.hasFile) continue;
         if (row.hs.state === "exhausted" && row.hs.nextEligibleAt == null) continue;
         if (row.hs.state === "non_german") {
           const subjectKey = `radarr:${row.m.id}`;
@@ -1150,13 +1170,12 @@ export class HuntEngine {
           if (blockedUntil != null && blockedUntil > now) continue;
         }
         const cand = this.buildMovieCandidate(row, verdicts, now);
-        (cand.bucket === "missing" ? missingBucket : upgradeBucket).push(cand);
+        upgradeBucket.push(cand);
       }
     }
     const byScore = (a: HuntCandidate, b: HuntCandidate) => b.score - a.score;
-    missingBucket.sort(byScore);
     upgradeBucket.sort(byScore);
-    return interleaveByRatio(missingBucket, upgradeBucket, parseRatio(cfg.missingToUpgradeRatio));
+    return upgradeBucket;
   }
 
   private aiFirstSlotsAvailable(cfg: AppSettings, now: number): boolean {
@@ -1265,11 +1284,13 @@ export class HuntEngine {
       if (
         eff === "unlikely" &&
         !germanSeasonEvidence &&
-        mirrorState !== "missing" &&
         detail.confidence >= cfg.aiPauseConfidence
       ) {
         patch.state = "ai_paused";
-        patch.nextEligibleAt = detail.recheckAfter;
+        patch.nextEligibleAt = aiPausedUntilFor({
+          checkedAt: verdict.checkedAt,
+          recheckAfter: detail.recheckAfter,
+        });
         if (row.state !== "ai_paused") patch.stateChangedAt = now;
       } else {
         if (eff === "announced") {
@@ -1333,17 +1354,18 @@ export class HuntEngine {
       }
       this.db.update(huntState).set(patch).where(eq(huntState.id, row.id)).run();
     }
+    const requestSubject = this.manualRequestSubject(req);
     const request = this.db
       .insert(manualRequests)
       .values({
         createdAt: now,
-        subject: this.subjectString(req),
+        subject: requestSubject,
         withAiRecheck: req.withAiRecheck ?? false,
         status: "pending",
       })
       .returning({ id: manualRequests.id })
       .get();
-    this.bus.emit("queue.updated", { reason: "forced", subject: this.subjectString(req) });
+    this.bus.emit("queue.updated", { reason: req.trigger ?? "forced", subject: requestSubject });
     return { queuedTargets: targets.length, queuePosition: 1, requestId: request.id };
   }
 
@@ -1402,6 +1424,35 @@ export class HuntEngine {
   }): string {
     const base = `${req.source}:${req.kind}:${req.id}`;
     return req.kind === "season" && req.seasonNumber != null ? `${base}:${req.seasonNumber}` : base;
+  }
+
+  private manualRequestSubject(req: ForceSubjectRequest): string {
+    const subject = this.subjectString(req);
+    return req.trigger === "missing" ? `missing:${subject}` : subject;
+  }
+
+  private parsedManualSubject(subject: string): {
+    trigger: "forced" | "missing";
+    source: ArrSource;
+    kind: SubjectKind;
+    id: number;
+    season: number | null;
+  } | null {
+    const parts = subject.split(":");
+    const missing = parts[0] === "missing";
+    if (missing) parts.shift();
+    const [source, kind, rawId, rawSeason] = parts;
+    const id = Number(rawId);
+    if ((source !== "sonarr" && source !== "radarr") || !Number.isFinite(id)) return null;
+    if (!["series", "season", "episode", "movie"].includes(kind)) return null;
+    const season = rawSeason == null ? null : Number(rawSeason);
+    return {
+      trigger: missing ? "missing" : "forced",
+      source,
+      kind: kind as SubjectKind,
+      id,
+      season: season != null && Number.isFinite(season) ? season : null,
+    };
   }
 
   private resolveSubjectTargets(
@@ -1529,9 +1580,9 @@ export class HuntEngine {
   }
 
   private subjectMatchesCovered(subject: string, covered: HuntCandidate[]): boolean {
-    const [source, kind, rawId, rawSeason] = subject.split(":");
-    const id = Number(rawId);
-    if ((source !== "sonarr" && source !== "radarr") || !Number.isFinite(id)) return false;
+    const parsed = this.parsedManualSubject(subject);
+    if (!parsed) return false;
+    const { source, kind, id, season } = parsed;
     return covered.some((candidate) => {
       if (candidate.source !== source) return false;
       if (kind === "movie") return candidate.kind === "movie" && candidate.targetId === id;
@@ -1541,7 +1592,7 @@ export class HuntEngine {
         return (
           candidate.kind === "episode" &&
           candidate.seriesId === id &&
-          candidate.seasonNumber === Number(rawSeason)
+          candidate.seasonNumber === season
         );
       }
       return false;
@@ -1578,18 +1629,15 @@ export class HuntEngine {
   }
 
   private subjectStillQueued(subject: string): boolean {
-    const parts = subject.split(":");
-    const source = parts[0];
-    const kind = parts[1];
-    const id = Number(parts[2]);
-    if ((source !== "sonarr" && source !== "radarr") || !Number.isFinite(id)) return false;
+    const parsed = this.parsedManualSubject(subject);
+    if (!parsed) return false;
+    const { source, kind, id, season } = parsed;
     const conds = [eq(huntState.source, source), gt(huntState.manualPriority, 0)];
     if (kind === "series") {
       conds.push(eq(huntState.seriesId, id));
     } else if (kind === "season") {
       conds.push(eq(huntState.seriesId, id));
-      const season = Number(parts[3]);
-      if (Number.isFinite(season)) conds.push(eq(huntState.seasonNumber, season));
+      if (season != null) conds.push(eq(huntState.seasonNumber, season));
     } else if (kind === "episode" || kind === "movie") {
       conds.push(eq(huntState.targetKind, kind), eq(huntState.targetId, id));
     } else {
@@ -1603,6 +1651,28 @@ export class HuntEngine {
         .limit(1)
         .get() != null
     );
+  }
+
+  private missingManualHuntStateIds(candidates: HuntCandidate[]): Set<number> {
+    const missingRequests = this.db
+      .select({ subject: manualRequests.subject })
+      .from(manualRequests)
+      .where(ne(manualRequests.status, "done"))
+      .all()
+      .filter((request) => request.subject.startsWith("missing:"));
+    const ids = new Set<number>();
+    for (const candidate of candidates) {
+      if (
+        missingRequests.some((request) => this.subjectMatchesCovered(request.subject, [candidate]))
+      ) {
+        ids.add(candidate.huntStateId);
+      }
+    }
+    return ids;
+  }
+
+  private isImmediateTrigger(trigger: SearchTrigger): boolean {
+    return trigger === "forced" || trigger === "missing";
   }
 
   // ============ views ============
@@ -1637,16 +1707,9 @@ export class HuntEngine {
     const cfg = this.settings.get();
     const now = this.now();
     const both = new Set<ArrSource>(["sonarr", "radarr"]);
+    // The public queue is only the automatic plan. Forced work is dispatched
+    // immediately and appears as the current hunt or in search history.
     const all: QueueEntryView[] = [];
-    for (const c of this.loadManualBatch(both, cfg, now)) {
-      all.push({
-        huntStateId: c.huntStateId,
-        label: candidateLabel(c),
-        source: c.source,
-        reason: "FORCED",
-        score: c.score,
-      });
-    }
     for (const c of this.loadScheduledCandidates(both, cfg, now)) {
       all.push({
         huntStateId: c.huntStateId,

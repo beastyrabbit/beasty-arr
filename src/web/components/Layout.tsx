@@ -2,6 +2,7 @@ import { Link, Outlet, useNavigate } from "@tanstack/react-router";
 import {
   Activity,
   Crosshair,
+  FileQuestion,
   LayoutDashboard,
   Library,
   PanelLeftClose,
@@ -22,6 +23,7 @@ const NAV = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, exact: true },
   { to: "/library/series", label: "Library", icon: Library, match: "/library" },
   { to: "/hunt", label: "Hunt", icon: Crosshair, match: "/hunt" },
+  { to: "/missing", label: "Missing", icon: FileQuestion, match: "/missing" },
   { to: "/fixer", label: "Fixer", icon: Wrench, match: "/fixer" },
   { to: "/activity/searches", label: "Activity", icon: Activity, match: "/activity" },
   { to: "/settings/connections", label: "Settings", icon: Settings, match: "/settings" },

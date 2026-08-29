@@ -31,7 +31,7 @@ import { EmptyState, Panel, Skeleton } from "../components/Shell.js";
 import { StateBadge } from "../components/StateBadge.js";
 import { Button } from "../components/ui/button.js";
 import { Dialog, DialogContent, DialogTrigger } from "../components/ui/dialog.js";
-import { Field, Input } from "../components/ui/input.js";
+import { Input } from "../components/ui/input.js";
 import { Switch } from "../components/ui/switch.js";
 import { fmtDate, fmtNum, relTime } from "../lib/format.js";
 import {
@@ -120,9 +120,7 @@ export function HuntPage() {
           title="Next hunts"
           actions={
             queue.data ? (
-              <span className="font-mono text-[10px] text-faint">
-                {queueCounts.forced} forced · {queueCounts.retry} retries
-              </span>
+              <span className="font-mono text-[10px] text-faint">{queueCounts.retry} retries</span>
             ) : null
           }
         >
@@ -564,7 +562,6 @@ function HuntControls({
     queueGateThreshold: settings.queueGateThreshold,
     huntTickMinutes: settings.huntTickMinutes,
     maxCommandsPerCycle: settings.maxCommandsPerCycle,
-    missingToUpgradeRatio: settings.missingToUpgradeRatio,
     huntSpecials: settings.huntSpecials,
     aiDailyLimitEnabled: settings.aiDailyLimitEnabled,
     aiMaxChecksPerDay: settings.aiMaxChecksPerDay,
@@ -655,24 +652,6 @@ function HuntControls({
             onChange={setNumber("maxCommandsPerCycle")}
             suffix="commands"
           />
-        </ControlRow>
-
-        <ControlRow
-          label="Missing : upgrade mix"
-          description="Interleave missing media and German-audio upgrades in this ratio."
-        >
-          <Field label="Ratio">
-            <Input
-              value={form.missingToUpgradeRatio}
-              onChange={(event) =>
-                setForm((current) => ({
-                  ...current,
-                  missingToUpgradeRatio: event.target.value,
-                }))
-              }
-              className="w-24 font-mono"
-            />
-          </Field>
         </ControlRow>
 
         <ControlRow

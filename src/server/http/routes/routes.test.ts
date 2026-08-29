@@ -281,6 +281,145 @@ describe("items force", () => {
   });
 });
 
+// ============ missing completeness workflow ============
+
+describe("missing episodes", () => {
+  let b: Built;
+  const huntIds = new Map<number, number>();
+  const insertEpisode = (
+    id: number,
+    seriesId: number,
+    episodeNumber: number,
+    airDateUtc: number,
+    hasFile = false,
+  ) => {
+    b.ctx.db
+      .insert(episodes)
+      .values({
+        id,
+        seriesId,
+        seasonNumber: 1,
+        episodeNumber,
+        monitored: true,
+        hasFile,
+        hasGerman: hasFile,
+        airDateUtc,
+        lastSyncedAt: now,
+      })
+      .run();
+    const row = b.ctx.db
+      .insert(huntState)
+      .values({
+        source: "sonarr",
+        targetKind: "episode",
+        targetId: id,
+        seriesId,
+        seasonNumber: 1,
+        state: hasFile ? "german" : "missing",
+        stateChangedAt: now,
+      })
+      .returning({ id: huntState.id })
+      .get();
+    huntIds.set(id, row.id);
+  };
+
+  beforeAll(async () => {
+    b = await makeApp();
+    b.ctx.db
+      .insert(series)
+      .values({ id: 10, title: "Gap Show", year: 2025, monitored: true, lastSyncedAt: now })
+      .run();
+    b.ctx.db
+      .insert(series)
+      .values({ id: 20, title: "Older Show", year: 2024, monitored: true, lastSyncedAt: now })
+      .run();
+    insertEpisode(101, 10, 1, Date.UTC(2025, 0, 1), true);
+    insertEpisode(102, 10, 2, Date.UTC(2025, 0, 8));
+    insertEpisode(103, 10, 3, Date.UTC(2025, 0, 15), true);
+    insertEpisode(104, 10, 4, Date.UTC(2025, 1, 1));
+    insertEpisode(105, 10, 5, Date.UTC(2025, 2, 1));
+    insertEpisode(201, 20, 1, Date.UTC(2024, 5, 1));
+    insertEpisode(106, 10, 6, Date.now() - 7 * 86_400_000);
+    b.ctx.db
+      .insert(searchAttempts)
+      .values([
+        {
+          createdAt: now - 2,
+          source: "sonarr",
+          commandName: "EpisodeSearch",
+          payload: {},
+          targetIds: [huntIds.get(104) as number],
+          trigger: "missing",
+          estimatedQueries: 1,
+          status: "completed",
+          dryRun: false,
+        },
+        {
+          createdAt: now - 1,
+          source: "sonarr",
+          commandName: "EpisodeSearch",
+          payload: {},
+          targetIds: [huntIds.get(104) as number],
+          trigger: "missing",
+          estimatedQueries: 1,
+          status: "completed",
+          dryRun: false,
+        },
+      ])
+      .run();
+  });
+  afterAll(() => closeApp(b));
+
+  it("defaults to episodes at least 14 days old and sorts newest first", async () => {
+    const response = await get(b.app, "/api/missing/episodes");
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body.minimumAgeDays).toBe(14);
+    expect(body.total).toBe(4);
+    expect(body.items.map((item: { id: number }) => item.id)).toEqual([105, 104, 102, 201]);
+  });
+
+  it("filters by title, air year, prior Missing attempts, and exact neighbors", async () => {
+    expect((await get(b.app, "/api/missing/episodes?q=gap&year=2025")).json().total).toBe(3);
+    expect(
+      (await get(b.app, "/api/missing/episodes?maximumManualAttempts=1"))
+        .json()
+        .items.map((item: { id: number }) => item.id),
+    ).toEqual([105, 102, 201]);
+    expect((await get(b.app, "/api/missing/episodes?gap=previous")).json().total).toBe(2);
+    expect((await get(b.app, "/api/missing/episodes?gap=next")).json().total).toBe(1);
+    const between = (await get(b.app, "/api/missing/episodes?gap=between")).json();
+    expect(between.total).toBe(1);
+    expect(between.items[0]).toMatchObject({
+      id: 102,
+      previousEpisodePresent: true,
+      nextEpisodePresent: true,
+    });
+  });
+
+  it("rejects a minimum age below the 14-day completeness floor", async () => {
+    expect((await get(b.app, "/api/missing/episodes?minimumAgeDays=13")).statusCode).toBe(400);
+  });
+
+  it("forces only selected episodes that are still eligible", async () => {
+    b.ctx.services.sonarr = { getSystemStatus: async () => ({}) } as never;
+    const force = vi.spyOn(b.ctx.services.engine, "forceSubject");
+    const response = await post(b.app, "/api/missing/force", {
+      episodeIds: [102, 101, 106],
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ dryRun: true });
+    expect(force).toHaveBeenCalledTimes(1);
+    expect(force).toHaveBeenCalledWith({
+      source: "sonarr",
+      kind: "episode",
+      id: 102,
+      withAiRecheck: false,
+      trigger: "missing",
+    });
+  });
+});
+
 // ============ hunt + engine + system ============
 
 describe("hunt + engine", () => {
@@ -326,18 +465,15 @@ describe("hunt + engine", () => {
     await post(b.app, "/api/system/dry-run", { enabled: true });
   });
 
-  it("surfaces the forced queue after a force", async () => {
+  it("keeps forced work out of the automatic next-hunts queue", async () => {
     b.ctx.services.sonarr = { getSystemStatus: async () => ({}) } as never;
     await post(b.app, "/api/items/sonarr/episode/21/force", {});
     const res = await get(b.app, "/api/hunt/queue");
     const body = res.json();
     const item = body.items.find((i: { targetId: number }) => i.targetId === 21);
-    expect(item).toBeDefined();
-    expect(item.reason).toBe("forced");
-    expect(item.score).toEqual(expect.any(Number));
-    expect(item.seriesId).toBe(2);
+    expect(item).toBeUndefined();
     expect(body.total).toBeGreaterThanOrEqual(body.items.length);
-    expect(body.counts.forced).toBeGreaterThanOrEqual(1);
+    expect(body.counts.forced).toBe(0);
   });
 
   it("reports manual pause timing and groups a series AI verdict", async () => {

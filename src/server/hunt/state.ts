@@ -64,11 +64,11 @@ export type DeriveStateInput = {
   now: number;
 };
 
-/** Minimum pause for merely unproven dub availability. */
-export const AI_PAUSE_MIN_MS = 60 * 24 * 60 * 60 * 1000;
+/** A confident negative removes the checked scope from German hunting for one year. */
+export const AI_PAUSE_MIN_MS = 365 * 24 * 60 * 60 * 1000;
 export const DEFAULT_AI_PAUSE_CONFIDENCE = 0.7;
 
-/** Pause horizon for an `unlikely` verdict: max(60d after check, recheckAfter). */
+/** Pause horizon for an `unlikely` verdict: max(one year after check, recheckAfter). */
 export function aiPausedUntilFor(verdict: { checkedAt: number; recheckAfter: number }): number {
   return Math.max(verdict.checkedAt + AI_PAUSE_MIN_MS, verdict.recheckAfter);
 }
@@ -138,10 +138,8 @@ export function deriveState(input: DeriveStateInput): HuntState {
   if (input.override?.targetMode === "ignore") return "ignored";
   if (germanSatisfied(input)) return "german";
   if (profileBlocked(input)) return "profile_blocked";
-  // A dub-unavailability verdict controls only German upgrades. It must never
-  // prevent the arr from acquiring an original-language interim file.
-  if (!input.hasFile) return "missing";
   if (aiPauseActive(input)) return "ai_paused";
+  if (!input.hasFile) return "missing";
   return "non_german";
 }
 

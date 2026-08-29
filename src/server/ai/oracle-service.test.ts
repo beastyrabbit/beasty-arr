@@ -115,7 +115,7 @@ function seedSeriesSubject(db: Db, id: number, opts: SeriesSubjectOpts = {}) {
       episodeNumber: 1,
       airDateUtc,
       monitored: true,
-      hasFile: state === "non_german",
+      hasFile: state !== "missing",
       lastSyncedAt: NOW,
     })
     .run();
@@ -140,8 +140,8 @@ function seedMovieSubject(
     typeof movies.$inferInsert
   > = {},
 ) {
-  const { searchCount = 5, state = "missing", ...movieOver } = opts;
-  seedMovie(db, id, movieOver);
+  const { searchCount = 5, state = "non_german", ...movieOver } = opts;
+  seedMovie(db, id, { hasFile: state !== "missing", ...movieOver });
   db.insert(huntState)
     .values({
       source: "radarr",
@@ -260,6 +260,25 @@ function makeOracle(
 }
 
 describe("OracleService.selectSubjects (trigger policy)", () => {
+  it("normalizes stored unlikely verdict horizons to one year on startup", () => {
+    const ctx = setup();
+    const verdict = seedVerdict(ctx.db, "sonarr:1", {
+      checkedAt: NOW - 10 * DAY,
+      recheckAfter: NOW + 80 * DAY,
+      perSeason: [
+        { season: 1, verdict: "unlikely", confidence: 0.8, recheckAfter: NOW + 80 * DAY },
+      ],
+    });
+
+    makeOracle(ctx, scriptedRunner().runner);
+
+    expect(ctx.db.select().from(aiVerdicts).get()).toMatchObject({
+      id: verdict.id,
+      recheckAfter: NOW + 355 * DAY,
+      perSeason: [{ season: 1, recheckAfter: NOW + 355 * DAY }],
+    });
+  });
+
   it("checks old unsearched upgrades before search but not missing originals or recent releases", () => {
     const ctx = setup({ aiMinSearchesBeforeCheck: 4 });
     seedSeriesSubject(ctx.db, 1, { searchCount: 0, state: "non_german", airDateUtc: OLD });
@@ -287,7 +306,7 @@ describe("OracleService.selectSubjects (trigger policy)", () => {
     seedSeriesSubject(ctx.db, 7); // active verdict → skipped
     seedVerdict(ctx.db, "sonarr:7");
     seedSeriesSubject(ctx.db, 8); // expired verdict → re-selected
-    seedVerdict(ctx.db, "sonarr:8", { recheckAfter: NOW - DAY });
+    seedVerdict(ctx.db, "sonarr:8", { checkedAt: NOW - 366 * DAY, recheckAfter: NOW - DAY });
     seedSeriesSubject(ctx.db, 9); // superseded verdict only → re-selected
     seedVerdict(ctx.db, "sonarr:9", { supersededBy: 12345 });
     seedMovieSubject(ctx.db, 10, { searchCount: 4 }); // failed enough → selected
@@ -368,7 +387,7 @@ describe("OracleService.selectSubjects (trigger policy)", () => {
         seasonNumber: 2,
         episodeNumber: 1,
         monitored: true,
-        hasFile: false,
+        hasFile: true,
         hasGerman: false,
         lastSyncedAt: NOW,
       })
@@ -381,7 +400,7 @@ describe("OracleService.selectSubjects (trigger policy)", () => {
         targetId: 102,
         seriesId: 1,
         seasonNumber: 2,
-        state: "missing",
+        state: "non_german",
         stateChangedAt: NOW,
         searchCount: 0,
       })
@@ -403,7 +422,7 @@ describe("OracleService.selectSubjects (trigger policy)", () => {
         seasonNumber: 2,
         episodeNumber: 1,
         monitored: true,
-        hasFile: false,
+        hasFile: true,
         hasGerman: false,
         lastSyncedAt: NOW,
       })
@@ -416,7 +435,7 @@ describe("OracleService.selectSubjects (trigger policy)", () => {
         targetId: 102,
         seriesId: 1,
         seasonNumber: 2,
-        state: "missing",
+        state: "non_german",
         stateChangedAt: NOW,
         searchCount: 2,
       })
@@ -465,7 +484,10 @@ describe("OracleService.runDailyBatch", () => {
   it("stores the verdict with clamps, supersedes the old row and notifies", async () => {
     const ctx = setup();
     seedSeriesSubject(ctx.db, 1);
-    const expired = seedVerdict(ctx.db, "sonarr:1", { recheckAfter: NOW - DAY });
+    const expired = seedVerdict(ctx.db, "sonarr:1", {
+      checkedAt: NOW - 366 * DAY,
+      recheckAfter: NOW - DAY,
+    });
     const events: string[] = [];
     ctx.bus.subscribe((event) => events.push(event.type));
     const { runner, calls } = scriptedRunner(
@@ -492,7 +514,7 @@ describe("OracleService.runDailyBatch", () => {
       germanTitle: "Die Serie",
       promptVersion: "dub-oracle-v15",
       checkedAt: NOW,
-      recheckAfter: NOW + 90 * DAY, // unproven dub availability gets a short retry
+      recheckAfter: NOW + 365 * DAY,
       confidence: 0.95,
       perSeason: [{ season: 1, verdict: "unlikely", confidence: 0.95 }],
       supersededBy: null,
@@ -598,7 +620,7 @@ describe("OracleService.runDailyBatch", () => {
         seasonNumber: 2,
         episodeNumber: 1,
         monitored: true,
-        hasFile: false,
+        hasFile: true,
         hasGerman: false,
         lastSyncedAt: NOW,
       })
@@ -611,7 +633,7 @@ describe("OracleService.runDailyBatch", () => {
         targetId: 102,
         seriesId: 1,
         seasonNumber: 2,
-        state: "missing",
+        state: "non_german",
         stateChangedAt: NOW,
         searchCount: 5,
       })
@@ -634,7 +656,7 @@ describe("OracleService.runDailyBatch", () => {
         seasonNumber: 2,
         episodeNumber: 1,
         monitored: true,
-        hasFile: false,
+        hasFile: true,
         hasGerman: false,
         lastSyncedAt: NOW,
       })
@@ -647,7 +669,7 @@ describe("OracleService.runDailyBatch", () => {
         targetId: 102,
         seriesId: 1,
         seasonNumber: 2,
-        state: "missing",
+        state: "non_german",
         stateChangedAt: NOW,
         searchCount: 5,
       })

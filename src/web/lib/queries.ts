@@ -40,6 +40,9 @@ import type {
   HuntStatusResponse,
   ItemSubjectKind,
   LibraryQuery,
+  MissingEpisodesQuery,
+  MissingEpisodesResponse,
+  MissingForceResponse,
   MovieDetail,
   MovieListResponse,
   OkResponse,
@@ -76,6 +79,7 @@ export const keys = {
   budgetLedger: (q: BudgetLedgerQuery) => ["budget", "ledger", q] as const,
   series: (q: LibraryQuery) => ["library", "series", "list", q] as const,
   movies: (q: LibraryQuery) => ["library", "movies", "list", q] as const,
+  missing: (q: MissingEpisodesQuery) => ["missing", q] as const,
   seriesDetail: (id: number) => ["library", "series", "detail", id] as const,
   movieDetail: (id: number) => ["library", "movies", "detail", id] as const,
   search: (q: string) => ["search", q] as const,
@@ -133,11 +137,13 @@ export function wireSseToQueryClient(qc: QueryClient): void {
           queryKey: ["library", p.kind === "movie" ? "movies" : "series", "list"],
         });
         qc.invalidateQueries({ queryKey: keys.dashboard });
+        qc.invalidateQueries({ queryKey: ["missing"] });
         break;
       }
       case "queue.updated":
         qc.invalidateQueries({ queryKey: keys.huntQueue });
         qc.invalidateQueries({ queryKey: keys.huntPaused });
+        qc.invalidateQueries({ queryKey: ["missing"] });
         break;
       case "hunt.batch.started":
       case "hunt.search.started":
@@ -328,6 +334,43 @@ export function useTypeahead(q: string) {
   });
 }
 
+// ============ missing media ============
+
+export function useMissingEpisodes(query: MissingEpisodesQuery) {
+  return useQuery({
+    queryKey: keys.missing(query),
+    queryFn: () =>
+      api.get<MissingEpisodesResponse>("/api/missing/episodes", {
+        q: query.q,
+        year: query.year,
+        minimumAgeDays: query.minimumAgeDays,
+        maximumManualAttempts: query.maximumManualAttempts,
+        gap: query.gap,
+        page: query.page,
+        pageSize: query.pageSize,
+      }),
+    placeholderData: (previous) => previous,
+  });
+}
+
+export function useForceMissing() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (episodeIds: number[]) =>
+      api.post<MissingForceResponse>("/api/missing/force", { episodeIds }),
+    onSuccess: (result) => {
+      if (isDryRunResult(result)) toastMaybeDryRun(result, "");
+      else
+        toast.success(
+          `Searching ${result.accepted} missing episode${result.accepted === 1 ? "" : "s"}`,
+        );
+      qc.invalidateQueries({ queryKey: ["missing"] });
+      qc.invalidateQueries({ queryKey: keys.huntStatus });
+    },
+    onError: toastError,
+  });
+}
+
 // ============ item actions ============
 
 export type ItemRef = { source: ArrSource; kind: ItemSubjectKind; id: number };
@@ -350,7 +393,7 @@ export function useForceSearch() {
       api.post<ForceResponse>(itemPath(ref, "force"), body ?? {}),
     onSuccess: (result) => {
       if (isDryRunResult(result)) toastMaybeDryRun(result, "");
-      else toast.success(`Forced — queue position ${result.queuePosition}`);
+      else toast.success("Forced search started");
       invalidateItem(qc);
     },
     onError: toastError,

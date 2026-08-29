@@ -11,6 +11,7 @@ import { registerHuntRoutes } from "./hunt.js";
 import { registerItemRoutes } from "./items.js";
 import { registerLibraryRoutes } from "./library.js";
 import { registerLogRoutes } from "./logs.js";
+import { registerMissingRoutes } from "./missing.js";
 import { registerStatusRoutes } from "./status.js";
 import { registerWebhookRoutes } from "./webhooks.js";
 
@@ -21,6 +22,7 @@ export async function registerRoutes(app: FastifyInstance, ctx: AppContext): Pro
   registerLibraryRoutes(app, ctx);
   registerItemRoutes(app, ctx);
   registerHuntRoutes(app, ctx);
+  registerMissingRoutes(app, ctx);
   registerBudgetRoutes(app, ctx);
   registerLogRoutes(app, ctx);
   registerAiRoutes(app, ctx);

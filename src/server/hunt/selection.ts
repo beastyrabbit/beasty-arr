@@ -153,7 +153,10 @@ function removeAll(list: HuntCandidate[], batch: HuntCandidate[]): void {
  * (<=3 ids). Seasons that will form their own SeasonSearch are never split
  * into an EpisodeSearch.
  */
-export function groupCommands(ordered: HuntCandidate[]): PlannedCommand[] {
+export function groupCommands(
+  ordered: HuntCandidate[],
+  options: { episodeIdsOnly?: boolean } = {},
+): PlannedCommand[] {
   const remaining = [...ordered];
   const commands: PlannedCommand[] = [];
   while (remaining.length > 0) {
@@ -184,7 +187,11 @@ export function groupCommands(ordered: HuntCandidate[]): PlannedCommand[] {
       seasonCounts.set(seasonOf(c), (seasonCounts.get(seasonOf(c)) ?? 0) + 1);
     }
     const headSeason = seasonOf(head);
-    if (!head.anime && (seasonCounts.get(headSeason) ?? 0) >= SEASON_SEARCH_MIN_EPISODES) {
+    if (
+      !options.episodeIdsOnly &&
+      !head.anime &&
+      (seasonCounts.get(headSeason) ?? 0) >= SEASON_SEARCH_MIN_EPISODES
+    ) {
       const batch = seriesCands.filter((c) => seasonOf(c) === headSeason);
       removeAll(remaining, batch);
       commands.push({
@@ -200,8 +207,16 @@ export function groupCommands(ordered: HuntCandidate[]): PlannedCommand[] {
       continue;
     }
     const batch = seriesCands
-      .filter((c) => c.anime || (seasonCounts.get(seasonOf(c)) ?? 0) < SEASON_SEARCH_MIN_EPISODES)
-      .slice(0, head.anime ? 1 : EPISODE_SEARCH_MAX_IDS);
+      .filter(
+        (c) =>
+          options.episodeIdsOnly ||
+          c.anime ||
+          (seasonCounts.get(seasonOf(c)) ?? 0) < SEASON_SEARCH_MIN_EPISODES,
+      )
+      .slice(
+        0,
+        options.episodeIdsOnly ? EPISODE_SEARCH_MAX_IDS : head.anime ? 1 : EPISODE_SEARCH_MAX_IDS,
+      );
     removeAll(remaining, batch);
     commands.push({
       source: head.source,

@@ -256,8 +256,8 @@ function seedVerdict(db: Db, over: Partial<typeof aiVerdicts.$inferInsert> = {})
     .get();
 }
 
-describe("selection ordering and interleave", () => {
-  it("interleaves missing:upgrade 1:2 by priority score, manual first", () => {
+describe("selection ordering", () => {
+  it("keeps missing and forced work out of the automatic queue", () => {
     const { db, engine, settings } = makeHarness();
     settings.update({ missingToUpgradeRatio: "1:2" });
     for (const id of [1, 2, 3, 4, 5, 6]) seedSeries(db, { id });
@@ -287,27 +287,38 @@ describe("selection ordering and interleave", () => {
     );
 
     const view = engine.queueView();
-    expect(view.map((v) => v.huntStateId)).toEqual([forced, a, c, d, b, e]);
-    expect(view[0].reason).toBe("FORCED");
-    expect(view[1].reason).toBe("SCHEDULED");
-    expect(view[1].score).toBe(710);
+    expect(view.map((v) => v.huntStateId)).toEqual([c, d, e]);
+    expect(view.every((item) => item.reason === "SCHEDULED")).toBe(true);
+    expect([forced, a, b].some((id) => view.some((item) => item.huntStateId === id))).toBe(false);
   });
 
   it("marks previously-searched candidates as RETRY", () => {
     const { db, engine } = makeHarness();
     seedSeries(db, { id: 1 });
-    seedEpisode(db, { id: 11, seriesId: 1 }, { searchCount: 2, lastSearchAt: T0 - DAY_MS });
+    seedEpisode(
+      db,
+      { id: 11, seriesId: 1, hasFile: true },
+      { state: "non_german", searchCount: 2, lastSearchAt: T0 - DAY_MS },
+    );
     expect(engine.queueView()[0].reason).toBe("RETRY");
   });
 
   it("respects nextEligibleAt for scheduled and requires a passed one for exhausted", () => {
     const { db, engine } = makeHarness();
     seedSeries(db, { id: 1 });
-    seedEpisode(db, { id: 11, seriesId: 1 }, { nextEligibleAt: T0 + HOUR_MS });
-    seedEpisode(db, { id: 12, seriesId: 1, episodeNumber: 2 }, { state: "exhausted", tier: 6 });
+    seedEpisode(
+      db,
+      { id: 11, seriesId: 1, hasFile: true },
+      { state: "non_german", nextEligibleAt: T0 + HOUR_MS },
+    );
+    seedEpisode(
+      db,
+      { id: 12, seriesId: 1, episodeNumber: 2, hasFile: true },
+      { state: "exhausted", tier: 6 },
+    );
     const ok = seedEpisode(
       db,
-      { id: 13, seriesId: 1, episodeNumber: 3 },
+      { id: 13, seriesId: 1, episodeNumber: 3, hasFile: true },
       { state: "exhausted", tier: 6, nextEligibleAt: T0 - HOUR_MS },
     );
     expect(engine.queueView().map((v) => v.huntStateId)).toEqual([ok]);
@@ -356,7 +367,11 @@ describe("dub-lag and specials gating", () => {
   it("skips specials unless huntSpecials is enabled", () => {
     const { db, engine, settings } = makeHarness();
     seedSeries(db, { id: 1 });
-    const hs = seedEpisode(db, { id: 11, seriesId: 1, seasonNumber: 0 });
+    const hs = seedEpisode(
+      db,
+      { id: 11, seriesId: 1, seasonNumber: 0, hasFile: true },
+      { state: "non_german" },
+    );
     expect(engine.queueView()).toHaveLength(0);
     settings.update({ huntSpecials: true });
     expect(engine.queueView().map((v) => v.huntStateId)).toEqual([hs]);
@@ -367,7 +382,7 @@ describe("runCycle — dry-run", () => {
   it("records attempts without sending commands or recording budget spend", async () => {
     const { db, engine, sonarr, budget, bus } = makeHarness();
     seedSeries(db, { id: 1 });
-    seedEpisode(db, { id: 11, seriesId: 1 });
+    seedEpisode(db, { id: 11, seriesId: 1, hasFile: true }, { state: "non_german" });
 
     await engine.runCycle();
     expect(budget.refreshCalls).toBe(1);
@@ -453,7 +468,11 @@ describe("runCycle — live dispatch", () => {
     low.settings.update({ dryRun: false });
     seedSeries(low.db, { id: 1 });
     const ids = [1, 2, 3].map((n) =>
-      seedEpisode(low.db, { id: 10 + n, seriesId: 1, episodeNumber: n }),
+      seedEpisode(
+        low.db,
+        { id: 10 + n, seriesId: 1, episodeNumber: n, hasFile: true },
+        { state: "non_german" },
+      ),
     );
     await low.engine.runCycle();
 
@@ -486,7 +505,11 @@ describe("runCycle — live dispatch", () => {
     const high = makeHarness({ random: () => 1 }); // jitter factor 1.1
     high.settings.update({ dryRun: false });
     seedSeries(high.db, { id: 1 });
-    const hs = seedEpisode(high.db, { id: 11, seriesId: 1 });
+    const hs = seedEpisode(
+      high.db,
+      { id: 11, seriesId: 1, hasFile: true },
+      { state: "non_german" },
+    );
     await high.engine.runCycle();
     const a2 = high.db.select().from(searchAttempts).all()[0];
     expect(huntRow(high.db, hs).nextEligibleAt).toBe(
@@ -498,7 +521,11 @@ describe("runCycle — live dispatch", () => {
     const { db, engine, settings } = makeHarness();
     settings.update({ dryRun: false });
     seedSeries(db, { id: 1 });
-    const hs = seedEpisode(db, { id: 11, seriesId: 1 }, { tier: 5, searchCount: 5 });
+    const hs = seedEpisode(
+      db,
+      { id: 11, seriesId: 1, hasFile: true },
+      { state: "non_german", tier: 5, searchCount: 5 },
+    );
     await engine.runCycle();
     const row = huntRow(db, hs);
     expect(row).toMatchObject({ tier: 6, state: "exhausted", searchCount: 6 });
@@ -507,7 +534,7 @@ describe("runCycle — live dispatch", () => {
   it("never retries a failed movie sooner than one month", async () => {
     const { db, engine, settings } = makeHarness();
     settings.update({ dryRun: false });
-    const hs = seedMovie(db, { id: 9 });
+    const hs = seedMovie(db, { id: 9, hasFile: true }, { state: "non_german" });
     await engine.runCycle();
     const attempt = db.select().from(searchAttempts).get();
     expect(huntRow(db, hs).nextEligibleAt).toBe((attempt?.completedAt as number) + 30 * DAY_MS);
@@ -517,11 +544,16 @@ describe("runCycle — live dispatch", () => {
     const { db, engine, settings } = makeHarness();
     settings.update({ dryRun: false, releasingSeasonRetryDays: 14 });
     seedSeries(db, { id: 1, status: "continuing" });
-    const hs = seedEpisode(db, {
-      id: 11,
-      seriesId: 1,
-      airDateUtc: T0 - 2 * DAY_MS,
-    });
+    const hs = seedEpisode(
+      db,
+      {
+        id: 11,
+        seriesId: 1,
+        airDateUtc: T0 - 2 * DAY_MS,
+        hasFile: true,
+      },
+      { state: "non_german" },
+    );
     await engine.runCycle();
     const attempt = db.select().from(searchAttempts).get();
     expect(huntRow(db, hs).nextEligibleAt).toBe((attempt?.completedAt as number) + 14 * DAY_MS);
@@ -531,8 +563,16 @@ describe("runCycle — live dispatch", () => {
     const { db, engine, settings } = makeHarness();
     settings.update({ dryRun: false });
     seedSeries(db, { id: 1 });
-    const seasoned = seedEpisode(db, { id: 11, seriesId: 1 }, { tier: 3, searchCount: 3 });
-    const fresh = seedEpisode(db, { id: 12, seriesId: 1, episodeNumber: 2 });
+    const seasoned = seedEpisode(
+      db,
+      { id: 11, seriesId: 1, hasFile: true },
+      { state: "non_german", tier: 3, searchCount: 3 },
+    );
+    const fresh = seedEpisode(
+      db,
+      { id: 12, seriesId: 1, episodeNumber: 2, hasFile: true },
+      { state: "non_german" },
+    );
     await engine.runCycle();
     expect(huntRow(db, seasoned).tier).toBe(4);
     expect(huntRow(db, fresh).tier).toBe(4);
@@ -542,7 +582,7 @@ describe("runCycle — live dispatch", () => {
     const automatic = makeHarness();
     automatic.settings.update({ dryRun: false });
     seedSeries(automatic.db, { id: 1 });
-    seedEpisode(automatic.db, { id: 11, seriesId: 1 });
+    seedEpisode(automatic.db, { id: 11, seriesId: 1, hasFile: true }, { state: "non_german" });
     const automaticCalls: { keys: string[]; force: boolean }[] = [];
     automatic.engine.onAiCheckRequested = (keys, force) => automaticCalls.push({ keys, force });
     await automatic.engine.runCycle();
@@ -567,7 +607,9 @@ describe("runCycle — live dispatch", () => {
   it("requests selective AI for a movie group even when one target was grabbed", async () => {
     const { db, engine, settings, sync } = makeHarness();
     settings.update({ dryRun: false });
-    const huntIds = [13_100, 13_866, 13_556].map((id) => seedMovie(db, { id }));
+    const huntIds = [13_100, 13_866, 13_556].map((id) =>
+      seedMovie(db, { id, hasFile: true }, { state: "non_german" }),
+    );
     const calls: { keys: string[]; force: boolean }[] = [];
     engine.onAiCheckRequested = (keys, force) => calls.push({ keys, force });
     sync.onMovieRefresh = (movieId) => {
@@ -627,7 +669,7 @@ describe("runCycle — live dispatch", () => {
     const { db, engine, settings, sync } = makeHarness();
     settings.update({ dryRun: false });
     seedSeries(db, { id: 1 });
-    const hs = seedEpisode(db, { id: 11, seriesId: 1 });
+    const hs = seedEpisode(db, { id: 11, seriesId: 1, hasFile: true }, { state: "non_german" });
     // Simulate the sync history poll landing mid-search: grab credited + flag set.
     sync.onSeriesRefresh = () => {
       db.update(huntState).set({ awaitingImportSince: T0 }).where(eq(huntState.id, hs)).run();
@@ -651,7 +693,7 @@ describe("runCycle — live dispatch", () => {
     settings.update({ dryRun: false });
     sonarr.defaultCommandStatus = "started";
     seedSeries(db, { id: 1 });
-    const hs = seedEpisode(db, { id: 11, seriesId: 1 });
+    const hs = seedEpisode(db, { id: 11, seriesId: 1, hasFile: true }, { state: "non_german" });
     await engine.runCycle();
     expect(sonarr.getCommandCalls).toBeGreaterThanOrEqual(59);
     const attempt = db.select().from(searchAttempts).all()[0];
@@ -664,7 +706,7 @@ describe("runCycle — live dispatch", () => {
     settings.update({ dryRun: false, maxCommandsPerCycle: 2 });
     for (const id of [1, 2, 3, 4]) {
       seedSeries(db, { id });
-      seedEpisode(db, { id: id * 10, seriesId: id });
+      seedEpisode(db, { id: id * 10, seriesId: id, hasFile: true }, { state: "non_german" });
     }
     await engine.runCycle();
     expect(sonarr.sent).toHaveLength(2);
@@ -675,11 +717,11 @@ describe("runCycle — gates and holds", () => {
   it("budget hold stops the scheduled portion but manual ran first", async () => {
     const { db, engine, settings, sonarr, budget } = makeHarness();
     settings.update({ dryRun: false });
-    budget.holdAfter = 1;
+    budget.holdAfter = 0;
     seedSeries(db, { id: 1 });
     seedSeries(db, { id: 2 });
     seedEpisode(db, { id: 11, seriesId: 1 }, { manualPriority: 5 });
-    seedEpisode(db, { id: 21, seriesId: 2 });
+    seedEpisode(db, { id: 21, seriesId: 2, hasFile: true }, { state: "non_german" });
 
     await engine.runCycle();
     expect(sonarr.sent).toHaveLength(1); // manual only
@@ -698,14 +740,76 @@ describe("runCycle — gates and holds", () => {
     expect(holds[0].level).toBe("warn");
   });
 
+  it("drains forced anime work despite the cycle ceiling and a budget hold", async () => {
+    const { db, engine, settings, sonarr, budget } = makeHarness();
+    settings.update({ dryRun: false, maxCommandsPerCycle: 1 });
+    budget.holdAfter = 0;
+    seedSeries(db, { id: 1, seriesType: "anime" });
+    for (let episodeNumber = 1; episodeNumber <= 4; episodeNumber++) {
+      seedEpisode(
+        db,
+        { id: 10 + episodeNumber, seriesId: 1, episodeNumber, hasFile: true },
+        { state: "non_german" },
+      );
+    }
+    engine.forceSubject({ source: "sonarr", kind: "series", id: 1 });
+
+    await engine.runCycle();
+
+    expect(sonarr.sent).toHaveLength(4);
+    expect(db.select().from(searchAttempts).all()).toHaveLength(4);
+    expect(
+      db
+        .select()
+        .from(searchAttempts)
+        .all()
+        .every((attempt) => attempt.trigger === "forced"),
+    ).toBe(true);
+    expect(budget.recorded).toHaveLength(4);
+  });
+
+  it("records Missing searches separately and never requests a dub analysis", async () => {
+    const { db, engine, settings } = makeHarness();
+    settings.update({ dryRun: false, maxCommandsPerCycle: 1 });
+    seedSeries(db, { id: 1 });
+    for (let episodeNumber = 1; episodeNumber <= 3; episodeNumber++) {
+      seedEpisode(db, { id: 10 + episodeNumber, seriesId: 1, episodeNumber });
+    }
+    const calls: { keys: string[]; force: boolean }[] = [];
+    engine.onAiCheckRequested = (keys, force) => calls.push({ keys, force });
+    engine.forceSubject({
+      source: "sonarr",
+      kind: "series",
+      id: 1,
+      trigger: "missing",
+    });
+
+    await engine.runCycle();
+
+    expect(db.select().from(searchAttempts).get()?.trigger).toBe("missing");
+    expect(db.select().from(searchAttempts).get()).toMatchObject({
+      commandName: "EpisodeSearch",
+      payload: { name: "EpisodeSearch", episodeIds: [11, 12, 13] },
+    });
+    expect(calls).toEqual([]);
+  });
+
   it("continues with a smaller command after a command-scoped budget rejection", async () => {
     const { db, engine, settings, sonarr, radarr, budget } = makeHarness();
     settings.update({ dryRun: false });
     budget.maxQueriesPerCommand = 1;
     seedSeries(db, { id: 1, seriesType: "anime" });
-    seedEpisode(db, { id: 11, seriesId: 1, episodeNumber: 1 });
-    seedEpisode(db, { id: 12, seriesId: 1, episodeNumber: 2 });
-    seedMovie(db, { id: 9 });
+    seedEpisode(
+      db,
+      { id: 11, seriesId: 1, episodeNumber: 1, hasFile: true },
+      { state: "non_german" },
+    );
+    seedEpisode(
+      db,
+      { id: 12, seriesId: 1, episodeNumber: 2, hasFile: true },
+      { state: "non_german" },
+    );
+    seedMovie(db, { id: 9, hasFile: true }, { state: "non_german" });
 
     await engine.runCycle();
 
@@ -733,7 +837,7 @@ describe("runCycle — gates and holds", () => {
     settings.update({ dryRun: false, queueGateEnabled: false, queueGateThreshold: 10 });
     sonarr.queueTotal = 500;
     seedSeries(db, { id: 1 });
-    seedEpisode(db, { id: 11, seriesId: 1 });
+    seedEpisode(db, { id: 11, seriesId: 1, hasFile: true }, { state: "non_german" });
 
     await engine.runCycle();
 
@@ -747,8 +851,8 @@ describe("runCycle — gates and holds", () => {
     settings.update({ dryRun: false, maxCommandsPerCycle: 2 });
     sonarr.queueTotal = 20;
     seedSeries(db, { id: 1 });
-    seedEpisode(db, { id: 11, seriesId: 1 });
-    seedMovie(db, { id: 9 });
+    seedEpisode(db, { id: 11, seriesId: 1, hasFile: true }, { state: "non_german" });
+    seedMovie(db, { id: 9, hasFile: true }, { state: "non_german" });
 
     await engine.runCycle();
     expect(sonarr.sent).toHaveLength(0);
@@ -843,32 +947,32 @@ describe("applyVerdict", () => {
     expect(huntRow(db, done).state).toBe("german"); // untouched
   });
 
-  it("uses each exact unlikely verdict's recheck horizon", () => {
+  it("keeps each unlikely verdict dormant for at least one year", () => {
     const { db, engine } = makeHarness();
     seedSeries(db, { id: 1 });
     const hs = seedEpisode(db, { id: 11, seriesId: 1, hasFile: true }, { state: "non_german" });
     const v1 = seedVerdict(db, {});
     engine.applyVerdict(v1);
-    expect(huntRow(db, hs).nextEligibleAt).toBe(T0 + 90 * DAY_MS);
+    expect(huntRow(db, hs).nextEligibleAt).toBe(T0 + 365 * DAY_MS);
 
     const v2 = seedVerdict(db, { checkedAt: T0 + 180 * DAY_MS, recheckAfter: T0 + 270 * DAY_MS });
     engine.applyVerdict(v2);
-    expect(huntRow(db, hs).nextEligibleAt).toBe(T0 + 270 * DAY_MS);
+    expect(huntRow(db, hs).nextEligibleAt).toBe(T0 + 545 * DAY_MS);
 
     const v3 = seedVerdict(db, { checkedAt: T0 + 540 * DAY_MS, recheckAfter: T0 + 630 * DAY_MS });
     engine.applyVerdict(v3);
-    expect(huntRow(db, hs).nextEligibleAt).toBe(T0 + 630 * DAY_MS);
+    expect(huntRow(db, hs).nextEligibleAt).toBe(T0 + 905 * DAY_MS);
   });
 
-  it("records an unlikely verdict without blocking a missing original file", () => {
+  it("pauses a missing episode with the rest of its checked scope", () => {
     const { db, engine } = makeHarness();
     seedSeries(db, { id: 1 });
     const hs = seedEpisode(db, { id: 11, seriesId: 1 });
     const verdict = seedVerdict(db, { verdict: "unlikely", confidence: 0.99 });
     expect(engine.applyVerdict(verdict).applied).toBe(1);
     expect(huntRow(db, hs)).toMatchObject({
-      state: "missing",
-      nextEligibleAt: null,
+      state: "ai_paused",
+      nextEligibleAt: T0 + 365 * DAY_MS,
       aiVerdictId: verdict.id,
     });
   });

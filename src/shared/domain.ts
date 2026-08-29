@@ -35,7 +35,7 @@ export type AiSeasonVerdict = {
   recheckAfter?: number;
 };
 
-export const SEARCH_TRIGGERS = ["scheduled", "forced", "retry"] as const;
+export const SEARCH_TRIGGERS = ["scheduled", "forced", "missing", "retry"] as const;
 export type SearchTrigger = (typeof SEARCH_TRIGGERS)[number];
 
 // Sonarr/Radarr language ids (verified against a live Sonarr v4 /api/v3/language:

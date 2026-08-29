@@ -48,7 +48,8 @@ function SearchesTab() {
   const attempts = useAttempts({
     page,
     pageSize: PAGE_SIZE,
-    trigger: trigger === "all" ? undefined : (trigger as "scheduled" | "forced" | "retry"),
+    trigger:
+      trigger === "all" ? undefined : (trigger as "scheduled" | "forced" | "missing" | "retry"),
   });
 
   return (
@@ -65,6 +66,7 @@ function SearchesTab() {
             { value: "all", label: "All triggers" },
             { value: "scheduled", label: "Scheduled" },
             { value: "forced", label: "Forced" },
+            { value: "missing", label: "Missing" },
             { value: "retry", label: "Retry" },
           ]}
           className="h-6"

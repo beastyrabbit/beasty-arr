@@ -45,4 +45,13 @@ describe("settings", () => {
     service.invalidate();
     expect(service.get()).toMatchObject({ aiModel: "gpt-5.5", fixerParallelism: 2 });
   });
+
+  it("migrates old negative-verdict retry settings to at least one year", () => {
+    const created = createDb(":memory:");
+    sqlite = created.sqlite;
+    sqlite.exec("CREATE TABLE settings (key text PRIMARY KEY NOT NULL, value text NOT NULL)");
+    created.db.insert(settingsTable).values({ key: "aiUnlikelyRetryDays", value: 90 }).run();
+
+    expect(new SettingsService(created.db).get().aiUnlikelyRetryDays).toBe(365);
+  });
 });

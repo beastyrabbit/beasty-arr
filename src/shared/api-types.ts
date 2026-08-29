@@ -473,6 +473,41 @@ export type AiDormantItem = {
 
 export type HuntPausedResponse = { userPaused: PausedItem[]; aiDormant: AiDormantItem[] };
 
+// ============ missing media ============
+
+export type MissingEpisodeItem = {
+  id: number;
+  seriesId: number;
+  seriesTitle: string;
+  seriesYear: number | null;
+  seasonNumber: number;
+  episodeNumber: number;
+  episodeTitle: string | null;
+  airDateUtc: number;
+  manualAttempts: number;
+  previousEpisodePresent: boolean;
+  nextEpisodePresent: boolean;
+  queued: boolean;
+  searching: boolean;
+};
+
+export type MissingEpisodesResponse = Paged<MissingEpisodeItem> & {
+  minimumAgeDays: number;
+  availableYears: { year: number; count: number }[];
+};
+
+export type MissingGapFilter = "any" | "previous" | "next" | "between";
+export type MissingEpisodesQuery = PageQuery & {
+  q?: string;
+  year?: number;
+  minimumAgeDays?: number;
+  maximumManualAttempts?: number;
+  gap?: MissingGapFilter;
+};
+
+export type MissingForceRequest = { episodeIds: number[] };
+export type MissingForceResponse = MaybeDryRun<{ accepted: number }>;
+
 export type EngineActionResponse = { ok: true; engine: EngineState };
 export type CycleResponse = MaybeDryRun<{ ok: true; started: boolean }>;
 
