@@ -48,6 +48,23 @@ type HsRow = typeof huntState.$inferSelect;
 const IN_FLIGHT_STATUSES = ["dispatched", "queued", "started"] as const;
 const HISTORY_LIMIT = 60;
 const ATTEMPT_SCAN_LIMIT = 400;
+const TRAILING_SLASHES_RE = /\/+$/;
+
+function arrDeepLink(
+  baseUrl: string | undefined,
+  kind: "series" | "movie",
+  titleSlug: string | null,
+): string | null {
+  if (!baseUrl || !titleSlug) return null;
+  const url = new URL(baseUrl);
+  if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+  url.username = "";
+  url.password = "";
+  url.search = "";
+  url.hash = "";
+  url.pathname = `${url.pathname.replace(TRAILING_SLASHES_RE, "")}/${kind}/${encodeURIComponent(titleSlug)}`;
+  return url.toString();
+}
 
 // ============ shared loaders ============
 
@@ -214,7 +231,7 @@ function buildSeriesItems(ctx: AppContext): SeriesListItem[] {
       searching: acc?.searching ?? false,
       lastSearchAt: acc?.lastSearchAt ?? null,
       nextSearchAt: acc?.nextSearchAt ?? null,
-      arrUrl: null,
+      arrUrl: arrDeepLink(ctx.env.SONARR_EXTERNAL_URL, "series", s.titleSlug),
     };
   });
 }
@@ -254,7 +271,7 @@ function buildMovieItems(ctx: AppContext): MovieListItem[] {
       searching: hsRow ? inFlight.has(hsRow.id) : false,
       lastSearchAt: hsRow?.lastSearchAt ?? null,
       nextSearchAt: hsRow?.nextEligibleAt ?? null,
-      arrUrl: null,
+      arrUrl: arrDeepLink(ctx.env.RADARR_EXTERNAL_URL, "movie", m.titleSlug),
     };
   });
 }

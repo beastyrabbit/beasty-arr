@@ -22,6 +22,7 @@ import type {
 export const series = sqliteTable("series", {
   id: integer("id").primaryKey(), // Sonarr seriesId
   title: text("title").notNull(),
+  titleSlug: text("title_slug"),
   tvdbId: integer("tvdb_id"),
   imdbId: text("imdb_id"),
   year: integer("year"),
@@ -71,6 +72,7 @@ export const movies = sqliteTable(
   {
     id: integer("id").primaryKey(), // Radarr movieId
     title: text("title").notNull(),
+    titleSlug: text("title_slug"),
     tmdbId: integer("tmdb_id"),
     imdbId: text("imdb_id"),
     year: integer("year"),

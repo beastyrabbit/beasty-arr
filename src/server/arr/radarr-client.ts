@@ -65,6 +65,7 @@ export type RadarrMovieFileRecord = {
 export type RadarrMovieRecord = {
   id?: number;
   title?: string;
+  titleSlug?: string;
   originalTitle?: string;
   year?: number;
   tmdbId?: number;

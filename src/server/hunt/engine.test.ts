@@ -462,7 +462,7 @@ describe("runCycle — live dispatch", () => {
     expect(h.sonarr.sent).toHaveLength(1);
   });
 
-  it("groups a season, dispatches, polls to completion and bumps tiers with jitter", async () => {
+  it("keeps automatic upgrade searches episode-scoped and bumps tiers with jitter", async () => {
     const low = makeHarness({ random: () => 0 }); // jitter factor 0.9
     low.settings.update({ dryRun: false });
     seedSeries(low.db, { id: 1 });
@@ -475,19 +475,19 @@ describe("runCycle — live dispatch", () => {
     );
     await low.engine.runCycle();
 
-    expect(low.sonarr.sent).toEqual([{ name: "SeasonSearch", seriesId: 1, seasonNumber: 1 }]);
+    expect(low.sonarr.sent).toEqual([{ name: "EpisodeSearch", episodeIds: [11, 12, 13] }]);
     expect(
       low.bus.since(0).find((event) => event.type === "hunt.search.started")?.payload,
-    ).toMatchObject({ commandName: "SeasonSearch" });
-    expect(low.budget.estimateCalls).toEqual([{ kind: "tv", searchOps: 1, anime: false }]);
+    ).toMatchObject({ commandName: "EpisodeSearch" });
+    expect(low.budget.estimateCalls).toEqual([{ kind: "tv", searchOps: 3, anime: false }]);
     expect(low.budget.recorded).toHaveLength(1);
     expect(low.sync.seriesRefreshes).toEqual([1]);
     const attempt = low.db.select().from(searchAttempts).all()[0];
     expect(attempt).toMatchObject({
-      commandName: "SeasonSearch",
+      commandName: "EpisodeSearch",
       status: "completed",
       result: "no_grab",
-      targetLabel: "Series 1 S01",
+      targetLabel: "Series 1 S01E01 +2",
       dryRun: false,
     });
     expect(attempt.targetIds).toEqual(ids);
@@ -765,6 +765,28 @@ describe("runCycle — gates and holds", () => {
         .every((attempt) => attempt.trigger === "forced"),
     ).toBe(true);
     expect(budget.recorded).toHaveLength(4);
+  });
+
+  it("allows an explicit forced season to use a broad SeasonSearch", async () => {
+    const { db, engine, settings, sonarr } = makeHarness();
+    settings.update({ dryRun: false });
+    seedSeries(db, { id: 1 });
+    for (let episodeNumber = 1; episodeNumber <= 3; episodeNumber++) {
+      seedEpisode(
+        db,
+        { id: 10 + episodeNumber, seriesId: 1, episodeNumber, hasFile: true },
+        { state: "non_german" },
+      );
+    }
+    engine.forceSubject({ source: "sonarr", kind: "series", id: 1 });
+
+    await engine.runCycle();
+
+    expect(sonarr.sent).toEqual([{ name: "SeasonSearch", seriesId: 1, seasonNumber: 1 }]);
+    expect(db.select().from(searchAttempts).get()).toMatchObject({
+      commandName: "SeasonSearch",
+      trigger: "forced",
+    });
   });
 
   it("records Missing searches separately and never requests a dub analysis", async () => {

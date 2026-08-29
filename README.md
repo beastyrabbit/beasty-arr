@@ -35,7 +35,9 @@ That single command starts API + Vite through Portless and injects the dev conne
 the `beasty-arr` Infisical project. It also opens a local Kubernetes port-forward so the budget
 controller can read Prowlarr. Open the `.localhost` URL printed by Portless. Local development is
 hard-locked to dry-run: it performs real library reads and hunt planning, but refuses to send commands
-or mutations to Sonarr or Radarr. Use `pnpm check` for the full local quality suite.
+or mutations to Sonarr or Radarr. Set `SONARR_EXTERNAL_URL` and `RADARR_EXTERNAL_URL` to the
+browser-reachable arr origins to show direct title links in the library. Use `pnpm check` for the
+full local quality suite.
 
 Runs on Node 24, Fastify 5, SQLite (Drizzle), React 19 + Vite. Deployed to the homelab cluster via
 Forgejo Actions → `git.heerlab.com/beasty/beasty-arr` → Flux (see kub-homelab `apps/media/beasty-arr`).

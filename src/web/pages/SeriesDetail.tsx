@@ -16,7 +16,7 @@ import { ForceControl, PauseControl, ResumeControl } from "../components/ItemAct
 import { SegmentedBar } from "../components/SegmentedBar.js";
 import { DataTable, EmptyState, ErrorState, Panel, Skeleton, Td, Th } from "../components/Shell.js";
 import { StateBadge } from "../components/StateBadge.js";
-import { Button } from "../components/ui/button.js";
+import { Button, buttonVariants } from "../components/ui/button.js";
 import { useLatestEvent } from "../lib/events.js";
 import { epLabel, fmtDate, fmtDateTime, relTime } from "../lib/format.js";
 import { useForceSearch, useRecheckSubject, useSeriesDetail } from "../lib/queries.js";
@@ -81,10 +81,10 @@ function SeriesDetailView({ s, selectedSeason }: { s: SeriesDetail; selectedSeas
                   href={s.arrUrl}
                   target="_blank"
                   rel="noreferrer"
-                  className="text-muted hover:text-ink"
+                  className={buttonVariants({ variant: "ghost", size: "sm" })}
                   title="Open in Sonarr"
                 >
-                  <ExternalLink size={13} />
+                  <ExternalLink size={12} /> Open in Sonarr
                 </a>
               ) : null}
             </div>

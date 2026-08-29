@@ -53,6 +53,7 @@ function toSeriesDto(record: SonarrSeriesResource): SonarrSeriesDto | null {
   return {
     id: record.id,
     title: record.title,
+    titleSlug: record.titleSlug ?? null,
     tvdbId: record.tvdbId ?? null,
     imdbId: record.imdbId ?? null,
     year: record.year ?? null,
@@ -102,6 +103,7 @@ function toMovieDto(record: RadarrMovieRecord): RadarrMovieDto | null {
   return {
     id: record.id,
     title: record.title,
+    titleSlug: record.titleSlug ?? null,
     tmdbId: record.tmdbId ?? null,
     imdbId: record.imdbId ?? null,
     year: record.year ?? null,

@@ -395,7 +395,13 @@ export class HuntEngine {
           cmd,
           trigger: "missing" as const,
         })),
-        ...groupCommands(scheduled).map((cmd) => ({ cmd, trigger: "scheduled" as const })),
+        // Automatic Hunts must keep their exact upgrade-only scope. A broad
+        // SeasonSearch also includes fileless episodes and would bypass the
+        // manual Missing workflow. Explicit Force keeps broad season grouping.
+        ...groupCommands(scheduled, { episodeIdsOnly: true }).map((cmd) => ({
+          cmd,
+          trigger: "scheduled" as const,
+        })),
       ];
       if (plan.length === 0) return;
       this.bus.emit("hunt.batch.started", {

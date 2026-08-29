@@ -127,16 +127,23 @@ export function HuntPage() {
           {queue.isPending ? (
             <Skeleton className="m-3 h-52" />
           ) : queue.data?.items.length ? (
-            <div className="divide-y divide-line">
-              {queue.data.items.slice(0, 10).map((item) => (
-                <QueueRow key={item.id} item={item} />
-              ))}
-              {queueTotal > 10 ? (
-                <div className="px-3 py-2 text-[11px] text-faint">
-                  Showing 10 of {fmtNum(queueTotal)} eligible targets. The engine keeps the complete
-                  ranked list.
-                </div>
-              ) : null}
+            <div>
+              <p className="border-b border-line px-3 py-2 text-[10px] leading-4 text-faint">
+                Ranked targets, not dispatched commands. Automatic Hunts keep exact episode IDs so
+                they never pull Missing episodes into an upgrade search. An explicit Force may widen
+                the scope.
+              </p>
+              <div className="divide-y divide-line">
+                {queue.data.items.slice(0, 10).map((item) => (
+                  <QueueRow key={item.id} item={item} />
+                ))}
+                {queueTotal > 10 ? (
+                  <div className="px-3 py-2 text-[11px] text-faint">
+                    Showing 10 of {fmtNum(queueTotal)} eligible targets. The engine keeps the
+                    complete ranked list.
+                  </div>
+                ) : null}
+              </div>
             </div>
           ) : (
             <EmptyState message="No title is eligible right now." />

@@ -133,6 +133,7 @@ export type SonarrSeriesRecord = {
 export type SonarrSeriesResource = {
   id?: number;
   title?: string;
+  titleSlug?: string;
   tvdbId?: number;
   imdbId?: string;
   year?: number;

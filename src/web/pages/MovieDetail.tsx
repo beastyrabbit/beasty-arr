@@ -5,7 +5,7 @@ import { DubVerdictSummary } from "../components/DubVerdictSummary.js";
 import { ForceControl, PauseControl, ResumeControl } from "../components/ItemActions.js";
 import { EmptyState, ErrorState, Panel, Skeleton } from "../components/Shell.js";
 import { StateBadge } from "../components/StateBadge.js";
-import { Button } from "../components/ui/button.js";
+import { Button, buttonVariants } from "../components/ui/button.js";
 import { useLatestEvent } from "../lib/events.js";
 import { fmtDate, fmtDateTime, relTime } from "../lib/format.js";
 import { useMovieDetail, useRecheckSubject } from "../lib/queries.js";
@@ -61,10 +61,10 @@ function MovieDetailView({ m }: { m: MovieDetail }) {
                   href={m.arrUrl}
                   target="_blank"
                   rel="noreferrer"
-                  className="text-muted hover:text-ink"
+                  className={buttonVariants({ variant: "ghost", size: "sm" })}
                   title="Open in Radarr"
                 >
-                  <ExternalLink size={13} />
+                  <ExternalLink size={12} /> Open in Radarr
                 </a>
               ) : null}
             </div>

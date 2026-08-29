@@ -808,6 +808,7 @@ export class SyncService {
     return {
       id: dto.id,
       title: dto.title,
+      titleSlug: dto.titleSlug ?? null,
       tvdbId: dto.tvdbId ?? null,
       imdbId: dto.imdbId ?? null,
       year: dto.year ?? null,
@@ -859,6 +860,7 @@ export class SyncService {
     return {
       id: dto.id,
       title: dto.title,
+      titleSlug: dto.titleSlug ?? null,
       tmdbId: dto.tmdbId ?? null,
       imdbId: dto.imdbId ?? null,
       year: dto.year ?? null,

@@ -157,6 +157,7 @@ function seriesDto(over: Partial<SonarrSeriesDto> = {}): SonarrSeriesDto {
   return {
     id: 1,
     title: "Dark Matters",
+    titleSlug: "dark-matters",
     monitored: true,
     originalLanguage: ENGLISH,
     qualityProfileId: 10,
@@ -196,6 +197,7 @@ function movieDto(over: Partial<RadarrMovieDto> = {}): RadarrMovieDto {
   return {
     id: 201,
     title: "Heat",
+    titleSlug: "heat-1995",
     year: 1995,
     monitored: true,
     hasFile: false,
@@ -301,7 +303,9 @@ describe("fullReconcile", () => {
     seedStandardFixture(h);
     await h.svc.fullReconcile();
 
-    expect(h.db.select().from(series).all()).toHaveLength(1);
+    const syncedSeries = h.db.select().from(series).all();
+    expect(syncedSeries).toHaveLength(1);
+    expect(syncedSeries[0].titleSlug).toBe("dark-matters");
     const eps = h.db.select().from(episodes).all();
     expect(eps).toHaveLength(4);
     const ep101 = eps.find((e) => e.id === 101);
@@ -317,7 +321,9 @@ describe("fullReconcile", () => {
     expect(h.huntRow("sonarr", "episode", 103)?.seriesId).toBe(1);
     expect(h.huntRow("sonarr", "episode", 103)?.seasonNumber).toBe(1);
 
-    expect(h.db.select().from(movies).all()).toHaveLength(2);
+    const syncedMovies = h.db.select().from(movies).all();
+    expect(syncedMovies).toHaveLength(2);
+    expect(syncedMovies.find((movie) => movie.id === 201)?.titleSlug).toBe("heat-1995");
     expect(h.huntRow("radarr", "movie", 201)?.state).toBe("german");
     expect(h.huntRow("radarr", "movie", 202)?.state).toBe("unreleased");
 

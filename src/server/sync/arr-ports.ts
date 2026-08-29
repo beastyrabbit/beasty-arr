@@ -20,6 +20,7 @@ export type ArrQualityDto = {
 export type SonarrSeriesDto = {
   id: number;
   title: string;
+  titleSlug?: string | null;
   tvdbId?: number | null;
   imdbId?: string | null;
   year?: number | null;
@@ -71,6 +72,7 @@ export type RadarrMovieFileDto = {
 export type RadarrMovieDto = {
   id: number;
   title: string;
+  titleSlug?: string | null;
   tmdbId?: number | null;
   imdbId?: string | null;
   year?: number | null;

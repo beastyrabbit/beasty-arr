@@ -49,7 +49,16 @@ const now = Date.now();
 function seedLibrary(ctx: AppContext): void {
   const db = ctx.db;
   const mkSeries = (id: number, title: string) =>
-    db.insert(series).values({ id, title, monitored: true, lastSyncedAt: now }).run();
+    db
+      .insert(series)
+      .values({
+        id,
+        title,
+        titleSlug: title.toLowerCase().replaceAll(" ", "-"),
+        monitored: true,
+        lastSyncedAt: now,
+      })
+      .run();
   const mkEpisode = (
     id: number,
     seriesId: number,
@@ -101,12 +110,20 @@ function seedLibrary(ctx: AppContext): void {
   mkEpHunt(31, 3, "non_german");
 
   db.insert(movies)
-    .values({ id: 101, title: "Movie One", monitored: true, hasFile: false, lastSyncedAt: now })
+    .values({
+      id: 101,
+      title: "Movie One",
+      titleSlug: "movie-one",
+      monitored: true,
+      hasFile: false,
+      lastSyncedAt: now,
+    })
     .run();
   db.insert(movies)
     .values({
       id: 102,
       title: "Movie Two",
+      titleSlug: "movie-two",
       monitored: true,
       hasFile: true,
       hasGerman: true,
@@ -195,7 +212,10 @@ describe("status + dashboard", () => {
 describe("library", () => {
   let b: Built;
   beforeAll(async () => {
-    b = await makeApp();
+    b = await makeApp({
+      SONARR_EXTERNAL_URL: "https://sonarr.example.test",
+      RADARR_EXTERNAL_URL: "https://radarr.example.test/base/",
+    });
     seedLibrary(b.ctx);
   });
   afterAll(() => closeApp(b));
@@ -234,6 +254,13 @@ describe("library", () => {
     expect(body.seasons).toHaveLength(1);
     expect(body.seasons[0].episodes).toHaveLength(2);
     expect(body.state).toBe("missing");
+    expect(body.arrUrl).toBe("https://sonarr.example.test/series/beta");
+  });
+
+  it("returns a Radarr deep link when an external URL is configured", async () => {
+    const res = await get(b.app, "/api/library/movies/101");
+    expect(res.statusCode).toBe(200);
+    expect(res.json().arrUrl).toBe("https://radarr.example.test/base/movie/movie-one");
   });
 
   it("404s an unknown series", async () => {

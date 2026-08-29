@@ -1,5 +1,21 @@
 import { z } from "zod";
 
+const externalArrUrl = z.url().refine(
+  (value) => {
+    const url = new URL(value);
+    return (
+      (url.protocol === "http:" || url.protocol === "https:") &&
+      url.username === "" &&
+      url.password === "" &&
+      url.search === "" &&
+      url.hash === ""
+    );
+  },
+  {
+    message: "must be an http(s) base URL without credentials, query parameters, or a fragment",
+  },
+);
+
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.coerce.number().int().min(1).max(65535).default(9898),
@@ -8,8 +24,10 @@ const envSchema = z.object({
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
 
   SONARR_URL: z.url().optional(),
+  SONARR_EXTERNAL_URL: externalArrUrl.optional(),
   SONARR_API_KEY: z.string().min(1).optional(),
   RADARR_URL: z.url().optional(),
+  RADARR_EXTERNAL_URL: externalArrUrl.optional(),
   RADARR_API_KEY: z.string().min(1).optional(),
   PROWLARR_URL: z.url().optional(),
   PROWLARR_API_KEY: z.string().min(1).optional(),

@@ -170,6 +170,23 @@ describe("groupCommands", () => {
     expect(commands.every((command) => command.name === "EpisodeSearch")).toBe(true);
     expect(commands.every((command) => command.anime && command.searchOps === 1)).toBe(true);
   });
+
+  it("keeps exact-ID anime commands individually budgetable", () => {
+    const commands = groupCommands(
+      [
+        cand({ huntStateId: 1, anime: true }),
+        cand({ huntStateId: 2, anime: true }),
+        cand({ huntStateId: 3, anime: true }),
+      ],
+      { episodeIdsOnly: true },
+    );
+    expect(commands).toHaveLength(3);
+    expect(commands.map((command) => command.payload)).toEqual([
+      { name: "EpisodeSearch", episodeIds: [10] },
+      { name: "EpisodeSearch", episodeIds: [20] },
+      { name: "EpisodeSearch", episodeIds: [30] },
+    ]);
+  });
 });
 
 describe("labels", () => {

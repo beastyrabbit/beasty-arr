@@ -182,10 +182,9 @@ export function groupCommands(
           c.anime ||
           (seasonCounts.get(seasonOf(c)) ?? 0) < SEASON_SEARCH_MIN_EPISODES,
       )
-      .slice(
-        0,
-        options.episodeIdsOnly ? EPISODE_SEARCH_MAX_IDS : head.anime ? 1 : EPISODE_SEARCH_MAX_IDS,
-      );
+      // Sonarr fans anime searches out internally. Keep those commands
+      // individually budgetable even when automatic work must use exact IDs.
+      .slice(0, head.anime ? 1 : EPISODE_SEARCH_MAX_IDS);
     removeAll(remaining, batch);
     commands.push({
       source: head.source,
