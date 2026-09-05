@@ -8,7 +8,8 @@ it("closes SSE and drains an in-flight scheduled job on SIGTERM before closing S
   const dataDir = mkdtempSync(path.join(tmpdir(), "shutdown-process-"));
   const code = `
     import {buildApp} from './src/server/app.ts';
-    const {app,ctx}=await buildApp({env:{LOG_LEVEL:'error'},serveStatic:false,registerJobs:false});
+    const {app,ctx}=await buildApp({dataDir:process.env.DATA_DIR,env:{LOG_LEVEL:'error'},serveStatic:false,registerJobs:false});
+    if(ctx.sqlite.name!==process.env.DATA_DIR+'/beasty-arr.db')throw new Error('Shutdown fixture escaped its temporary directory');
     await app.listen({host:'127.0.0.1',port:0});
     const address=app.server.address();
     const response=await fetch('http://127.0.0.1:'+address.port+'/api/events');
