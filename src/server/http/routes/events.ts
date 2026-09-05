@@ -1,3 +1,4 @@
+import type { ServerResponse } from "node:http";
 import type { FastifyInstance } from "fastify";
 import type { AppContext } from "../../context.js";
 import type { AppEvent } from "../../events/bus.js";
@@ -7,7 +8,12 @@ function formatSse(event: AppEvent): string {
 }
 
 export function registerEventRoutes(app: FastifyInstance, ctx: AppContext): void {
+  const streams = new Set<ServerResponse>();
+  app.addHook("preClose", async () => {
+    for (const stream of streams) stream.end();
+  });
   app.get("/api/events", (request, reply) => {
+    streams.add(reply.raw);
     reply.raw.writeHead(200, {
       "content-type": "text/event-stream",
       "cache-control": "no-cache, no-transform",
@@ -32,6 +38,7 @@ export function registerEventRoutes(app: FastifyInstance, ctx: AppContext): void
     heartbeat.unref?.();
 
     request.raw.on("close", () => {
+      streams.delete(reply.raw);
       clearInterval(heartbeat);
       unsubscribe();
     });

@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import type { FastifyBaseLogger } from "fastify";
 import { afterEach, describe, expect, it } from "vitest";
 import { backoffForTier } from "../../shared/domain.js";
+import { RadarrRequestError } from "../arr/radarr-client.js";
 import { BudgetManager } from "../budget/manager.js";
 import { setEnginePaused } from "../config/engine-flag.js";
 import { SettingsService } from "../config/settings.js";
@@ -100,6 +101,9 @@ class FakeBudget implements BudgetManagerPort {
   }
   recordDispatch(estimates: Map<number, number>, attemptId: number): void {
     this.recorded.push({ estimates, attemptId });
+  }
+  releaseRejectedDispatch(attemptId: number): void {
+    this.recorded = this.recorded.filter((row) => row.attemptId !== attemptId);
   }
 }
 
@@ -1372,6 +1376,30 @@ describe("queue management and views", () => {
 });
 
 describe("dispatch safety and recovery", () => {
+  it.each([429, 503, null])(
+    "distinguishes HTTP rejection %s from unknown acceptance",
+    async (status) => {
+      const { db, engine, settings, radarr, budget } = makeHarness();
+      settings.update({ dryRun: false });
+      seedMovie(db, { id: 1, hasFile: true }, { state: "non_german" });
+      const send = radarr.sendCommand.bind(radarr);
+      radarr.sendCommand = async () => {
+        throw status === null
+          ? new Error("response lost")
+          : new RadarrRequestError("rejected", status, "error", "", "/command");
+      };
+      await engine.runCycle();
+      expect(db.select().from(searchAttempts).get()?.status).toBe(
+        status === 429 ? "failed" : "interrupted",
+      );
+      expect(budget.recorded).toHaveLength(status === 429 ? 0 : 1);
+      radarr.sendCommand = send;
+      engine.forceSubject({ source: "radarr", kind: "movie", id: 1 });
+      await engine.runCycle();
+      expect(radarr.sent).toHaveLength(status === 429 ? 1 : 0);
+    },
+  );
+
   it.each(["dryRun", "paused"] as const)(
     "checks current %s after the preceding command",
     async (control) => {

@@ -244,6 +244,11 @@ export async function buildApp(
     });
   }
 
+  app.addHook("preClose", async () => {
+    ctx.scheduler.stop();
+    fixer.cancelAll();
+    fixerBulk.cancel();
+  });
   app.addHook("onClose", async () => {
     ctx.scheduler.stop();
     fixer.cancelAll();

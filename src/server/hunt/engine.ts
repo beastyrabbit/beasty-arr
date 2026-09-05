@@ -10,6 +10,8 @@ import {
   type HuntState,
   type SearchTrigger,
 } from "../../shared/domain.js";
+import { RadarrRequestError } from "../arr/radarr-client.js";
+import { SonarrRequestError } from "../arr/sonarr-client.js";
 import { isEnginePaused } from "../config/engine-flag.js";
 import type { AppSettings, SettingsService } from "../config/settings.js";
 import type { Db } from "../db/index.js";
@@ -72,6 +74,7 @@ export type BudgetManagerPort = {
   }): Map<number, number>;
   mayDispatch(estimates: Map<number, number>): { ok: true } | { ok: false; holdReason: string };
   recordDispatch(estimates: Map<number, number>, attemptId: number, source: ArrSource): void;
+  releaseRejectedDispatch(attemptId: number, source: ArrSource): void;
 };
 
 /** Mirrors src/server/sync/service.ts SyncService targeted refresh. */
@@ -709,17 +712,22 @@ export class HuntEngine {
         sent = await client.sendCommand(cmd.payload);
       } catch (err) {
         this.log.warn({ err, label: cmd.label }, "arr command dispatch failed");
+        const rejected =
+          (err instanceof SonarrRequestError || err instanceof RadarrRequestError) &&
+          [400, 401, 403, 404, 405, 422, 429].includes(err.status);
+        const status = rejected ? "failed" : "interrupted";
         this.db
           .update(searchAttempts)
-          .set({ status: "interrupted", result: "error" })
+          .set({ status, result: "error", completedAt: rejected ? this.now() : null })
           .where(eq(searchAttempts.id, attemptId))
           .run();
+        if (rejected) this.budget?.releaseRejectedDispatch(attemptId, cmd.source);
         this.bus.emit("hunt.search.result", {
           label: cmd.label,
           source: cmd.source,
           result: "error",
           attemptId,
-          status: "interrupted",
+          status,
         });
         return; // Acceptance is unknown; keep targets and budget reserved for reconciliation.
       }

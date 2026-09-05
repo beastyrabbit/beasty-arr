@@ -538,6 +538,20 @@ describe("accounting observation boundaries", () => {
   });
 });
 
+it("releases a definite rejection once without retaining budget spend", async () => {
+  const { mgr, prowlarr } = makeHarness();
+  prowlarr.indexers = [ix(1, "Alpha")];
+  prowlarr.stats = [stat(1, 0)];
+  await mgr.refresh();
+  mgr.recordDispatch(new Map([[1, 2]]), 1, "radarr");
+  expect(statusOf(mgr, 1).trailing24h).toBe(2);
+  mgr.releaseRejectedDispatch(1, "radarr");
+  mgr.releaseRejectedDispatch(1, "radarr");
+  expect(statusOf(mgr, 1).trailing24h).toBe(0);
+  expect(statusOf(mgr, 1).huntShare).toBe(0);
+  expect(statusOf(mgr, 1).attribution.huntRadarr).toBe(0);
+});
+
 it("uses overlapping incremental history and periodically reconciles the full day", async () => {
   const { mgr, prowlarr, clock } = makeHarness();
   const cutoffs: number[] = [];
@@ -545,13 +559,25 @@ it("uses overlapping incremental history and periodically reconciles the full da
   prowlarr.stats = [stat(1, 0)];
   prowlarr.getHistorySince = async (since) => {
     cutoffs.push(since);
-    return [];
+    return prowlarr.history.filter((record) => record.at >= since);
   };
   await mgr.refresh();
+  prowlarr.history = [
+    { id: 1, indexerId: 1, at: T0 - HOUR_MS, source: "Sonarr", eventType: "indexerQuery" },
+    { id: 2, indexerId: 1, at: T0 - 12 * HOUR_MS, source: "Radarr", eventType: "indexerQuery" },
+  ];
   clock.ms += 60_000;
   await mgr.refresh();
   expect(cutoffs[1] - cutoffs[0]).toBeGreaterThan(20 * HOUR_MS);
+  expect(statusOf(mgr, 1).trailing24h).toBe(1); // Recent late arrival is picked up by overlap.
+  await mgr.refresh();
+  expect(statusOf(mgr, 1).trailing24h).toBe(1); // Re-reading the overlap is idempotent.
   clock.ms += HOUR_MS;
   await mgr.refresh();
-  expect(clock.ms - cutoffs[2]).toBeGreaterThanOrEqual(24 * HOUR_MS);
+  expect(clock.ms - cutoffs.at(-1)!).toBeGreaterThanOrEqual(24 * HOUR_MS);
+  expect(statusOf(mgr, 1).trailing24h).toBe(2); // Full reconciliation finds older late arrivals.
+  prowlarr.history = [];
+  clock.ms += HOUR_MS;
+  await mgr.refresh();
+  expect(statusOf(mgr, 1).trailing24h).toBe(0); // An upstream reset replaces old attribution.
 });

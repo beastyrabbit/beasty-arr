@@ -322,6 +322,43 @@ export class BudgetManager {
     this.bus.emit("budget.updated", { attemptId });
   }
 
+  /** A definite HTTP rejection performed no search; undo its dispatch estimate once. */
+  releaseRejectedDispatch(attemptId: number, source: "sonarr" | "radarr"): void {
+    this.db.transaction((tx) => {
+      const reservations = tx
+        .select()
+        .from(pendingSelfEstimates)
+        .where(
+          and(
+            eq(pendingSelfEstimates.attemptId, attemptId),
+            isNull(pendingSelfEstimates.reconciledAt),
+          ),
+        )
+        .all();
+      for (const row of reservations) {
+        tx.update(budgetBuckets)
+          .set({
+            huntQueries: sql`max(0, ${budgetBuckets.huntQueries} - ${row.queries})`,
+            ...(source === "sonarr"
+              ? {
+                  huntSonarrQueries: sql`max(0, ${budgetBuckets.huntSonarrQueries} - ${row.queries})`,
+                }
+              : {
+                  huntRadarrQueries: sql`max(0, ${budgetBuckets.huntRadarrQueries} - ${row.queries})`,
+                }),
+          })
+          .where(
+            and(
+              eq(budgetBuckets.indexerId, row.indexerId),
+              eq(budgetBuckets.hourUtc, Math.floor(row.at / HOUR_MS)),
+            ),
+          )
+          .run();
+        tx.delete(pendingSelfEstimates).where(eq(pendingSelfEstimates.id, row.id)).run();
+      }
+    });
+  }
+
   getStatus(): IndexerBudgetStatus[] {
     const cfg = this.settings.get();
     const excluded = new Set(cfg.excludeIndexerIds);
