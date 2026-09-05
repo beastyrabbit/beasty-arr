@@ -42,7 +42,11 @@ export async function arrFetch(
 ): Promise<Response> {
   const fetchImpl = options.fetchImpl ?? fetch;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const retries = options.retries ?? DEFAULT_RETRIES;
+  const method = (init.method ?? "GET").toUpperCase();
+  // A lost mutation response does not prove the server rejected the action.
+  const retries = ["GET", "HEAD", "OPTIONS"].includes(method)
+    ? (options.retries ?? DEFAULT_RETRIES)
+    : 0;
   const retryDelayMs = options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
 
   let lastError: unknown;

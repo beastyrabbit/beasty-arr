@@ -14,7 +14,7 @@ import type {
   FixerQueueResponse,
   FixerRemoveResponse,
 } from "../../../shared/api-types.js";
-import { ARR_SOURCES } from "../../../shared/domain.js";
+import { ARR_SOURCES, type ArrSource } from "../../../shared/domain.js";
 import type {
   ManualImportCandidate,
   QueueRemovalOptions,
@@ -95,7 +95,11 @@ export function registerFixerRoutes(app: FastifyInstance, ctx: AppContext): void
         confidence: proposal?.confidence ?? null,
       };
     });
-    return { items, fetchedAt: snapshot.fetchedAt };
+    return {
+      items,
+      fetchedAt: snapshot.fetchedAt,
+      unavailableServices: Object.keys(snapshot.errors) as ArrSource[],
+    };
   };
 
   app.get("/api/fixer/queue", async () => {

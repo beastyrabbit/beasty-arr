@@ -1,6 +1,7 @@
+import { setTimeout as sleep } from "node:timers/promises";
 import { and, count, eq, gte, inArray, isNull, lt, ne } from "drizzle-orm";
 import type { FastifyBaseLogger } from "fastify";
-import type { ArrSource } from "../../shared/domain.js";
+import type { AiSeasonVerdict, ArrSource } from "../../shared/domain.js";
 import type { SettingsService } from "../config/settings.js";
 import type { Db } from "../db/index.js";
 import {
@@ -112,6 +113,16 @@ export class OracleService {
   private readonly refreshAutomaticState: () => Promise<void>;
   private readonly checksInFlight = new Set<string>();
   private automaticCheckChain: Promise<void> = Promise.resolve();
+  private readonly shutdown = new AbortController();
+  private readonly tasks = new Set<Promise<AiVerdictRow>>();
+  private bulkTask: Promise<void> | null = null;
+
+  async stop(): Promise<void> {
+    this.shutdown.abort();
+    this.cancelBulk();
+    await Promise.allSettled([this.automaticCheckChain, this.bulkTask, ...this.tasks]);
+  }
+
   private bulkAbort: AbortController | null = null;
   private bulkStatus: OracleBulkStatus = OracleService.idleBulkStatus();
 
@@ -124,7 +135,7 @@ export class OracleService {
     private readonly opts: OracleServiceOptions = {},
   ) {
     this.now = opts.now ?? Date.now;
-    this.sleep = opts.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+    this.sleep = opts.sleep ?? ((ms) => sleep(ms, undefined, { signal: this.shutdown.signal }));
     this.postSearchGraceMs = opts.postSearchGraceMs ?? DEFAULT_POST_SEARCH_GRACE_MS;
     this.refreshAutomaticState = opts.refreshAutomaticState ?? (async () => undefined);
     const recoveryAt = this.now();
@@ -152,11 +163,15 @@ export class OracleService {
       const minimum = row.checkedAt + AI_PAUSE_MIN_MS;
       let changed = false;
       const perSeason = row.perSeason?.map((entry) => {
-        if (entry.verdict !== "unlikely" || (entry.recheckAfter ?? row.recheckAfter) >= minimum) {
+        if (
+          entry.verdict !== "unlikely" ||
+          (entry.recheckAfter ?? row.recheckAfter) >=
+            (entry.checkedAt ?? row.checkedAt) + AI_PAUSE_MIN_MS
+        ) {
           return entry;
         }
         changed = true;
-        return { ...entry, recheckAfter: minimum };
+        return { ...entry, recheckAfter: (entry.checkedAt ?? row.checkedAt) + AI_PAUSE_MIN_MS };
       });
       const recheckAfter =
         row.verdict === "unlikely" && row.recheckAfter < minimum ? minimum : row.recheckAfter;
@@ -214,7 +229,7 @@ export class OracleService {
       remaining: subjects.length,
       startedAt: this.now(),
     };
-    void this.runBulkSubjects(subjects, this.bulkAbort.signal);
+    this.bulkTask = this.runBulkSubjects(subjects, this.bulkAbort.signal);
     return { ok: true, total: subjects.length };
   }
 
@@ -509,8 +524,10 @@ export class OracleService {
     }
     const graceEndsAt = this.now() + this.postSearchGraceMs;
     const task = this.automaticCheckChain.then(async () => {
+      this.shutdown.signal.throwIfAborted();
       const remainingGraceMs = graceEndsAt - this.now();
       if (remainingGraceMs > 0) await this.sleep(remainingGraceMs);
+      this.shutdown.signal.throwIfAborted();
       try {
         await this.refreshAutomaticState();
       } catch (error) {
@@ -870,7 +887,24 @@ export class OracleService {
     return inserted;
   }
 
-  private async runTrackedCheck(
+  private runTrackedCheck(
+    subject: OracleCheckSubject,
+    attemptId: number,
+    signal?: AbortSignal,
+  ): Promise<AiVerdictRow> {
+    const combined = signal
+      ? AbortSignal.any([signal, this.shutdown.signal])
+      : this.shutdown.signal;
+    const task = this.performTrackedCheck(subject, attemptId, combined);
+    this.tasks.add(task);
+    void task.then(
+      () => this.tasks.delete(task),
+      () => this.tasks.delete(task),
+    );
+    return task;
+  }
+
+  private async performTrackedCheck(
     subject: OracleCheckSubject,
     attemptId: number,
     signal?: AbortSignal,
@@ -887,6 +921,7 @@ export class OracleService {
   }
 
   private async runCheck(subject: OracleCheckSubject, signal?: AbortSignal): Promise<AiVerdictRow> {
+    signal?.throwIfAborted();
     const settings = this.settings.get();
     const provider = settings.aiProvider as ProviderId;
     this.bus.emit("ai.check.started", {
@@ -932,6 +967,7 @@ export class OracleService {
       throw error;
     }
 
+    signal?.throwIfAborted();
     if (!session.fetchSucceeded()) {
       const error = new Error(
         "Dub oracle returned no successfully fetched web source; verdict was discarded.",
@@ -977,6 +1013,7 @@ export class OracleService {
     const titlePageHasGermanAudio = session.titlePageHasGermanAudio();
     const titlePageShowsGermanProduction = session.titlePageShowsGermanProduction();
     const localizedGermanSeasonReleases = session.localizedGermanSeasonReleases();
+    const officialGermanSeasonReleases = session.officialGermanSeasonReleases();
     const originalOnlySeasonReleases = session.originalOnlySeasonReleases();
     if (subject.subjectKind === "movie" && titlePageHasGermanAudio) {
       final = {
@@ -1072,6 +1109,7 @@ export class OracleService {
       const independentlyConfirmedSeasons = new Set([
         ...(subject.confirmedGermanSeasons ?? []),
         ...localizedGermanSeasonReleases.map((release) => release.season),
+        ...officialGermanSeasonReleases.map((release) => release.season),
       ]);
       let rejectedUnverifiedPositive = false;
       final = {
@@ -1087,14 +1125,14 @@ export class OracleService {
           rejectedUnverifiedPositive = true;
           return {
             ...entry,
-            verdict: "unlikely" as const,
-            confidence: Math.max(entry.confidence, 0.8),
+            verdict: "unknown" as const,
+            confidence: Math.min(entry.confidence, 0.6),
             note: "No independent season-specific source confirms the claimed German dub; aggregator-only positive evidence is insufficient.",
             evidence: [
               "Deterministic validation: no downloaded German episode, localized German season broadcast, or exact season-specific non-aggregator dub source was fetched.",
             ],
             expectedAvailability: null,
-            recheckAfterDays: settings.aiUnlikelyRetryDays,
+            recheckAfterDays: 7,
           };
         }),
         evidence: rejectedUnverifiedPositive
@@ -1121,7 +1159,7 @@ export class OracleService {
     const confirmedSeriesExists =
       subject.subjectKind === "series" &&
       (Boolean(subject.catalogEvidence) || Boolean(subject.confirmedGermanSeasons?.length));
-    const perSeason =
+    let perSeason: AiSeasonVerdict[] | null =
       subject.subjectKind === "series" && subject.seasons?.length
         ? subject.seasons.map((season) => {
             const reported = final.perSeason?.find((entry) => entry.season === season);
@@ -1135,10 +1173,32 @@ export class OracleService {
                   : recheckAfterDays;
             return {
               ...seasonVerdict,
+              checkedAt: now,
               recheckAfter: now + effectiveRecheckDays * DAY_MS,
             };
           })
         : null;
+    if (perSeason) {
+      const refreshed = new Set(perSeason.map((entry) => entry.season));
+      const previous = this.db
+        .select()
+        .from(aiVerdicts)
+        .where(and(eq(aiVerdicts.subjectKey, subject.subjectKey), isNull(aiVerdicts.supersededBy)))
+        .all();
+      const retained = new Map<number, AiSeasonVerdict>();
+      for (const row of previous) {
+        for (const entry of row.perSeason ?? []) {
+          if (!refreshed.has(entry.season) && (entry.recheckAfter ?? row.recheckAfter) > now) {
+            retained.set(entry.season, {
+              ...entry,
+              checkedAt: entry.checkedAt ?? row.checkedAt,
+              recheckAfter: entry.recheckAfter ?? row.recheckAfter,
+            });
+          }
+        }
+      }
+      perSeason = [...perSeason, ...retained.values()].sort((a, b) => a.season - b.season);
+    }
     const seasonVerdicts = perSeason?.map((entry) => entry.verdict) ?? [];
     const derivedSeriesVerdict = seasonVerdicts.includes("exists")
       ? "exists"
@@ -1155,7 +1215,7 @@ export class OracleService {
     const overallConfidence = confirmedSeriesExists
       ? 1
       : subject.subjectKind === "series" && perSeason?.length
-        ? Math.min(...perSeason.map((entry) => entry.confidence))
+        ? Math.min(...perSeason.map((entry) => entry.confidence ?? final.confidence))
         : final.confidence;
     const recheckDays =
       overallVerdict === "unlikely"
@@ -1163,42 +1223,46 @@ export class OracleService {
         : overallVerdict === "exists"
           ? settings.aiExistsRetryDays
           : final.recheckAfterDays;
-    const inserted = this.db
-      .insert(aiVerdicts)
-      .values({
-        subjectKind: subject.subjectKind,
-        subjectKey: subject.subjectKey,
-        title: subject.title,
-        year: subject.year,
-        externalIds: subject.externalIds,
-        verdict: overallVerdict,
-        confidence: overallConfidence,
-        germanTitle: final.germanTitle,
-        perSeason,
-        evidence,
-        expectedAvailability: final.expectedAvailability,
-        provider: result.provider,
-        model: result.model,
-        promptVersion: PROMPT_VERSION,
-        checkedAt: now,
-        recheckAfter: perSeason?.length
-          ? Math.min(...perSeason.map((entry) => entry.recheckAfter ?? now + recheckDays * DAY_MS))
-          : now + recheckDays * DAY_MS,
-        supersededBy: null,
-      })
-      .returning()
-      .get();
-    this.db
-      .update(aiVerdicts)
-      .set({ supersededBy: inserted.id })
-      .where(
-        and(
-          eq(aiVerdicts.subjectKey, subject.subjectKey),
-          isNull(aiVerdicts.supersededBy),
-          ne(aiVerdicts.id, inserted.id),
-        ),
-      )
-      .run();
+    const inserted = this.db.transaction((tx) => {
+      const inserted = tx
+        .insert(aiVerdicts)
+        .values({
+          subjectKind: subject.subjectKind,
+          subjectKey: subject.subjectKey,
+          title: subject.title,
+          year: subject.year,
+          externalIds: subject.externalIds,
+          verdict: overallVerdict,
+          confidence: overallConfidence,
+          germanTitle: final.germanTitle,
+          perSeason,
+          evidence,
+          expectedAvailability: final.expectedAvailability,
+          provider: result.provider,
+          model: result.model,
+          promptVersion: PROMPT_VERSION,
+          checkedAt: now,
+          recheckAfter: perSeason?.length
+            ? Math.min(
+                ...perSeason.map((entry) => entry.recheckAfter ?? now + recheckDays * DAY_MS),
+              )
+            : now + recheckDays * DAY_MS,
+          supersededBy: null,
+        })
+        .returning()
+        .get();
+      tx.update(aiVerdicts)
+        .set({ supersededBy: inserted.id })
+        .where(
+          and(
+            eq(aiVerdicts.subjectKey, subject.subjectKey),
+            isNull(aiVerdicts.supersededBy),
+            ne(aiVerdicts.id, inserted.id),
+          ),
+        )
+        .run();
+      return inserted;
+    });
 
     this.logActivity(
       "info",

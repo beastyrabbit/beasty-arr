@@ -1,17 +1,33 @@
-import { createRootRoute, createRoute, createRouter, Outlet } from "@tanstack/react-router";
+import {
+  createRootRoute,
+  createRoute,
+  createRouter,
+  lazyRouteComponent,
+  Outlet,
+} from "@tanstack/react-router";
 import { AppLayout } from "./components/Layout.js";
 import { EmptyState } from "./components/Shell.js";
 import { validateLibrarySearch } from "./lib/library-search.js";
-import { ActivityPage } from "./pages/Activity.js";
-import { DashboardPage } from "./pages/Dashboard.js";
-import { FixerPage } from "./pages/Fixer.js";
-import { FixerHistoryPage } from "./pages/FixerHistory.js";
-import { HuntPage } from "./pages/Hunt.js";
-import { LibraryPage } from "./pages/Library.js";
-import { MissingPage } from "./pages/Missing.js";
-import { MovieDetailPage } from "./pages/MovieDetail.js";
-import { SeriesDetailPage } from "./pages/SeriesDetail.js";
-import { SettingsPage } from "./pages/Settings.js";
+
+const ActivityPage = lazyRouteComponent(() => import("./pages/Activity.js"), "ActivityPage");
+const DashboardPage = lazyRouteComponent(() => import("./pages/Dashboard.js"), "DashboardPage");
+const FixerPage = lazyRouteComponent(() => import("./pages/Fixer.js"), "FixerPage");
+const FixerHistoryPage = lazyRouteComponent(
+  () => import("./pages/FixerHistory.js"),
+  "FixerHistoryPage",
+);
+const HuntPage = lazyRouteComponent(() => import("./pages/Hunt.js"), "HuntPage");
+const LibraryPage = lazyRouteComponent(() => import("./pages/Library.js"), "LibraryPage");
+const MissingPage = lazyRouteComponent(() => import("./pages/Missing.js"), "MissingPage");
+const MovieDetailPage = lazyRouteComponent(
+  () => import("./pages/MovieDetail.js"),
+  "MovieDetailPage",
+);
+const SeriesDetailPage = lazyRouteComponent(
+  () => import("./pages/SeriesDetail.js"),
+  "SeriesDetailPage",
+);
+const SettingsPage = lazyRouteComponent(() => import("./pages/Settings.js"), "SettingsPage");
 
 const rootRoute = createRootRoute({ component: Outlet });
 

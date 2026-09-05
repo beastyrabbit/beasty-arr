@@ -10,6 +10,7 @@ import {
   type HuntState,
   type SearchTrigger,
 } from "../../shared/domain.js";
+import { isEnginePaused } from "../config/engine-flag.js";
 import type { AppSettings, SettingsService } from "../config/settings.js";
 import type { Db } from "../db/index.js";
 import {
@@ -248,6 +249,7 @@ function effectiveVerdictDetail(
   confidence: number;
   expectedAvailability: number | null;
   recheckAfter: number;
+  checkedAt: number;
 } | null {
   if (seasonNumber != null && verdict.perSeason?.length) {
     const entry = verdict.perSeason.find((value) => value.season === seasonNumber);
@@ -257,6 +259,7 @@ function effectiveVerdictDetail(
       confidence: entry.confidence ?? verdict.confidence,
       expectedAvailability: entry.expectedAvailability ?? verdict.expectedAvailability ?? null,
       recheckAfter: entry.recheckAfter ?? verdict.recheckAfter,
+      checkedAt: entry.checkedAt ?? verdict.checkedAt,
     };
   }
   return {
@@ -264,6 +267,7 @@ function effectiveVerdictDetail(
     confidence: verdict.confidence,
     expectedAvailability: verdict.expectedAvailability ?? null,
     recheckAfter: verdict.recheckAfter,
+    checkedAt: verdict.checkedAt,
   };
 }
 
@@ -365,11 +369,13 @@ export class HuntEngine {
         ? new Set<ArrSource>()
         : await this.openScheduledSources(reachable, cfg.queueGateEnabled, cfg.queueGateThreshold);
 
+      let accountingAvailable = true;
       if (this.budget) {
         try {
           await this.budget.refresh();
         } catch (err) {
-          this.log.warn({ err }, "budget refresh failed — gating on last known ledger");
+          accountingAvailable = false;
+          this.log.warn({ err }, "budget refresh failed; holding automatic searches");
         }
       } else if (!this.warnedNoBudget) {
         this.warnedNoBudget = true;
@@ -377,9 +383,14 @@ export class HuntEngine {
       }
 
       const reachableSources = new Set(reachable.map((r) => r.source));
+      const unresolved = await this.reconcileIncompleteAttempts(reachable);
       const nowMs = this.now();
-      const manual = this.loadManualBatch(reachableSources, cfg, nowMs);
-      const scheduled = this.loadScheduledCandidates(scheduledSources, cfg, nowMs);
+      const manual = this.loadManualBatch(reachableSources, cfg, nowMs).filter(
+        (candidate) => !unresolved.has(candidate.huntStateId),
+      );
+      const scheduled = this.loadScheduledCandidates(scheduledSources, cfg, nowMs).filter(
+        (candidate) => !unresolved.has(candidate.huntStateId),
+      );
       // Human force requests are commands, not planning suggestions. Drain all
       // of them before applying the normal command ceiling to scheduled work.
       const missingManualIds = this.missingManualHuntStateIds(manual);
@@ -414,11 +425,27 @@ export class HuntEngine {
       const budgetHolds = new Set<string>();
       let scheduledDispatched = 0;
       try {
-        for (const { cmd, trigger } of plan) {
+        for (let planIndex = 0; planIndex < plan.length; planIndex++) {
+          const { cmd, trigger } = plan[planIndex];
           if (signal?.aborted) break;
           if (!this.isImmediateTrigger(trigger) && scheduledDispatched >= cfg.maxCommandsPerCycle)
             break;
           await chains.get(cmd.source);
+          if (signal?.aborted) break;
+          const current = this.settings.get();
+          if (!this.isImmediateTrigger(trigger)) {
+            if (isEnginePaused(this.db)) {
+              this.setHold("automatic hunting is paused", { logActivity: false });
+              continue;
+            }
+            if (!accountingAvailable) {
+              this.setHold(
+                "budget observation unavailable; retry accounting before automatic searches",
+                { type: "budget", level: "warn" },
+              );
+              continue;
+            }
+          }
           let estimates: Map<number, number> | null = null;
           if (this.budget) {
             estimates = this.budget.estimateCommand({
@@ -431,6 +458,20 @@ export class HuntEngine {
             if (!this.isImmediateTrigger(trigger)) {
               const decision = this.budget.mayDispatch(estimates);
               if (!decision.ok) {
+                if (cmd.covered.length > 1 && cmd.name !== "SeasonSearch") {
+                  // Retry exact targets individually when the combined estimate cannot fit.
+                  plan.splice(
+                    planIndex + 1,
+                    0,
+                    ...cmd.covered.flatMap((candidate) =>
+                      groupCommands([candidate], { episodeIdsOnly: true }).map((single) => ({
+                        cmd: single,
+                        trigger,
+                      })),
+                    ),
+                  );
+                  continue;
+                }
                 if (!budgetHolds.has(decision.holdReason)) {
                   budgetHolds.add(decision.holdReason);
                   this.setHold(decision.holdReason, { type: "budget", level: "warn" });
@@ -442,8 +483,8 @@ export class HuntEngine {
             }
           }
           if (!this.isImmediateTrigger(trigger)) scheduledDispatched += 1;
-          const attemptId = this.insertAttempt(cmd, trigger, cfg.dryRun, estimates);
-          if (cfg.dryRun) {
+          const attemptId = this.insertAttempt(cmd, trigger, current.dryRun, estimates);
+          if (current.dryRun) {
             this.completeDryRun(cmd, trigger, attemptId, estimates);
             continue;
           }
@@ -467,6 +508,72 @@ export class HuntEngine {
   }
 
   // ============ dispatch + polling ============
+
+  private async reconcileIncompleteAttempts(reachable: ReachableClient[]): Promise<Set<number>> {
+    const held = new Set<number>();
+    const clients = new Map(reachable.map(({ source, client }) => [source, client]));
+    const attempts = this.db
+      .select()
+      .from(searchAttempts)
+      .where(and(eq(searchAttempts.dryRun, false), isNull(searchAttempts.completedAt)))
+      .all();
+    for (const attempt of attempts) {
+      let status: string | undefined;
+      const client = clients.get(attempt.source);
+      if (client && attempt.arrCommandId != null) {
+        try {
+          status = (await client.getCommand(attempt.arrCommandId)).status;
+        } catch {
+          // Missing command records and network errors are both ambiguous.
+        }
+      }
+      if (status === "completed" || status === "failed" || status === "aborted") {
+        const covered = this.db
+          .select()
+          .from(huntState)
+          .where(inArray(huntState.id, attempt.targetIds))
+          .all();
+        const candidates: HuntCandidate[] = covered.map((row) => ({
+          huntStateId: row.id,
+          source: row.source,
+          kind: row.targetKind,
+          targetId: row.targetId,
+          seriesId: row.seriesId,
+          seasonNumber: row.seasonNumber,
+          episodeNumber: null,
+          title: attempt.targetLabel ?? "Recovered search",
+          year: null,
+          anime: false,
+          score: 0,
+          bucket: "upgrade",
+          searchCount: row.searchCount,
+          manualPriority: row.manualPriority,
+        }));
+        await this.afterCommand(
+          {
+            source: attempt.source,
+            kind: attempt.source === "sonarr" ? "tv" : "movie",
+            name: attempt.commandName as PlannedCommand["name"],
+            payload: attempt.payload as PlannedCommand["payload"],
+            searchOps: candidates.length,
+            anime: false,
+            label: attempt.targetLabel ?? "Recovered search",
+            covered: candidates,
+          },
+          attempt.trigger as SearchTrigger,
+          attempt.id,
+          status === "completed" ? "completed" : "failed",
+        );
+      } else {
+        for (const id of attempt.targetIds) held.add(id);
+        this.setHold(
+          `search ${attempt.id} awaiting command reconciliation${attempt.arrCommandId == null ? "; acceptance unknown" : ""}`,
+          { key: "recovery", level: "warn" },
+        );
+      }
+    }
+    return held;
+  }
 
   private async openScheduledSources(
     reachable: ReachableClient[],
@@ -604,7 +711,7 @@ export class HuntEngine {
         this.log.warn({ err, label: cmd.label }, "arr command dispatch failed");
         this.db
           .update(searchAttempts)
-          .set({ status: "failed", result: "error", completedAt: this.now() })
+          .set({ status: "interrupted", result: "error" })
           .where(eq(searchAttempts.id, attemptId))
           .run();
         this.bus.emit("hunt.search.result", {
@@ -612,9 +719,9 @@ export class HuntEngine {
           source: cmd.source,
           result: "error",
           attemptId,
-          status: "failed",
+          status: "interrupted",
         });
-        return; // no search happened: no tier bump, manual entries stay queued
+        return; // Acceptance is unknown; keep targets and budget reserved for reconciliation.
       }
       const arrCommandId = sent.id ?? null;
       this.db
@@ -624,7 +731,7 @@ export class HuntEngine {
         .run();
       const finalStatus =
         arrCommandId === null
-          ? "completed" // arr accepted but returned no id — nothing to poll
+          ? "timeout" // Acceptance cannot be reconciled without a command id.
           : await this.pollCommand(client, arrCommandId, attemptId, startedAt, signal);
       await this.afterCommand(cmd, trigger, attemptId, finalStatus);
     } finally {
@@ -672,6 +779,21 @@ export class HuntEngine {
     attemptId: number,
     finalStatus: "completed" | "failed" | "timeout",
   ): Promise<void> {
+    if (finalStatus === "timeout") {
+      this.db
+        .update(searchAttempts)
+        .set({ status: "interrupted" })
+        .where(eq(searchAttempts.id, attemptId))
+        .run();
+      this.bus.emit("hunt.search.result", {
+        label: cmd.label,
+        source: cmd.source,
+        result: null,
+        attemptId,
+        status: "interrupted",
+      });
+      return;
+    }
     const refreshSeriesIds = new Set<number>();
     const refreshMovieIds = new Set<number>();
     for (const c of cmd.covered) {
@@ -1302,7 +1424,7 @@ export class HuntEngine {
       ) {
         patch.state = "ai_paused";
         patch.nextEligibleAt = aiPausedUntilFor({
-          checkedAt: verdict.checkedAt,
+          checkedAt: detail.checkedAt,
           recheckAfter: detail.recheckAfter,
         });
         if (row.state !== "ai_paused") patch.stateChangedAt = now;

@@ -237,6 +237,8 @@ export const pendingSelfEstimates = sqliteTable("pending_self_estimates", {
   at: integer("at").notNull(),
   queries: integer("queries").notNull(),
   attemptId: integer("attempt_id"),
+  reconciledAt: integer("reconciled_at"),
+  observedIds: text("observed_ids", { mode: "json" }).$type<number[]>().notNull().default([]),
 });
 
 // ============ AI verdicts ============

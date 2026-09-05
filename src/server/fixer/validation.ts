@@ -8,6 +8,7 @@ import type {
   ValidationIssue,
   ValidationResult,
 } from "../../shared/fixer-types.js";
+import { isDiscStreamPath } from "../arr/sample.js";
 
 const proposalActions: ProposalAction[] = [
   "import_candidates",
@@ -214,6 +215,13 @@ export function validateProposalForImport(
       continue;
     }
 
+    if (isDiscStreamPath(candidate.path)) {
+      issues.push({
+        severity: "error",
+        message: `Candidate ${candidate.id} is a Blu-ray disc stream, not an importable episode or movie file.`,
+        candidateId: candidate.id,
+      });
+    }
     if (candidate.isLikelySample) {
       issues.push({
         severity: "error",

@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { parseEnv } from "node:util";
 import { describe, expect, it } from "vitest";
 import { loadEnv } from "./env.js";
 
@@ -23,4 +25,12 @@ describe("loadEnv external arr URLs", () => {
   ])("rejects unsafe external URL %s", (SONARR_EXTERNAL_URL) => {
     expect(() => loadEnv({ NODE_ENV: "test", SONARR_EXTERNAL_URL })).toThrow("Invalid environment");
   });
+});
+
+it("starts from the distributed template without integrations", () => {
+  const env = loadEnv(parseEnv(readFileSync(".env.example", "utf8")));
+  expect(env.SONARR_URL).toBeUndefined();
+  expect(env.RADARR_URL).toBeUndefined();
+  expect(env.PROWLARR_URL).toBeUndefined();
+  expect(env.SEARXNG_URL).toBeUndefined();
 });

@@ -1,4 +1,4 @@
-import { useNavigate, useSearch } from "@tanstack/react-router";
+import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { ArrowDown, ArrowUp, ExternalLink, RefreshCw, Sparkles } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import type {
@@ -381,7 +381,14 @@ function SeriesRow({ item }: { item: SeriesListItem }) {
       <Td>
         <span className="flex items-center gap-2">
           <PosterThumb url={item.posterUrl} title={item.title} />
-          <span className="max-w-[320px] truncate text-ink">{item.title}</span>
+          <Link
+            to="/library/series/$seriesId"
+            params={{ seriesId: String(item.id) }}
+            className="max-w-[320px] truncate text-ink hover:underline"
+            onClick={(event) => event.stopPropagation()}
+          >
+            {item.title}
+          </Link>
           {item.year ? <span className="font-mono text-[11px] text-faint">{item.year}</span> : null}
         </span>
       </Td>
@@ -433,7 +440,14 @@ function MovieRow({ item }: { item: MovieListItem }) {
       <Td>
         <span className="flex items-center gap-2">
           <PosterThumb url={item.posterUrl} title={item.title} />
-          <span className="max-w-[320px] truncate text-ink">{item.title}</span>
+          <Link
+            to="/library/movies/$movieId"
+            params={{ movieId: String(item.id) }}
+            className="max-w-[320px] truncate text-ink hover:underline"
+            onClick={(event) => event.stopPropagation()}
+          >
+            {item.title}
+          </Link>
           {item.year ? <span className="font-mono text-[11px] text-faint">{item.year}</span> : null}
         </span>
       </Td>

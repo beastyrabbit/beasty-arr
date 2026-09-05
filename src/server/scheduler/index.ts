@@ -28,6 +28,11 @@ export class Scheduler {
   private readonly jobs = new Map<string, JobState>();
   private readonly abort = new AbortController();
   private stopped = false;
+  private readonly active = new Set<Promise<void>>();
+
+  async wait(): Promise<void> {
+    await Promise.allSettled(this.active);
+  }
 
   constructor(private readonly log: FastifyBaseLogger) {}
 
@@ -104,10 +109,10 @@ export class Scheduler {
 
   private schedule(state: JobState, delayMs: number): void {
     if (this.stopped) return;
+    if (state.timer) clearTimeout(state.timer);
     state.timer = setTimeout(() => {
-      void this.execute(state).finally(() => {
-        this.schedule(state, this.jittered(state.def.intervalMs, state.def));
-      });
+      state.timer = null;
+      void this.execute(state);
     }, delayMs);
     state.timer.unref?.();
   }
@@ -118,8 +123,17 @@ export class Scheduler {
     return Math.max(1000, Math.round(ms + delta));
   }
 
-  private async execute(state: JobState): Promise<void> {
+  private execute(state: JobState): Promise<void> {
+    const task = this.run(state);
+    this.active.add(task);
+    void task.finally(() => this.active.delete(task));
+    return task;
+  }
+
+  private async run(state: JobState): Promise<void> {
     if (state.running || this.stopped) return;
+    if (state.timer) clearTimeout(state.timer);
+    state.timer = null;
     do {
       state.rerunRequested = false;
       state.running = true;
@@ -138,5 +152,6 @@ export class Scheduler {
       // A trigger during that follow-up may request another iteration without
       // growing an async recursion chain.
     } while (state.rerunRequested && !this.stopped);
+    this.schedule(state, this.jittered(state.def.intervalMs, state.def));
   }
 }

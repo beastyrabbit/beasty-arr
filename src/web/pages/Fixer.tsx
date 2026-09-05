@@ -20,6 +20,7 @@ import type {
   ResolverEvent,
 } from "../../shared/fixer-types.js";
 import { ConfirmDialog } from "../components/ConfirmDialog.js";
+import { QueryError } from "../components/QueryError.js";
 import { EmptyState, Panel, Skeleton } from "../components/Shell.js";
 import { Button } from "../components/ui/button.js";
 import { Switch } from "../components/ui/switch.js";
@@ -295,13 +296,24 @@ export function FixerPage() {
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(420px,5fr)_minmax(420px,6fr)]">
         {/* left: stuck queue */}
         <Panel>
+          <QueryError query={queue} />
+          {queue.data?.unavailableServices?.length ? (
+            <div role="alert" className="p-3 text-[12px] text-missing">
+              Could not read {queue.data.unavailableServices.join(" and ")} queue.{" "}
+              <Button size="sm" variant="outline" onClick={() => refresh.mutate()}>
+                Retry queue
+              </Button>
+            </div>
+          ) : null}
           {queue.isPending ? (
             <div className="space-y-2 p-3">
               <Skeleton className="w-full" />
               <Skeleton className="w-3/4" />
               <Skeleton className="w-5/6" />
             </div>
-          ) : items.length === 0 ? (
+          ) : (queue.isError && !queue.data) ||
+            (items.length === 0 &&
+              queue.data?.unavailableServices?.length) ? null : items.length === 0 ? (
             <EmptyState
               message="Nothing stuck. The import queues are clean."
               hint="Stuck items from Sonarr/Radarr appear here."
@@ -353,11 +365,8 @@ export function FixerPage() {
                 {groupItems.map((item) => {
                   const k = keyOf(item);
                   return (
-                    // biome-ignore lint/a11y/noStaticElementInteractions: row select + inner checkbox
-                    // biome-ignore lint/a11y/useKeyWithClickEvents: row select duplicated by checkbox
                     <div
                       key={k}
-                      onClick={() => setActiveKey(k)}
                       className={cn(
                         "flex h-8 cursor-pointer items-center gap-2 border-b border-line px-3 last:border-b-0",
                         activeKey === k ? "bg-raised" : "hover:bg-raised/50",
@@ -365,6 +374,7 @@ export function FixerPage() {
                     >
                       <input
                         type="checkbox"
+                        aria-label={`Select ${item.title} for bulk analysis`}
                         className="accent-[#f0a63a]"
                         checked={selected.has(k)}
                         onClick={(e) => e.stopPropagation()}
@@ -380,9 +390,14 @@ export function FixerPage() {
                       <span className="font-mono text-[10px] text-faint" title={item.service}>
                         {item.service === "sonarr" ? "S" : "R"}
                       </span>
-                      <span className="min-w-0 flex-1 truncate text-[12px] text-ink">
+                      <button
+                        type="button"
+                        onClick={() => setActiveKey(k)}
+                        aria-label={`Review ${item.title}`}
+                        className="min-w-0 flex-1 truncate text-left text-[12px] text-ink focus-visible:outline-2"
+                      >
                         {item.title}
-                      </span>
+                      </button>
                       <span className="font-mono text-[10px] text-faint">
                         {item.addedAt ? relTime(Date.parse(item.addedAt)) : "—"}
                       </span>
@@ -443,9 +458,10 @@ function ReviewPanel({ item, dryRun }: { item: FixerQueueItemDto | null; dryRun:
   const [liveEvents, setLiveEvents] = useState<Record<string, ResolverEvent[]>>({});
 
   useSseEvent("fixer.analysis.progress", (e) => {
+    if (e.payload.analysisId !== item?.analysisId) return;
     setLiveEvents((prev) => {
       const list = prev[e.payload.analysisId] ?? [];
-      return { ...prev, [e.payload.analysisId]: [...list, e.payload.event].slice(-200) };
+      return { [e.payload.analysisId]: [...list, e.payload.event].slice(-200) };
     });
   });
 
@@ -461,6 +477,12 @@ function ReviewPanel({ item, dryRun }: { item: FixerQueueItemDto | null; dryRun:
   }
 
   const a = analysis.data;
+  if (analysis.isError && !a)
+    return (
+      <Panel title={item.title}>
+        <QueryError query={analysis} />
+      </Panel>
+    );
   const running = item.analysisState === "analyzing" || a?.status === "running";
   const streamed = item.analysisId ? (liveEvents[item.analysisId] ?? []) : [];
   const events = [...(a?.events ?? []), ...streamed];
@@ -522,7 +544,12 @@ function ReviewPanel({ item, dryRun }: { item: FixerQueueItemDto | null; dryRun:
     );
   }
 
-  return <ProposalCard item={item} analysis={a} dryRun={dryRun} />;
+  return (
+    <>
+      <QueryError query={analysis} />
+      <ProposalCard key={a.id} item={item} analysis={a} dryRun={dryRun} />
+    </>
+  );
 }
 
 function ProposalCard({
@@ -685,6 +712,7 @@ function ProposalCard({
                       <td className="px-2">
                         <input
                           type="checkbox"
+                          aria-label={`Include ${c.relativePath ?? c.path}`}
                           className="accent-[#f0a63a]"
                           checked={selectedIds.has(c.id)}
                           onChange={(e) => toggleInclude(c.id, e.target.checked)}

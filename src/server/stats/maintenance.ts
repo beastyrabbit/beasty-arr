@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { mkdirSync, renameSync, rmSync } from "node:fs";
 import path from "node:path";
 import { and, eq, gte, sql } from "drizzle-orm";
 import type { FastifyBaseLogger } from "fastify";
@@ -61,7 +62,12 @@ export function backupDatabase(
   const backupDir = path.join(dataDir, "backup");
   mkdirSync(backupDir, { recursive: true });
   const target = path.join(backupDir, "beasty-arr.db");
-  if (existsSync(target)) rmSync(target);
-  sqlite.exec(`VACUUM INTO '${target.replaceAll("'", "''")}'`);
+  const temporary = path.join(backupDir, `.${randomUUID()}.db`);
+  try {
+    sqlite.exec(`VACUUM INTO '${temporary.replaceAll("'", "''")}'`);
+    renameSync(temporary, target);
+  } finally {
+    rmSync(temporary, { force: true });
+  }
   log.info({ target }, "sqlite backup written");
 }

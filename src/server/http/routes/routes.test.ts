@@ -37,10 +37,22 @@ function get(app: FastifyInstance, url: string) {
   return app.inject({ method: "GET", url });
 }
 function post(app: FastifyInstance, url: string, payload?: unknown) {
-  return app.inject({ method: "POST", url, payload });
+  return app.inject({
+    method: "POST",
+    url,
+    ...(payload === undefined
+      ? {}
+      : { payload: JSON.stringify(payload), headers: { "content-type": "application/json" } }),
+  });
 }
 function put(app: FastifyInstance, url: string, payload?: unknown) {
-  return app.inject({ method: "PUT", url, payload });
+  return app.inject({
+    method: "PUT",
+    url,
+    ...(payload === undefined
+      ? {}
+      : { payload: JSON.stringify(payload), headers: { "content-type": "application/json" } }),
+  });
 }
 
 const now = Date.now();
@@ -812,27 +824,24 @@ describe("fixer", () => {
     start.mockRestore();
   });
 
-  // This replaces the whole fixer service, so it runs last.
   it("maps the queue with latest-analysis fields", async () => {
-    b.ctx.services.fixer = {
-      getQueue: async () => ({
-        fetchedAt: 123,
-        items: [
-          {
-            id: 5,
-            service: "sonarr",
-            title: "Stuck",
-            statusMessages: [],
-            episodeIds: [],
-            absoluteEpisodeNumbers: [],
-            episodeLabels: [],
-            canAnalyze: true,
-            issueType: "import blocked",
-          },
-        ],
-        errors: {},
-      }),
-    } as never;
+    vi.spyOn(b.ctx.services.fixer, "getQueue").mockResolvedValue({
+      fetchedAt: 123,
+      items: [
+        {
+          id: 5,
+          service: "sonarr",
+          title: "Stuck",
+          statusMessages: [],
+          episodeIds: [],
+          absoluteEpisodeNumbers: [],
+          episodeLabels: [],
+          canAnalyze: true,
+          issueType: "import blocked",
+        },
+      ],
+      errors: {},
+    });
     const res = await get(b.app, "/api/fixer/queue");
     expect(res.json().fetchedAt).toBe(123);
     expect(res.json().items[0].analysisId).toBeNull();
@@ -874,9 +883,8 @@ describe("config", () => {
   });
 
   it("rejects dryRun via the config PUT", async () => {
-    // dryRun is stripped by the schema; a settings-only PUT still succeeds and leaves dryRun on.
-    await put(b.app, "/api/config", { huntTickMinutes: 15 });
-    expect(b.ctx.settings.get().huntTickMinutes).toBe(15);
+    const response = await put(b.app, "/api/config", { dryRun: false });
+    expect(response.statusCode).toBe(400);
     expect(b.ctx.settings.get().dryRun).toBe(true);
   });
 
@@ -960,5 +968,43 @@ describe("diagnostics", () => {
     const body = res.json();
     expect(body.connections.sonarr.keyPresent).toBe(true);
     expect(body.dryRun).toBe(true);
+  });
+});
+
+describe("title-scoped history", () => {
+  it("keeps cumulative season metrics after unrelated searches and verdict history", async () => {
+    const b = await makeApp();
+    try {
+      seedLibrary(b.ctx);
+      const target = b.ctx.db.select().from(huntState).where(eq(huntState.source, "sonarr")).get();
+      if (!target?.seriesId) throw new Error("missing synthetic episode");
+      const seriesId = target.seriesId;
+      const baseAttempt = {
+        source: "sonarr" as const,
+        commandName: "EpisodeSearch",
+        payload: {},
+        estimatedQueries: 1,
+        status: "completed",
+        completedAt: now,
+      };
+      b.ctx.db
+        .insert(searchAttempts)
+        .values({ ...baseAttempt, createdAt: now - 1000, targetIds: [target.id] })
+        .run();
+      for (let i = 0; i < 405; i++)
+        b.ctx.db
+          .insert(searchAttempts)
+          .values({ ...baseAttempt, createdAt: now + i, targetIds: [999999] })
+          .run();
+      const detail = (await get(b.app, `/api/library/series/${seriesId}`)).json();
+      const season = detail.seasons.find(
+        (row: { seasonNumber: number }) => row.seasonNumber === target.seasonNumber,
+      );
+      expect(season.searchCount).toBe(1);
+      expect(season.lastSearchAt).toBe(now - 1000);
+      expect(season.history.some((entry: { kind: string }) => entry.kind === "search")).toBe(true);
+    } finally {
+      await closeApp(b);
+    }
   });
 });

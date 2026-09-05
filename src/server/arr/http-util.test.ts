@@ -36,7 +36,7 @@ describe("arrFetch", () => {
   });
 
   it("passes method, headers, and a timeout signal through to fetch", async () => {
-    const fetchMock = vi.fn(async () => response(200));
+    const fetchMock = vi.fn<FetchImpl>(async () => response(200));
 
     await arrFetch(
       "http://arr.local/api",
@@ -199,4 +199,20 @@ describe("arrFetch", () => {
     await expect(pending).rejects.toThrow("caller cancelled");
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+});
+
+it("does not replay a mutation accepted before its response was lost", async () => {
+  const accepted: string[] = [];
+  const transport: FetchImpl = async (_url, init) => {
+    accepted.push(String(init?.body));
+    throw new Error("response lost");
+  };
+  await expect(
+    arrFetch(
+      "http://arr.test/command",
+      { method: "POST", body: "{}" },
+      { fetchImpl: transport, retries: 3, retryDelayMs: 0 },
+    ),
+  ).rejects.toThrow("response lost");
+  expect(accepted).toHaveLength(1);
 });

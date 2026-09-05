@@ -245,3 +245,16 @@ describe("validateProposalForImport", () => {
     expect(result.issues.some((issue) => issue.message.includes("one feature file"))).toBe(true);
   });
 });
+
+it.each([
+  "/downloads/BDMV/STREAM/00001.m2ts",
+  "C:\\downloads\\BDMV\\STREAM\\00001.m2ts",
+  "/BDMV/STREAM/SSIF/00001.ssif",
+])("blocks disc streams at the deterministic import boundary: %s", (filePath) => {
+  const result = validateProposalForImport(
+    [candidate({ path: filePath, seriesId: 12, size: 2_000_000_000 })],
+    importProposal,
+  );
+  expect(result.ok).toBe(false);
+  expect(result.issues.some((issue) => issue.message.includes("disc stream"))).toBe(true);
+});

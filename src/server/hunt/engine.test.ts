@@ -5,6 +5,8 @@ import { eq } from "drizzle-orm";
 import type { FastifyBaseLogger } from "fastify";
 import { afterEach, describe, expect, it } from "vitest";
 import { backoffForTier } from "../../shared/domain.js";
+import { BudgetManager } from "../budget/manager.js";
+import { setEnginePaused } from "../config/engine-flag.js";
 import { SettingsService } from "../config/settings.js";
 import { createDb, type Db } from "../db/index.js";
 import {
@@ -696,8 +698,8 @@ describe("runCycle — live dispatch", () => {
     await engine.runCycle();
     expect(sonarr.getCommandCalls).toBeGreaterThanOrEqual(59);
     const attempt = db.select().from(searchAttempts).all()[0];
-    expect(attempt).toMatchObject({ status: "timeout", result: "no_grab" });
-    expect(huntRow(db, hs).tier).toBe(1); // search presumably ran — back off
+    expect(attempt).toMatchObject({ status: "interrupted", result: null, completedAt: null });
+    expect(huntRow(db, hs).tier).toBe(0); // Hold unresolved work without claiming completion.
   });
 
   it("caps commands per cycle at maxCommandsPerCycle", async () => {
@@ -1366,5 +1368,133 @@ describe("queue management and views", () => {
     expect(status.nextTickAt).toBe(T0 + settings.get().huntTickMinutes * 60_000);
     engine.setNextTickAt(T0 + 123);
     expect(engine.engineStatus().nextTickAt).toBe(T0 + 123);
+  });
+});
+
+describe("dispatch safety and recovery", () => {
+  it.each(["dryRun", "paused"] as const)(
+    "checks current %s after the preceding command",
+    async (control) => {
+      const { db, engine, settings, radarr, sync } = makeHarness();
+      settings.update({ dryRun: false });
+      for (let id = 1; id <= 6; id++) seedMovie(db, { id, hasFile: true }, { state: "non_german" });
+      sync.onMovieRefresh = () =>
+        control === "dryRun" ? settings.update({ dryRun: true }) : setEnginePaused(db, true);
+      await engine.runCycle();
+      expect(radarr.sent).toHaveLength(1);
+      const attempts = db.select().from(searchAttempts).all();
+      expect(attempts.filter((row) => !row.dryRun)).toHaveLength(1);
+      if (control === "dryRun") expect(attempts[1].dryRun).toBe(true);
+    },
+  );
+
+  it("holds automatic work on real accounting failure, but preserves explicit Force", async () => {
+    const { db, settings, sonarr, radarr, sync, bus, clock } = makeHarness();
+    settings.update({ dryRun: false });
+    seedMovie(db, { id: 1, hasFile: true }, { state: "non_german" });
+    const manager = new BudgetManager(
+      db,
+      settings,
+      {
+        getIndexers: async () => {
+          throw new Error("offline");
+        },
+        getIndexerStats: async () => [],
+        getIndexerStatus: async () => [],
+      },
+      bus,
+      noopLog,
+      { now: () => clock.ms },
+    );
+    const engine = new HuntEngine(db, settings, { sonarr, radarr }, manager, sync, bus, noopLog, {
+      now: () => clock.ms,
+      sleep: async () => {},
+    });
+    await engine.runCycle();
+    expect(radarr.sent).toHaveLength(0);
+    engine.forceSubject({ source: "radarr", kind: "movie", id: 1 });
+    await engine.runCycle();
+    expect(radarr.sent).toHaveLength(1);
+  });
+
+  it("reconciles accepted queued commands before allowing retries", async () => {
+    const { db, engine, settings, radarr } = makeHarness();
+    settings.update({ dryRun: false });
+    const target = seedMovie(db, { id: 1, hasFile: true }, { state: "non_german" });
+    db.insert(searchAttempts)
+      .values({
+        createdAt: T0 - 1000,
+        source: "radarr",
+        commandName: "MoviesSearch",
+        arrCommandId: 77,
+        payload: { name: "MoviesSearch", movieIds: [1] },
+        targetIds: [target],
+        estimatedQueries: 1,
+        status: "queued",
+      })
+      .run();
+    radarr.defaultCommandStatus = "queued";
+    await engine.runCycle();
+    expect(radarr.sent).toHaveLength(0);
+    radarr.defaultCommandStatus = "completed";
+    await engine.runCycle();
+    expect(radarr.sent).toHaveLength(0);
+    expect(db.select().from(searchAttempts).get()?.status).toBe("completed");
+    expect(huntRow(db, target).searchCount).toBe(1);
+  });
+
+  it("splits full episode batches against a real 100-query indexer", async () => {
+    const { db, settings, sonarr, radarr, sync, bus, clock } = makeHarness();
+    settings.update({ dryRun: false });
+    seedSeries(db, { id: 1 });
+    for (let id = 1; id <= 10; id++)
+      seedEpisode(
+        db,
+        { id, seriesId: 1, episodeNumber: id, hasFile: true },
+        { state: "non_german" },
+      );
+    const manager = new BudgetManager(
+      db,
+      settings,
+      {
+        getIndexers: async () => [
+          {
+            id: 1,
+            name: "Small",
+            enable: true,
+            priority: 1,
+            protocol: "usenet",
+            queryLimit: 100,
+            grabLimit: null,
+            supportsTv: true,
+            supportsMovies: true,
+          },
+        ],
+        getIndexerStats: async () => [
+          {
+            indexerId: 1,
+            indexerName: "Small",
+            numberOfQueries: 0,
+            numberOfRssQueries: 0,
+            numberOfAuthQueries: 0,
+            numberOfGrabs: 0,
+          },
+        ],
+        getIndexerStatus: async () => [],
+      },
+      bus,
+      noopLog,
+      { now: () => clock.ms },
+    );
+    const engine = new HuntEngine(db, settings, { sonarr, radarr }, manager, sync, bus, noopLog, {
+      now: () => clock.ms,
+      sleep: async () => {},
+    });
+    await engine.runCycle();
+    expect(sonarr.sent.length).toBeGreaterThan(0);
+    expect(sonarr.sent.length).toBeLessThanOrEqual(3);
+    expect(sonarr.sent.every((command) => (command.episodeIds as number[]).length === 1)).toBe(
+      true,
+    );
   });
 });

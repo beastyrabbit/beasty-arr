@@ -1,10 +1,16 @@
-import { and, desc, eq, gte, lt, notInArray, sql } from "drizzle-orm";
+import { and, desc, eq, gte, isNull, lt, notInArray, sql } from "drizzle-orm";
 import type { FastifyBaseLogger } from "fastify";
 import type { AppSettings, SettingsService } from "../config/settings.js";
 import type { Db } from "../db/index.js";
-import { budgetBuckets, indexerSnapshots, indexers, pendingSelfEstimates } from "../db/schema.js";
+import {
+  budgetBuckets,
+  indexerSnapshots,
+  indexers,
+  pendingSelfEstimates,
+  searchAttempts,
+} from "../db/schema.js";
 import type { EventBus } from "../events/bus.js";
-import type { ProwlarrClient } from "../prowlarr/client.js";
+import type { ProwlarrClient, ProwlarrHistoryRecord } from "../prowlarr/client.js";
 
 const HOUR_MS = 3_600_000;
 /** History window feeding the organic forecast. */
@@ -78,6 +84,10 @@ type ControllerState = {
  */
 export class BudgetManager {
   private readonly now: () => number;
+  private observationAt: number | null = null;
+  private readonly history = new Map<number, ProwlarrHistoryRecord>();
+  private historyAt: number | null = null;
+  private fullHistoryAt: number | null = null;
 
   constructor(
     private readonly db: Db,
@@ -95,6 +105,8 @@ export class BudgetManager {
    * buckets, clear covered pending self-estimates, and update backoff flags.
    */
   async refresh(): Promise<void> {
+    this.observationAt = null;
+    const cutoff = this.now();
     const [remote, stats, statuses] = await Promise.all([
       this.prowlarr.getIndexers(),
       this.prowlarr.getIndexerStats(),
@@ -183,9 +195,6 @@ export class BudgetManager {
         .run();
     }
 
-    // Estimates dispatched before this snapshot are now covered by observed totals.
-    this.db.delete(pendingSelfEstimates).where(lt(pendingSelfEstimates.at, now)).run();
-
     this.db
       .delete(indexerSnapshots)
       .where(lt(indexerSnapshots.takenAt, now - RETENTION_MS))
@@ -197,10 +206,17 @@ export class BudgetManager {
 
     if (this.prowlarr.getHistorySince) {
       try {
-        await this.refreshSourceAttribution(now);
+        await this.refreshSourceAttribution(cutoff);
+        this.reconcileReservations(cutoff);
       } catch (err) {
         this.log.warn({ err }, "prowlarr history attribution refresh failed; keeping prior data");
+        throw err;
       }
+    }
+
+    const observed = new Set(stats.map((stat) => stat.indexerId));
+    if (remote.length > 0 && remote.every((ix) => !ix.enable || observed.has(ix.id))) {
+      this.observationAt = cutoff;
     }
 
     this.bus.emit("budget.updated", { indexers: this.getStatus() });
@@ -230,6 +246,12 @@ export class BudgetManager {
     const cfg = this.settings.get();
     const excluded = new Set(cfg.excludeIndexerIds);
     const now = this.now();
+    if (this.observationAt === null || now - this.observationAt > 5 * 60_000) {
+      return { ok: false, holdReason: "budget observation unavailable or older than five minutes" };
+    }
+    if (estimates.size === 0) {
+      return { ok: false, holdReason: "no eligible observed indexers for this search" };
+    }
     const rows = new Map(
       this.db
         .select()
@@ -311,7 +333,11 @@ export class BudgetManager {
       .all()
       .map((ix) => {
         const c = this.controllerFor(ix, now, cfg);
-        let canHuntNow = ix.enabled && !ix.inBackoff;
+        let canHuntNow =
+          ix.enabled &&
+          !ix.inBackoff &&
+          this.observationAt !== null &&
+          now - this.observationAt <= 5 * 60_000;
         if (canHuntNow && c.target !== null && c.huntRatePerHour !== null && !excluded.has(ix.id)) {
           canHuntNow = c.trailing24h < c.target && c.huntHourSpend < c.huntRatePerHour;
         }
@@ -373,7 +399,9 @@ export class BudgetManager {
     const pending = this.db
       .select()
       .from(pendingSelfEstimates)
-      .where(eq(pendingSelfEstimates.indexerId, ix.id))
+      .where(
+        and(eq(pendingSelfEstimates.indexerId, ix.id), isNull(pendingSelfEstimates.reconciledAt)),
+      )
       .all()
       .reduce((sum, p) => sum + p.queries, 0);
 
@@ -420,9 +448,26 @@ export class BudgetManager {
 
   private async refreshSourceAttribution(now: number): Promise<void> {
     if (!this.prowlarr.getHistorySince) return;
-    const since = now - 24 * HOUR_MS;
+    // Re-fetch complete hours with overlap for late events; rebuild the trailing
+    // day hourly to catch older arrivals and upstream resets.
+    const full = this.fullHistoryAt === null || now - this.fullHistoryAt >= HOUR_MS;
+    const since = full
+      ? now - 24 * HOUR_MS
+      : Math.max(now - 24 * HOUR_MS, (this.historyAt ?? now) - 2 * HOUR_MS);
     const startHour = Math.floor(since / HOUR_MS);
-    const records = await this.prowlarr.getHistorySince(since);
+    const fetched = await this.prowlarr.getHistorySince(startHour * HOUR_MS);
+    if (full) this.history.clear();
+    for (const [id, record] of this.history) {
+      if (
+        record.at < (Math.floor(now / HOUR_MS) - 24) * HOUR_MS ||
+        record.at >= startHour * HOUR_MS
+      )
+        this.history.delete(id);
+    }
+    for (const record of fetched) this.history.set(record.id, record);
+    this.historyAt = now;
+    if (full) this.fullHistoryAt = now;
+    const records = [...this.history.values()].filter((record) => record.at >= startHour * HOUR_MS);
     const grouped = new Map<
       string,
       {
@@ -499,6 +544,54 @@ export class BudgetManager {
         })
         .run();
     }
+  }
+
+  private reconcileReservations(cutoff: number): void {
+    const reservations = this.db
+      .select()
+      .from(pendingSelfEstimates)
+      .orderBy(pendingSelfEstimates.at)
+      .all();
+    const used = new Set(reservations.flatMap((row) => row.observedIds));
+    const records = [...this.history.values()].sort((a, b) => a.at - b.at);
+    this.db.transaction((tx) => {
+      for (const reservation of reservations) {
+        if (reservation.reconciledAt !== null || reservation.attemptId === null) continue;
+        const attempt = tx
+          .select()
+          .from(searchAttempts)
+          .where(eq(searchAttempts.id, reservation.attemptId))
+          .get();
+        if (
+          !attempt ||
+          attempt.completedAt === null ||
+          attempt.completedAt >= cutoff ||
+          !["completed", "failed"].includes(attempt.status)
+        )
+          continue;
+        const evidence = records
+          .filter(
+            (record) =>
+              record.indexerId === reservation.indexerId &&
+              record.eventType === "indexerQuery" &&
+              record.source.toLowerCase() === attempt.source &&
+              record.at >= reservation.at &&
+              record.at < cutoff &&
+              !used.has(record.id),
+          )
+          .slice(0, reservation.queries);
+        // No time-only expiry: incomplete observations keep the reservation.
+        if (evidence.length < reservation.queries) continue;
+        for (const record of evidence) used.add(record.id);
+        tx.update(pendingSelfEstimates)
+          .set({ reconciledAt: cutoff, observedIds: evidence.map((record) => record.id) })
+          .where(eq(pendingSelfEstimates.id, reservation.id))
+          .run();
+      }
+      tx.delete(pendingSelfEstimates)
+        .where(lt(pendingSelfEstimates.reconciledAt, cutoff - RETENTION_MS))
+        .run();
+    });
   }
 
   /**

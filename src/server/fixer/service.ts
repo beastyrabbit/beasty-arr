@@ -464,6 +464,10 @@ export class FixerService {
     return true;
   }
 
+  async wait(): Promise<void> {
+    await Promise.allSettled(this.running.values());
+  }
+
   cancelAll(): number {
     let count = 0;
     for (const active of this.activeByItem.values()) {
@@ -512,16 +516,21 @@ export class FixerService {
   ): Promise<FixerRunOutcome> {
     const { service } = queueItem;
     const events: FixerAnalysisEvent[] = [];
-    const record = (event: FixerAnalysisEvent) => {
-      events.push(event);
-      if (events.length > MAX_PERSISTED_EVENTS) {
-        events.shift();
-      }
+    let persistTimer: ReturnType<typeof setTimeout> | undefined;
+    const persist = () => {
+      persistTimer = undefined;
       this.db
         .update(fixerAnalyses)
         .set({ events: [...events] })
         .where(eq(fixerAnalyses.id, analysisId))
         .run();
+    };
+    const record = (event: FixerAnalysisEvent) => {
+      events.push(event);
+      if (events.length > MAX_PERSISTED_EVENTS) {
+        events.shift();
+      }
+      persistTimer ??= setTimeout(persist, 250);
       // SSE payload uses the GUI-facing ResolverEvent shape (api-types contract);
       // the persisted rows keep the richer internal FixerAnalysisEvent.
       this.bus.emit("fixer.analysis.progress", {
@@ -541,6 +550,7 @@ export class FixerService {
       result?: AnalysisResult,
       error?: string,
     ): FixerRunOutcome => {
+      clearTimeout(persistTimer);
       this.db
         .update(fixerAnalyses)
         .set({
@@ -771,7 +781,12 @@ export class FixerService {
     }
 
     try {
-      const started = await client.applyImportProposal(queueItem, candidates, effective);
+      const started = await client.applyImportProposal(
+        queueItem,
+        candidates,
+        effective,
+        () => !this.settings.get().dryRun,
+      );
       const result =
         started.ok && client.verifyImportApplied
           ? await client.verifyImportApplied(queueItem, started)

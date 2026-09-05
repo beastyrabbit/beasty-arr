@@ -978,6 +978,7 @@ export class SyncService {
     let value: AiVerdictValue = row.verdict;
     let confidence = row.confidence;
     let recheckAfter = row.recheckAfter;
+    let checkedAt = row.checkedAt;
     if (seasonNumber != null && row.perSeason) {
       const entry = row.perSeason.find((p) => p.season === seasonNumber);
       // Modern series verdicts are exact-season scoped. Never let the overall
@@ -986,12 +987,13 @@ export class SyncService {
       value = entry.verdict;
       confidence = entry.confidence ?? row.confidence;
       recheckAfter = entry.recheckAfter ?? row.recheckAfter;
+      checkedAt = entry.checkedAt ?? row.checkedAt;
     }
     return {
       verdict: value,
       confidence,
       recheckAfter,
-      until: aiPausedUntilFor({ checkedAt: row.checkedAt, recheckAfter }),
+      until: aiPausedUntilFor({ checkedAt, recheckAfter }),
     };
   }
 

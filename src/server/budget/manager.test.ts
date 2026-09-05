@@ -5,7 +5,13 @@ import type { FastifyBaseLogger } from "fastify";
 import { afterEach, describe, expect, it } from "vitest";
 import { SettingsService } from "../config/settings.js";
 import { createDb, type Db, type SqliteHandle } from "../db/index.js";
-import { budgetBuckets, indexerSnapshots, indexers, pendingSelfEstimates } from "../db/schema.js";
+import {
+  budgetBuckets,
+  indexerSnapshots,
+  indexers,
+  pendingSelfEstimates,
+  searchAttempts,
+} from "../db/schema.js";
 import { EventBus } from "../events/bus.js";
 import type {
   ProwlarrHistoryRecord,
@@ -109,7 +115,16 @@ function makeHarness() {
   const prowlarr = new FakeProwlarr();
   const clock = { ms: T0 };
   const mgr = new BudgetManager(db, settings, prowlarr, bus, noopLog, { now: () => clock.ms });
-  return { db, sqlite: sqlite as SqliteHandle, settings, bus, prowlarr, clock, mgr };
+  const observe = async () => {
+    prowlarr.indexers = db
+      .select()
+      .from(indexers)
+      .all()
+      .map((row) => ix(row.id, row.name, { ...row, enable: row.enabled }));
+    prowlarr.stats = prowlarr.indexers.map((row) => stat(row.id, 0));
+    await mgr.refresh();
+  };
+  return { db, sqlite: sqlite as SqliteHandle, settings, bus, prowlarr, clock, mgr, observe };
 }
 
 function seedIndexerRow(db: Db, over: Partial<typeof indexers.$inferInsert> & { id: number }) {
@@ -252,7 +267,7 @@ describe("BudgetManager.refresh — snapshot diffing", () => {
 });
 
 describe("BudgetManager attribution and pending estimates", () => {
-  it("splits observed spend into hunt vs organic and clears covered pendings", async () => {
+  it("retains reservations without command-completion and query evidence", async () => {
     const { db, prowlarr, clock, mgr } = makeHarness();
     prowlarr.indexers = [ix(1, "Alpha")];
     prowlarr.stats = [stat(1, 100, 20, 5, 3)]; // total 125 baseline
@@ -269,9 +284,9 @@ describe("BudgetManager attribution and pending estimates", () => {
     clock.ms = T0 + 600_000;
     prowlarr.stats = [stat(1, 110, 20, 5, 3)]; // total 135 -> observed delta 10
     await mgr.refresh();
-    expect(db.select().from(pendingSelfEstimates).all()).toHaveLength(0);
+    expect(db.select().from(pendingSelfEstimates).all()).toHaveLength(1);
     const status = statusOf(mgr, 1);
-    expect(status.trailing24h).toBe(10); // observed only, pending cleared
+    expect(status.trailing24h).toBe(16); // no evidence that this dispatch is covered
     expect(status.huntShare).toBe(6); // bucket attribution survives
     expect(status.organicShare).toBe(4); // 10 observed - 6 hunt
   });
@@ -305,11 +320,12 @@ describe("BudgetManager attribution and pending estimates", () => {
 });
 
 describe("BudgetManager forecast and controller math", () => {
-  it("uses a flat hourly mean below 7 days of history and derives target/rate from it", () => {
-    const { db, mgr } = makeHarness();
+  it("uses a flat hourly mean below 7 days of history and derives target/rate from it", async () => {
+    const { db, mgr, observe } = makeHarness();
     seedIndexerRow(db, { id: 1, queryLimit: 240 });
     // 48h of history: observed 4/h of which 1/h was ours -> organic 3/h
     for (let h = H0 - 48; h < H0; h++) seedBucket(db, 1, h, 4, 1);
+    await observe();
 
     const status = statusOf(mgr, 1);
     expect(status.forecastNextHorizon).toBeCloseTo(3 * 6, 6); // flat 3/h * 6h horizon
@@ -347,14 +363,15 @@ describe("BudgetManager forecast and controller math", () => {
     expect(status.huntRatePerHour).toBeCloseTo(20, 6);
   });
 
-  it("drops to the trickle rate and stops hunting when trailing usage exceeds target", () => {
-    const { db, mgr } = makeHarness();
+  it("drops to the trickle rate and stops hunting when trailing usage exceeds target", async () => {
+    const { db, mgr, observe } = makeHarness();
     seedIndexerRow(db, { id: 1, queryLimit: 240 });
     seedBucket(db, 1, H0, 230, 0); // organic burst ate the budget
     const status = statusOf(mgr, 1);
     expect(status.trailing24h).toBe(230);
     expect(status.huntRatePerHour).toBeCloseTo(2, 6); // trickleMin floor
     expect(status.canHuntNow).toBe(false);
+    await observe();
     const decision = mgr.mayDispatch(new Map([[1, 1]]));
     expect(decision.ok).toBe(false);
     if (!decision.ok) expect(decision.holdReason).toContain("target");
@@ -362,8 +379,8 @@ describe("BudgetManager forecast and controller math", () => {
 });
 
 describe("BudgetManager.mayDispatch — ALL-rule gating", () => {
-  it("holds when any limited indexer would exceed its target", () => {
-    const { db, mgr } = makeHarness();
+  it("holds when any limited indexer would exceed its target", async () => {
+    const { db, mgr, observe } = makeHarness();
     seedIndexerRow(db, { id: 1, name: "Alpha", queryLimit: 240 });
     seedIndexerRow(db, { id: 2, name: "Beta", queryLimit: 240 });
     seedBucket(db, 2, H0, 230, 0); // Beta over target
@@ -371,21 +388,23 @@ describe("BudgetManager.mayDispatch — ALL-rule gating", () => {
       [1, 3],
       [2, 3],
     ]);
+    await observe();
     const decision = mgr.mayDispatch(estimates);
     expect(decision.ok).toBe(false);
     if (!decision.ok) expect(decision.holdReason).toContain("Beta");
   });
 
-  it("never gates on unlimited indexers", () => {
-    const { db, mgr } = makeHarness();
+  it("never gates on unlimited indexers", async () => {
+    const { db, mgr, observe } = makeHarness();
     seedIndexerRow(db, { id: 3, name: "Free", queryLimit: null });
     seedBucket(db, 3, H0, 10_000, 0);
+    await observe();
     expect(mgr.mayDispatch(new Map([[3, 100]]))).toEqual({ ok: true });
     expect(statusOf(mgr, 3)).toMatchObject({ cap: null, target: null, canHuntNow: true });
   });
 
-  it("skips excluded indexers so a tiny cap cannot throttle everything", () => {
-    const { db, mgr, settings } = makeHarness();
+  it("skips excluded indexers so a tiny cap cannot throttle everything", async () => {
+    const { db, mgr, settings, observe } = makeHarness();
     seedIndexerRow(db, { id: 1, name: "Alpha", queryLimit: 240 });
     seedIndexerRow(db, { id: 2, name: "Tiny", queryLimit: 10 });
     seedBucket(db, 2, H0, 9, 0);
@@ -393,17 +412,19 @@ describe("BudgetManager.mayDispatch — ALL-rule gating", () => {
       [1, 3],
       [2, 3],
     ]);
+    await observe();
     expect(mgr.mayDispatch(estimates).ok).toBe(false);
     settings.update({ excludeIndexerIds: [2] });
     expect(mgr.mayDispatch(estimates)).toEqual({ ok: true });
     expect(statusOf(mgr, 2).excluded).toBe(true);
   });
 
-  it("enforces the hourly pacing gate on hunt spend", () => {
-    const { db, mgr } = makeHarness();
+  it("enforces the hourly pacing gate on hunt spend", async () => {
+    const { db, mgr, observe } = makeHarness();
     seedIndexerRow(db, { id: 1, name: "Alpha", queryLimit: 240 });
     // rate = clamp(2, (216-18)/6, 20) = 20; hunt spend this hour 18 + est 6 > 20
     mgr.recordDispatch(new Map([[1, 18]]), 7, "sonarr");
+    await observe();
     const decision = mgr.mayDispatch(new Map([[1, 6]]));
     expect(decision.ok).toBe(false);
     if (!decision.ok) expect(decision.holdReason).toContain("hunt spend this hour");
@@ -453,4 +474,84 @@ describe("BudgetManager.estimateCommand", () => {
       ]),
     );
   });
+});
+
+describe("accounting observation boundaries", () => {
+  it("holds cold, empty, failed and stale observations, including unlimited indexers", async () => {
+    const { mgr, prowlarr, clock } = makeHarness();
+    expect(mgr.mayDispatch(new Map()).ok).toBe(false);
+    await mgr.refresh();
+    expect(mgr.mayDispatch(new Map()).ok).toBe(false);
+    prowlarr.indexers = [ix(1, "Unlimited", { queryLimit: null })];
+    prowlarr.stats = [stat(1, 0)];
+    await mgr.refresh();
+    expect(mgr.mayDispatch(new Map([[1, 1]])).ok).toBe(true);
+    clock.ms += 300_001;
+    expect(mgr.mayDispatch(new Map([[1, 1]])).ok).toBe(false);
+    prowlarr.getIndexerStats = async () => {
+      throw new Error("offline");
+    };
+    await expect(mgr.refresh()).rejects.toThrow("offline");
+    expect(mgr.mayDispatch(new Map([[1, 1]])).ok).toBe(false);
+  });
+
+  it("retains queued reservations across hours and consumes observed query IDs only once", async () => {
+    const { db, mgr, prowlarr, clock } = makeHarness();
+    prowlarr.indexers = [ix(1, "Alpha")];
+    prowlarr.stats = [stat(1, 0)];
+    prowlarr.getHistorySince = async (since) => prowlarr.history.filter((row) => row.at >= since);
+    await mgr.refresh();
+    db.insert(searchAttempts)
+      .values({
+        id: 1,
+        createdAt: clock.ms,
+        source: "sonarr",
+        commandName: "EpisodeSearch",
+        payload: {},
+        targetIds: [],
+        estimatedQueries: 2,
+        status: "queued",
+      })
+      .run();
+    mgr.recordDispatch(new Map([[1, 2]]), 1, "sonarr");
+    clock.ms += HOUR_MS;
+    await mgr.refresh();
+    expect(statusOf(mgr, 1).trailing24h).toBe(2);
+    db.update(searchAttempts)
+      .set({ status: "completed", completedAt: clock.ms - 1 })
+      .run();
+    await mgr.refresh();
+    expect(statusOf(mgr, 1).trailing24h).toBe(2);
+    prowlarr.history = [1, 2].map((id) => ({
+      id,
+      indexerId: 1,
+      at: T0 + id,
+      source: "Sonarr",
+      eventType: "indexerQuery" as const,
+    }));
+    clock.ms += 1;
+    await mgr.refresh();
+    expect(statusOf(mgr, 1).trailing24h).toBe(2);
+    expect(db.select().from(pendingSelfEstimates).get()?.reconciledAt).toBe(clock.ms);
+    await mgr.refresh();
+    expect(statusOf(mgr, 1).trailing24h).toBe(2);
+  });
+});
+
+it("uses overlapping incremental history and periodically reconciles the full day", async () => {
+  const { mgr, prowlarr, clock } = makeHarness();
+  const cutoffs: number[] = [];
+  prowlarr.indexers = [ix(1, "Alpha")];
+  prowlarr.stats = [stat(1, 0)];
+  prowlarr.getHistorySince = async (since) => {
+    cutoffs.push(since);
+    return [];
+  };
+  await mgr.refresh();
+  clock.ms += 60_000;
+  await mgr.refresh();
+  expect(cutoffs[1] - cutoffs[0]).toBeGreaterThan(20 * HOUR_MS);
+  clock.ms += HOUR_MS;
+  await mgr.refresh();
+  expect(clock.ms - cutoffs[2]).toBeGreaterThanOrEqual(24 * HOUR_MS);
 });

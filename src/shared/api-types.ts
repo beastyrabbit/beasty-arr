@@ -645,7 +645,11 @@ export type FixerQueueItemDto = QueueItem & {
   analysisState: FixerAnalysisState | null;
   confidence: number | null;
 };
-export type FixerQueueResponse = { items: FixerQueueItemDto[]; fetchedAt: number | null };
+export type FixerQueueResponse = {
+  items: FixerQueueItemDto[];
+  fetchedAt: number | null;
+  unavailableServices?: ArrSource[];
+};
 
 export type FixerAnalyzeResponse = { analysisId: string };
 

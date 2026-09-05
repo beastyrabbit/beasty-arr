@@ -146,11 +146,11 @@ describe("CodexLoginService", () => {
       "https://auth.openai.com/api/accounts/deviceauth/usercode",
       "https://auth.openai.com/api/accounts/deviceauth/token",
     ]);
-    expect(pollingSignal?.aborted).toBe(false);
+    expect((pollingSignal as AbortSignal | null)?.aborted).toBe(false);
 
     expect(service.cancelCodexLogin(loginId)).toBe(true);
     await vi.waitFor(() => expect(service.getCodexLogin(loginId)?.status).toBe("error"));
-    expect(pollingSignal?.aborted).toBe(true);
+    expect((pollingSignal as AbortSignal | null)?.aborted).toBe(true);
   });
 
   it("walks the device-login flow: pending → waiting_user → done", async () => {

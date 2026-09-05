@@ -19,6 +19,7 @@ import { FixerBulk } from "./fixer/bulk.js";
 import { FixerService } from "./fixer/service.js";
 import { registerRoutes } from "./http/routes/index.js";
 import { HuntEngine } from "./hunt/engine.js";
+import { drainWithin } from "./lifecycle.js";
 import { ProwlarrClient } from "./prowlarr/client.js";
 import { Scheduler } from "./scheduler/index.js";
 import { backupDatabase, snapshotDailyStats } from "./stats/maintenance.js";
@@ -39,7 +40,10 @@ export type BuildAppOptions = {
 export async function buildApp(
   opts: BuildAppOptions = {},
 ): Promise<{ app: FastifyInstance; ctx: AppContext }> {
-  const env = { ...loadEnv(), ...opts.env } as Env;
+  const env = {
+    ...loadEnv(process.env.NODE_ENV === "test" ? { NODE_ENV: "test" } : process.env),
+    ...opts.env,
+  } as Env;
   const dataDir = opts.dataDir ?? env.DATA_DIR;
 
   const app = Fastify({
@@ -166,7 +170,7 @@ export async function buildApp(
     },
   };
 
-  if (env.NODE_ENV === "development") {
+  if (env.NODE_ENV === "development" && process.env.NODE_ENV !== "test") {
     void seedOpenAICodexAuthFromCodex(getAuthStorage(dataDir)).catch(() => undefined);
   }
 
@@ -244,7 +248,9 @@ export async function buildApp(
     ctx.scheduler.stop();
     fixer.cancelAll();
     fixerBulk.cancel();
-    oracle.cancelBulk();
+    await drainWithin(
+      Promise.allSettled([ctx.scheduler.wait(), fixerBulk.wait(), fixer.wait(), oracle.stop()]),
+    );
     sqlite.close();
   });
 

@@ -17,16 +17,18 @@ jobs:
     runs-on: personal
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
+      - name: Assert Node 24
+        run: node -e 'if (process.versions.node.split(".")[0] !== "24") throw new Error("Node 24 is required")'
       - name: Enable pnpm
         run: corepack enable
       - name: Resolve pnpm store
         id: pnpm-cache
         run: echo "store-path=$(pnpm store path)" >> "$GITHUB_OUTPUT"
       - name: Restore pnpm store
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ${{ steps.pnpm-cache.outputs.store-path }}
           key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
@@ -44,7 +46,7 @@ jobs:
     runs-on: personal
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
       - name: Install Docker CLI
@@ -54,7 +56,7 @@ jobs:
           apt-get install -y --no-install-recommends ca-certificates docker.io
           docker --version
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
         with:
           driver: remote
           endpoint: tcp://buildkitd.forgejo-runners.svc.cluster.local:1234
@@ -68,10 +70,10 @@ jobs:
             git --no-banner --redact
       - name: Log in to Forgejo Container Registry
         if: github.event_name != 'pull_request'
-        uses: https://git.heerlab.com/beasty/forgejo-ci/actions/registry-login@main
+        uses: https://github.com/beastyrabbit/forgejo-ci/actions/registry-login@c1285eb4d761c067bc09565c079b9f3ba355f137
       - name: Extract image metadata
         id: meta
-        uses: docker/metadata-action@v6
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
         with:
           images: git.heerlab.com/${{ github.repository }}
           tags: |
@@ -80,7 +82,7 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=sha
       - name: Build and push
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         with:
           context: .
           push: ${{ github.event_name != 'pull_request' }}

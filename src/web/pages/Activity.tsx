@@ -1,5 +1,6 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
+import { QueryError } from "../components/QueryError.js";
 import { DataTable, EmptyState, Pager, Panel, SkeletonRows, Td, Th } from "../components/Shell.js";
 import { Select } from "../components/ui/select.js";
 import { fmtDateTime } from "../lib/format.js";
@@ -86,7 +87,14 @@ function SearchesTab() {
           </>
         }
       >
-        {attempts.isPending ? (
+        {attempts.isError ? (
+          <tr>
+            <td colSpan={10}>
+              <QueryError query={attempts} />
+            </td>
+          </tr>
+        ) : null}
+        {attempts.isError && !attempts.data ? null : attempts.isPending ? (
           <SkeletonRows rows={10} cols={7} />
         ) : attempts.data && attempts.data.items.length > 0 ? (
           attempts.data.items.map((a) => (
@@ -169,7 +177,14 @@ function AiTab() {
           </>
         }
       >
-        {verdicts.isPending ? (
+        {verdicts.isError ? (
+          <tr>
+            <td colSpan={10}>
+              <QueryError query={verdicts} />
+            </td>
+          </tr>
+        ) : null}
+        {verdicts.isError && !verdicts.data ? null : verdicts.isPending ? (
           <SkeletonRows rows={8} cols={6} />
         ) : verdicts.data && verdicts.data.items.length > 0 ? (
           verdicts.data.items.map((v) => (
@@ -262,7 +277,14 @@ function BudgetTab() {
           </>
         }
       >
-        {ledger.isPending ? (
+        {ledger.isError ? (
+          <tr>
+            <td colSpan={10}>
+              <QueryError query={ledger} />
+            </td>
+          </tr>
+        ) : null}
+        {ledger.isError && !ledger.data ? null : ledger.isPending ? (
           <SkeletonRows rows={10} cols={6} />
         ) : ledger.data && ledger.data.items.length > 0 ? (
           ledger.data.items.map((b) => (
