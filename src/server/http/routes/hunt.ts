@@ -243,6 +243,37 @@ function mirrorBasicStates(
 }
 
 export function registerHuntRoutes(app: FastifyInstance, ctx: AppContext): void {
+  app.post("/api/hunt/attempts/:id/resolve", async (request, reply) => {
+    const p = parse(reply, z.object({ id: z.coerce.number().int().positive() }), request.params);
+    if (!p.ok) return;
+    const common = {
+      note: z.string().trim().min(1).max(1000),
+      confirm: z.literal("verified_in_arr"),
+    };
+    const body = parse(
+      reply,
+      z.discriminatedUnion("action", [
+        z
+          .object({
+            ...common,
+            action: z.literal("attach_command"),
+            commandId: z.number().int().positive(),
+          })
+          .strict(),
+        z.object({ ...common, action: z.literal("confirm_not_accepted") }).strict(),
+      ]),
+      request.body,
+    );
+    if (!body.ok) return;
+    if (!ctx.services.engine.resolveInterruptedAttempt(p.data.id, body.data)) {
+      return reply.code(409).send({
+        error:
+          "Wait for the hunt cycle to finish; only unresolved interrupted attempts without a command ID can be resolved.",
+      });
+    }
+    return { ok: true };
+  });
+
   app.get("/api/hunt/status", async () => {
     const cfg = ctx.settings.get();
     const view = ctx.services.engine.engineStatus();

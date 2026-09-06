@@ -9,6 +9,7 @@ it("closes SSE and drains an in-flight scheduled job on SIGTERM before closing S
   const code = `
     import {buildApp} from './src/server/app.ts';
     const {app,ctx}=await buildApp({dataDir:process.env.DATA_DIR,env:{LOG_LEVEL:'error'},serveStatic:false,registerJobs:false});
+    process.stdout.write('fixture-starting');
     if(ctx.sqlite.name!==process.env.DATA_DIR+'/beasty-arr.db')throw new Error('Shutdown fixture escaped its temporary directory');
     await app.listen({host:'127.0.0.1',port:0});
     const address=app.server.address();
@@ -38,9 +39,13 @@ it("closes SSE and drains an in-flight scheduled job on SIGTERM before closing S
   });
   let output = "";
   let errors = "";
+  let signaled = false;
   child.stdout.on("data", (chunk) => {
     output += String(chunk);
-    if (output === "job-active") child.kill("SIGTERM");
+    if (!signaled && output.includes("job-active")) {
+      signaled = true;
+      child.kill("SIGTERM");
+    }
   });
   child.stderr.on("data", (chunk) => {
     errors += String(chunk);

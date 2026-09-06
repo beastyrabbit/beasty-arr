@@ -31,6 +31,7 @@ import {
   itemOverrides,
   movies,
   searchAttempts,
+  searchAttemptTargets,
   series,
 } from "../../db/schema.js";
 import {
@@ -408,7 +409,13 @@ function attemptHistory(
     .where(
       and(
         eq(searchAttempts.source, source),
-        sql`exists (select 1 from json_each(${searchAttempts.targetIds}) target where target.value in (select value from json_each(${JSON.stringify([...huntStateIds])})))`,
+        inArray(
+          searchAttempts.id,
+          ctx.db
+            .select({ id: searchAttemptTargets.attemptId })
+            .from(searchAttemptTargets)
+            .where(inArray(searchAttemptTargets.huntStateId, [...huntStateIds])),
+        ),
       ),
     )
     .orderBy(desc(searchAttempts.createdAt))

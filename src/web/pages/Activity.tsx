@@ -46,9 +46,11 @@ export function ActivityPage({ tab }: { tab: ActivityTab }) {
 function SearchesTab() {
   const [page, setPage] = useState(1);
   const [trigger, setTrigger] = useState<string>("all");
+  const [status, setStatus] = useState("all");
   const attempts = useAttempts({
     page,
     pageSize: PAGE_SIZE,
+    status: status === "interrupted" ? "interrupted" : undefined,
     trigger:
       trigger === "all" ? undefined : (trigger as "scheduled" | "forced" | "missing" | "retry"),
   });
@@ -57,21 +59,35 @@ function SearchesTab() {
     <Panel
       title="Search attempts"
       actions={
-        <Select
-          value={trigger}
-          onValueChange={(v) => {
-            setTrigger(v);
-            setPage(1);
-          }}
-          options={[
-            { value: "all", label: "All triggers" },
-            { value: "scheduled", label: "Scheduled" },
-            { value: "forced", label: "Forced" },
-            { value: "missing", label: "Missing" },
-            { value: "retry", label: "Retry" },
-          ]}
-          className="h-6"
-        />
+        <div className="flex gap-2">
+          <Select
+            value={status}
+            onValueChange={(value) => {
+              setStatus(value);
+              setPage(1);
+            }}
+            options={[
+              { value: "all", label: "All statuses" },
+              { value: "interrupted", label: "Needs reconciliation" },
+            ]}
+            className="h-6"
+          />
+          <Select
+            value={trigger}
+            onValueChange={(v) => {
+              setTrigger(v);
+              setPage(1);
+            }}
+            options={[
+              { value: "all", label: "All triggers" },
+              { value: "scheduled", label: "Scheduled" },
+              { value: "forced", label: "Forced" },
+              { value: "missing", label: "Missing" },
+              { value: "retry", label: "Retry" },
+            ]}
+            className="h-6"
+          />
+        </div>
       }
     >
       <DataTable
@@ -125,7 +141,19 @@ function SearchesTab() {
                 <span className="font-mono text-[11px] text-muted">{a.estimatedQueries}</span>
               </Td>
               <Td>
-                <span className="font-mono text-[11px] text-muted">{a.status}</span>
+                <span
+                  className={cn(
+                    "font-mono text-[11px]",
+                    a.status === "interrupted" ? "text-accent" : "text-muted",
+                  )}
+                  title={
+                    a.status === "interrupted"
+                      ? `Search ${a.id}: acceptance is unknown. Check the Arr command/history and use the recovery endpoint documented in HANDOFF.md.`
+                      : undefined
+                  }
+                >
+                  {a.status === "interrupted" ? "Needs reconciliation" : a.status}
+                </span>
               </Td>
               <Td>
                 <span

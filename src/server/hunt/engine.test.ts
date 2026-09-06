@@ -1397,6 +1397,18 @@ describe("dispatch safety and recovery", () => {
       engine.forceSubject({ source: "radarr", kind: "movie", id: 1 });
       await engine.runCycle();
       expect(radarr.sent).toHaveLength(status === 429 ? 1 : 0);
+      if (status !== 429) {
+        const attempt = db.select().from(searchAttempts).get()!;
+        expect(
+          engine.resolveInterruptedAttempt(attempt.id, {
+            action: "confirm_not_accepted",
+            note: "Operator checked Arr commands and history",
+          }),
+        ).toBe(true);
+        expect(budget.recorded).toHaveLength(0);
+        await engine.runCycle();
+        expect(radarr.sent).toHaveLength(1);
+      }
     },
   );
 

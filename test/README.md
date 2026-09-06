@@ -11,7 +11,9 @@ an integrity check, requests liveness inside the container and sends SIGTERM.
 The runtime suite also sends SIGTERM to a child process with a scheduled job in
 flight and verifies the job finishes its database access before SQLite closes.
 
-`browser-review.mjs` exports `verifyReviewFlows(page, baseUrl, evidenceDir)` for a
+`browser-review.mjs` is a manual browser helper, not part of `pnpm check` or CI.
+It requires a separately supplied Playwright runtime, such as the browser tool
+used to capture this PR's evidence. It exports `verifyReviewFlows(page, baseUrl, evidenceDir)` for a
 Playwright Page. Serve the production build from an isolated application with
 `registerJobs: false`, no integration environment and a new temporary data
 directory. The verifier installs synthetic queue, analysis, apply and Missing

@@ -545,6 +545,7 @@ export function useAttempts(query: AttemptsQuery) {
         pageSize: query.pageSize,
         source: query.source,
         trigger: query.trigger,
+        status: query.status,
       }),
     placeholderData: (prev) => prev,
   });

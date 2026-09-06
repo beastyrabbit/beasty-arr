@@ -334,6 +334,55 @@ export class HuntEngine {
 
   // ============ cycle ============
 
+  /** Operator recovery only after checking upstream acceptance; never replays a command. */
+  resolveInterruptedAttempt(
+    attemptId: number,
+    resolution:
+      | { action: "attach_command"; commandId: number; note: string }
+      | { action: "confirm_not_accepted"; note: string },
+  ): boolean {
+    if (this.cycleRunning) return false;
+    const attempt = this.db
+      .select()
+      .from(searchAttempts)
+      .where(eq(searchAttempts.id, attemptId))
+      .get();
+    if (
+      !attempt ||
+      attempt.dryRun ||
+      attempt.status !== "interrupted" ||
+      attempt.completedAt !== null ||
+      attempt.arrCommandId !== null
+    )
+      return false;
+    this.db.transaction((tx) => {
+      tx.update(searchAttempts)
+        .set(
+          resolution.action === "attach_command"
+            ? { arrCommandId: resolution.commandId, status: "queued" }
+            : { status: "failed", result: "error", completedAt: this.now() },
+        )
+        .where(eq(searchAttempts.id, attemptId))
+        .run();
+      if (resolution.action === "confirm_not_accepted")
+        this.budget?.releaseRejectedDispatch(attemptId, attempt.source);
+      this.logActivity(
+        "info",
+        "hunt.search",
+        `Operator resolved interrupted search ${attemptId}: ${resolution.action}`,
+        { attemptId, ...resolution },
+      );
+    });
+    this.bus.emit("hunt.search.result", {
+      label: attempt.targetLabel ?? "Recovered search",
+      source: attempt.source,
+      result: resolution.action === "attach_command" ? null : "error",
+      attemptId,
+      status: resolution.action === "attach_command" ? "queued" : "failed",
+    });
+    return true;
+  }
+
   async runCycle(signal?: AbortSignal, opts: { manualOnly?: boolean } = {}): Promise<void> {
     if (this.cycleRunning) return;
     this.cycleRunning = true;

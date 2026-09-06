@@ -209,7 +209,10 @@ export class BudgetManager {
         await this.refreshSourceAttribution(cutoff);
         this.reconcileReservations(cutoff);
       } catch (err) {
-        this.log.warn({ err }, "prowlarr history attribution refresh failed; keeping prior data");
+        this.log.warn(
+          { err },
+          "prowlarr history attribution refresh failed; holding automatic searches until accounting recovers",
+        );
         throw err;
       }
     }
@@ -370,11 +373,7 @@ export class BudgetManager {
       .all()
       .map((ix) => {
         const c = this.controllerFor(ix, now, cfg);
-        let canHuntNow =
-          ix.enabled &&
-          !ix.inBackoff &&
-          this.observationAt !== null &&
-          now - this.observationAt <= 5 * 60_000;
+        let canHuntNow = ix.enabled && !ix.inBackoff && this.observationAt !== null;
         if (canHuntNow && c.target !== null && c.huntRatePerHour !== null && !excluded.has(ix.id)) {
           canHuntNow = c.trailing24h < c.target && c.huntHourSpend < c.huntRatePerHour;
         }
@@ -606,6 +605,16 @@ export class BudgetManager {
           !["completed", "failed"].includes(attempt.status)
         )
           continue;
+        // Once a confirmed terminal command is outside the trailing day, its
+        // unknown query count cannot consume today's budget. Refreshing history
+        // must still succeed before reaching this reconciliation.
+        if (attempt.completedAt < cutoff - 24 * HOUR_MS) {
+          tx.update(pendingSelfEstimates)
+            .set({ reconciledAt: cutoff })
+            .where(eq(pendingSelfEstimates.id, reservation.id))
+            .run();
+          continue;
+        }
         const evidence = records
           .filter(
             (record) =>

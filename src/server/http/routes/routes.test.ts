@@ -661,6 +661,64 @@ describe("budget", () => {
 
 // ============ logs: attempts / activity / verdicts ============
 
+it("requires verified operator recovery and prevents resolving an interrupted attempt twice", async () => {
+  const b = await makeApp();
+  try {
+    const attempts = b.ctx.db
+      .insert(searchAttempts)
+      .values(
+        [1, 2].map((id) => ({
+          id,
+          createdAt: now,
+          source: "radarr" as const,
+          commandName: "MoviesSearch",
+          payload: { name: "MoviesSearch", movieIds: [1] },
+          targetIds: [],
+          estimatedQueries: 1,
+          status: "interrupted",
+        })),
+      )
+      .returning()
+      .all();
+    expect((await get(b.app, "/api/attempts?status=interrupted")).json().total).toBe(2);
+    const url = `/api/hunt/attempts/${attempts[0].id}/resolve`;
+    expect(
+      (await post(b.app, url, { action: "confirm_not_accepted", note: "Checked history" }))
+        .statusCode,
+    ).toBe(400);
+    const resolution = {
+      action: "confirm_not_accepted",
+      note: "Checked Arr command and history records",
+      confirm: "verified_in_arr",
+    };
+    expect((await post(b.app, url, resolution)).statusCode).toBe(200);
+    expect((await post(b.app, url, resolution)).statusCode).toBe(409);
+    expect(
+      (
+        await post(b.app, `/api/hunt/attempts/${attempts[1].id}/resolve`, {
+          action: "attach_command",
+          commandId: 77,
+          note: "Verified matching command targets and time",
+          confirm: "verified_in_arr",
+        })
+      ).statusCode,
+    ).toBe(200);
+    expect(
+      b.ctx.db.select().from(searchAttempts).where(eq(searchAttempts.id, attempts[1].id)).get(),
+    ).toMatchObject({ status: "queued", arrCommandId: 77, completedAt: null });
+    expect((await get(b.app, "/api/attempts?status=interrupted")).json().total).toBe(0);
+    expect(
+      b.ctx.db
+        .select()
+        .from(activityLog)
+        .all()
+        .filter((row) => row.message.startsWith("Operator resolved")),
+    ).toHaveLength(2);
+  } finally {
+    await closeApp(b);
+  }
+});
+
 describe("logs", () => {
   let b: Built;
   beforeAll(async () => {

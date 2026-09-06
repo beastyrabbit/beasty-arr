@@ -538,6 +538,52 @@ describe("accounting observation boundaries", () => {
   });
 });
 
+it("expires only terminal reservations outside the trailing day after history recovers", async () => {
+  const { db, mgr, prowlarr, clock } = makeHarness();
+  prowlarr.indexers = [ix(1, "Alpha", { queryLimit: 2400 })];
+  prowlarr.stats = [stat(1, 0)];
+  prowlarr.getHistorySince = async () => [];
+  await mgr.refresh();
+  for (const id of [1, 2]) {
+    db.insert(searchAttempts)
+      .values({
+        id,
+        createdAt: clock.ms,
+        source: "sonarr",
+        commandName: "EpisodeSearch",
+        payload: {},
+        targetIds: [],
+        estimatedQueries: 5,
+        status: id === 1 ? "completed" : "interrupted",
+        completedAt: id === 1 ? clock.ms : null,
+      })
+      .run();
+    mgr.recordDispatch(new Map([[1, 5]]), id, "sonarr");
+  }
+  clock.ms += 6 * 60_000;
+  expect(mgr.mayDispatch(new Map([[1, 1]])).ok).toBe(false);
+  expect(statusOf(mgr, 1).canHuntNow).toBe(true);
+  await mgr.refresh();
+  expect(statusOf(mgr, 1).trailing24h).toBe(10);
+  clock.ms += 48 * HOUR_MS;
+  prowlarr.getHistorySince = async () => {
+    throw new Error("offline");
+  };
+  await expect(mgr.refresh()).rejects.toThrow("offline");
+  expect(statusOf(mgr, 1).trailing24h).toBe(10);
+  expect(statusOf(mgr, 1).canHuntNow).toBe(false);
+  prowlarr.getHistorySince = async () => [];
+  await mgr.refresh();
+  expect(statusOf(mgr, 1).trailing24h).toBe(5);
+  expect(
+    db
+      .select()
+      .from(pendingSelfEstimates)
+      .all()
+      .find((row) => row.attemptId === 2)?.reconciledAt,
+  ).toBeNull();
+});
+
 it("releases a definite rejection once without retaining budget spend", async () => {
   const { mgr, prowlarr } = makeHarness();
   prowlarr.indexers = [ix(1, "Alpha")];

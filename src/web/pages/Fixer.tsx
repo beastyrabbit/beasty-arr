@@ -368,7 +368,7 @@ export function FixerPage() {
                     <div
                       key={k}
                       className={cn(
-                        "flex h-8 cursor-pointer items-center gap-2 border-b border-line px-3 last:border-b-0",
+                        "flex h-8 items-center gap-2 border-b border-line px-3 last:border-b-0",
                         activeKey === k ? "bg-raised" : "hover:bg-raised/50",
                       )}
                     >
@@ -377,7 +377,6 @@ export function FixerPage() {
                         aria-label={`Select ${item.title} for bulk analysis`}
                         className="accent-[#f0a63a]"
                         checked={selected.has(k)}
-                        onClick={(e) => e.stopPropagation()}
                         onChange={(e) => {
                           setSelected((prev) => {
                             const next = new Set(prev);
@@ -394,7 +393,7 @@ export function FixerPage() {
                         type="button"
                         onClick={() => setActiveKey(k)}
                         aria-label={`Review ${item.title}`}
-                        className="min-w-0 flex-1 truncate text-left text-[12px] text-ink focus-visible:outline-2"
+                        className="min-w-0 flex-1 cursor-pointer truncate text-left text-[12px] text-ink focus-visible:outline-2"
                       >
                         {item.title}
                       </button>

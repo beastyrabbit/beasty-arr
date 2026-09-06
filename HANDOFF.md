@@ -17,7 +17,8 @@ Configured Prowlarr accounting must refresh successfully and have complete index
 observations no older than five minutes. Force and manual Missing requests
 explicitly bypass the automatic budget gate, but still record estimates.
 Reservations survive refresh and restart until a terminal command and observed
-queries support reconciliation. Ambiguous response loss or missing command IDs
+queries support reconciliation, or confirmed completion is over 24 hours old and
+history refresh succeeds. Ambiguous response loss or missing command IDs
 hold targets for operator investigation; no automatic mutation replay occurs.
 Without a configured Prowlarr integration there is no budget accounting.
 
@@ -58,14 +59,36 @@ shutdown rather than closing SQLite under active work.
   exact titles/seasons to recheck. This implementation does not bulk-clear live
   verdicts or spend provider credits.
 - For an interrupted search with unknown acceptance, inspect the Arr command and
-  history before resolving its persisted attempt. Do not delete its reservation
-  merely because time elapsed.
+  history before resolving its persisted attempt. Do not release unresolved work
+  merely because time elapsed. Use the recovery endpoint below for unknown IDs.
 - Verify deployed revision, real Codex login, a dry-run soak, trusted ingress,
   deployed SSE reconnect, branch/tag protections, runner/BuildKit isolation and
   snapshot restoration in their owning environments. A repository PR does not
   establish these external controls.
 - CI actions are pinned to immutable revisions. The registry-login action uses its
   authenticated GitHub mirror; its contents matched the local trusted checkout.
+
+## Interrupted search recovery
+
+Find affected IDs with `GET /api/attempts?status=interrupted`. Check command and
+history records in the owning Arr before making a recovery decision. For an
+interrupted attempt without an Arr command ID, send
+`POST /api/hunt/attempts/<id>/resolve` with one of these JSON bodies:
+
+```json
+{"action":"attach_command","commandId":123,"note":"Verified matching targets and dispatch time in Arr","confirm":"verified_in_arr"}
+```
+
+```json
+{"action":"confirm_not_accepted","note":"Verified Arr did not accept or execute this request","confirm":"verified_in_arr"}
+```
+
+Attaching a verified ID keeps reservations until ordinary reconciliation sees
+the command finish. Confirming non-acceptance releases estimates and lets the
+target participate in later planning. Neither action dispatches a search. The
+endpoint rejects live cycles, already resolved attempts and attempts with a
+known command ID. Recovery decisions are recorded in Activity. If acceptance is
+still uncertain, leave the hold in place.
 
 ## Sonarr compatibility evidence
 
