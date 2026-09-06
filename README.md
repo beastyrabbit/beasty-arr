@@ -49,7 +49,9 @@ browser-reachable arr origins to show direct title links in the library. Use `pn
 full local quality suite.
 
 Runs on Node 24, Fastify 5, SQLite (Drizzle), React 19 + Vite. Deployed to the homelab cluster via
-Forgejo Actions → `git.heerlab.com/beasty/beasty-arr` → Flux (see kub-homelab `apps/media/beasty-arr`).
+GitHub Actions on `arc-beasty-arr` → `ghcr.io/beastyrabbit/beasty-arr` → Flux. Publish a `v*` release
+tag, then pin its image tag and digest in kub-homelab
+`cluster/homelab/apps/media/beasty-arr/helmrelease.yaml` and reconcile Flux.
 Deployments should set `SONARR_EXTERNAL_URL` and `RADARR_EXTERNAL_URL` to the HTTPS origins users
 open in their browsers. These public URLs contain no API keys and are separate from the internal arr
 connection URLs.
