@@ -853,12 +853,15 @@ export function buildDubCheckSession(
     const matchesTitle = lines.some((line) =>
       titles.some((title) => {
         const heading = line
-          .replace(/^Watch\s+/i, "")
           .replace(/\s*[|–—]\s*(?:Netflix|Prime Video|Disney\+|Apple TV|Max).*$/i, "")
-          .replace(/\s+(?:ansehen|streamen)\s*$/i, "")
           .replace(/\s*(?:\(?\b(?:19|20)\d{2}\)?|(?:Season|Staffel)\s+\d+)\s*$/gi, "")
           .trim();
-        return normalizeComparableTitle(heading) === normalizeComparableTitle(title);
+        return [
+          heading,
+          heading.replace(/^Watch\s+/i, "").replace(/\s+(?:ansehen|streamen)\s*$/i, ""),
+        ].some(
+          (candidate) => normalizeComparableTitle(candidate) === normalizeComparableTitle(title),
+        );
       }),
     );
     if (!matchesTitle) return false;

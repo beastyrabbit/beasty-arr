@@ -1363,31 +1363,33 @@ describe("OracleService.recheckSubject", () => {
 });
 
 describe("exact official evidence and partial replacement", () => {
-  it.each(["Watch Movie 1 | Netflix Official Site", "Movie 1 ansehen | Netflix"])(
-    "recognizes provider HTML title prefix: %s",
-    async (title) => {
-      const ctx = setup();
-      seedMovieSubject(ctx.db, 1, { year: 2020 });
-      const scripted = scriptedRunner(async (req) => {
-        await callTool(req, "fetch_url", { url: "https://www.netflix.com/title/81234567" });
-        await callTool(req, REPORT_TOOL_NAME, {
-          verdict: "unknown",
-          confidence: 0.4,
-          evidence: ["Provider page"],
-          recheckAfterDays: 90,
-        });
+  it.each([
+    ["Movie 1", "Watch Movie 1 | Netflix Official Site"],
+    ["Movie 1", "Movie 1 ansehen | Netflix"],
+    ["Watch Me", "Watch Me"],
+    ["Watch Me", "Watch Watch Me | Netflix"],
+  ])("recognizes provider HTML title prefix: %s", async (subjectTitle, title) => {
+    const ctx = setup();
+    seedMovieSubject(ctx.db, 1, { title: subjectTitle, year: 2020 });
+    const scripted = scriptedRunner(async (req) => {
+      await callTool(req, "fetch_url", { url: "https://www.netflix.com/title/81234567" });
+      await callTool(req, REPORT_TOOL_NAME, {
+        verdict: "unknown",
+        confidence: 0.4,
+        evidence: ["Provider page"],
+        recheckAfterDays: 90,
       });
-      // Synthetic HTML with common provider title formatting, not a live-page snapshot.
-      const html = `<html><head><title>${title}</title></head><body><div>2020</div>${"<div>Navigation</div>".repeat(20)}<h1>Movie 1</h1><h2>Audio</h2><div>Deutsch</div><h2>Untertitel</h2><div>English</div></body></html>`;
-      await makeOracle(ctx, scripted.runner, {
-        fetchImpl: async () => new Response(html, { headers: { "content-type": "text/html" } }),
-      }).runDailyBatch();
-      expect(ctx.db.select().from(aiVerdicts).get()).toMatchObject({
-        verdict: "exists",
-        confidence: 1,
-      });
-    },
-  );
+    });
+    // Synthetic HTML with common provider title formatting, not a live-page snapshot.
+    const html = `<html><head><title>${title}</title></head><body><div>2020</div>${"<div>Navigation</div>".repeat(20)}<h1>Movie 1</h1><h2>Audio</h2><div>Deutsch</div><h2>Untertitel</h2><div>English</div></body></html>`;
+    await makeOracle(ctx, scripted.runner, {
+      fetchImpl: async () => new Response(html, { headers: { "content-type": "text/html" } }),
+    }).runDailyBatch();
+    expect(ctx.db.select().from(aiVerdicts).get()).toMatchObject({
+      verdict: "exists",
+      confidence: 1,
+    });
+  });
 
   it.each(["Other movie\n2020", "Movie 1\n1990", "Audio only"])(
     "does not promote mismatched movie identity: %s",
