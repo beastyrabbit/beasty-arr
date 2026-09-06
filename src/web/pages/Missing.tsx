@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { CheckSquare2, FileQuestion, Zap } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { MissingEpisodesQuery, MissingGapFilter } from "../../shared/api-types.js";
+import { QueryError } from "../components/QueryError.js";
 import { DataTable, EmptyState, Pager, Panel, SkeletonRows, Td, Th } from "../components/Shell.js";
 import { Button } from "../components/ui/button.js";
 import { Field, Input } from "../components/ui/input.js";
@@ -196,7 +197,14 @@ export function MissingPage() {
             </>
           }
         >
-          {missing.isPending ? (
+          {missing.isError ? (
+            <tr>
+              <td colSpan={10}>
+                <QueryError query={missing} />
+              </td>
+            </tr>
+          ) : null}
+          {missing.isError && !missing.data ? null : missing.isPending ? (
             <SkeletonRows rows={12} cols={7} />
           ) : missing.data?.items.length ? (
             missing.data.items.map((item) => (

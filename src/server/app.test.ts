@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { buildApp } from "./app.js";
 
 let testDir: string;
@@ -157,4 +157,24 @@ describe("development safety", () => {
     await development.app.close();
     rmSync(dataDir, { recursive: true, force: true });
   });
+});
+
+it("ignores ambient connections and skips development auth seeding in tests", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "beasty-isolated-"));
+  vi.stubEnv("SONARR_URL", "http://unexpected.invalid:8989");
+  vi.stubEnv("SONARR_API_KEY", "synthetic-fixture");
+  try {
+    const { app, ctx } = await buildApp({
+      dataDir: dir,
+      env: { NODE_ENV: "development", LOG_LEVEL: "error" },
+      registerJobs: false,
+      serveStatic: false,
+    });
+    expect(ctx.services.sonarr).toBeNull();
+    expect(ctx.env.SONARR_API_KEY).toBeUndefined();
+    await app.close();
+  } finally {
+    vi.unstubAllEnvs();
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

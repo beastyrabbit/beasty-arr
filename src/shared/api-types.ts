@@ -525,6 +525,7 @@ export const ATTEMPT_STATUSES = [
   "completed",
   "failed",
   "timeout",
+  "interrupted",
 ] as const;
 export type AttemptStatus = (typeof ATTEMPT_STATUSES)[number];
 export type AttemptResult = "grabbed" | "no_grab" | "error";
@@ -542,7 +543,11 @@ export type SearchAttemptDto = {
   dryRun: boolean;
   completedAt: number | null;
 };
-export type AttemptsQuery = PageQuery & { source?: ArrSource; trigger?: SearchTrigger };
+export type AttemptsQuery = PageQuery & {
+  source?: ArrSource;
+  trigger?: SearchTrigger;
+  status?: AttemptStatus;
+};
 export type AttemptsResponse = Paged<SearchAttemptDto>;
 
 export const ACTIVITY_TYPES = [
@@ -645,7 +650,11 @@ export type FixerQueueItemDto = QueueItem & {
   analysisState: FixerAnalysisState | null;
   confidence: number | null;
 };
-export type FixerQueueResponse = { items: FixerQueueItemDto[]; fetchedAt: number | null };
+export type FixerQueueResponse = {
+  items: FixerQueueItemDto[];
+  fetchedAt: number | null;
+  unavailableServices?: ArrSource[];
+};
 
 export type FixerAnalyzeResponse = { analysisId: string };
 

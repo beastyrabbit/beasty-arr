@@ -6,6 +6,7 @@ import {
   type ActivityEntry,
   type ActivityResponse,
   type AiVerdictDto,
+  ATTEMPT_STATUSES,
   type AttemptResult,
   type AttemptStatus,
   type AttemptsResponse,
@@ -26,6 +27,7 @@ const attemptsQuerySchema = z.object({
   ...pageSchema,
   source: z.enum(ARR_SOURCES).optional(),
   trigger: z.enum(SEARCH_TRIGGERS).optional(),
+  status: z.enum(ATTEMPT_STATUSES).optional(),
 });
 
 const activityQuerySchema = z.object({
@@ -49,6 +51,7 @@ export function registerLogRoutes(app: FastifyInstance, ctx: AppContext): void {
     const conds: SQL[] = [];
     if (q.data.source) conds.push(eq(searchAttempts.source, q.data.source));
     if (q.data.trigger) conds.push(eq(searchAttempts.trigger, q.data.trigger));
+    if (q.data.status) conds.push(eq(searchAttempts.status, q.data.status));
     const where = whereOf(conds);
     const total = ctx.db.select({ n: count() }).from(searchAttempts).where(where).get()?.n ?? 0;
     const rows = ctx.db

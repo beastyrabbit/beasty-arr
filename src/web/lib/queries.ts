@@ -310,7 +310,10 @@ export function useSeriesDetail(id: number, live = false, enabled = true) {
   return useQuery({
     queryKey: keys.seriesDetail(id),
     queryFn: () => api.get<SeriesDetail>(`/api/library/series/${id}`),
-    refetchInterval: live ? 2_000 : false,
+    refetchInterval: (query) =>
+      live && (!query.state.data || query.state.data.searching || query.state.data.queued)
+        ? 2_000
+        : false,
     enabled,
   });
 }
@@ -319,7 +322,10 @@ export function useMovieDetail(id: number, live = false, enabled = true) {
   return useQuery({
     queryKey: keys.movieDetail(id),
     queryFn: () => api.get<MovieDetail>(`/api/library/movies/${id}`),
-    refetchInterval: live ? 2_000 : false,
+    refetchInterval: (query) =>
+      live && (!query.state.data || query.state.data.searching || query.state.data.queued)
+        ? 2_000
+        : false,
     enabled,
   });
 }
@@ -539,6 +545,7 @@ export function useAttempts(query: AttemptsQuery) {
         pageSize: query.pageSize,
         source: query.source,
         trigger: query.trigger,
+        status: query.status,
       }),
     placeholderData: (prev) => prev,
   });

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { eq } from "drizzle-orm";
 import type { FastifyBaseLogger } from "fastify";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   ApplyResult,
   ManualImportCandidate,
@@ -900,4 +900,23 @@ describe("FixerService history", () => {
     expect(page2.items).toHaveLength(1);
     expect(page1.items[0]?.id).toBeGreaterThan(page2.items[0]?.id ?? 0);
   });
+});
+
+it("coalesces a large stream and flushes the final event and result", async () => {
+  const { db, svc, sonarr, runnerCtl } = makeHarness();
+  sonarr.queue = [makeQueueItem(1)];
+  sonarr.candidatesByItem.set(1, [makeCandidate("candidate_1", [101])]);
+  runnerCtl.setScript((req) => {
+    for (let i = 0; i < 1000; i++)
+      req.onEvent?.({ kind: "text", delta: String(i), ts: Date.now() });
+    return importProposal("candidate_1", [101]);
+  });
+  const updates = vi.spyOn(db, "update");
+  const outcome = await svc.analyzeAndWait("sonarr", 1);
+  expect(outcome.status).toBe("completed");
+  expect(updates.mock.calls.length).toBeLessThan(10);
+  const row = db.select().from(fixerAnalyses).get();
+  expect(row?.status).toBe("completed");
+  expect(row?.events?.length).toBe(500);
+  expect(JSON.stringify(row?.events)).toContain("analysis text");
 });

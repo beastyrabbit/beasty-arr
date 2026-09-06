@@ -64,6 +64,20 @@
       "when": 1787995337002,
       "tag": "0008_bored_ares",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1788638689487,
+      "tag": "0009_odd_sasquatch",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1788688797153,
+      "tag": "0010_uneven_justin_hammer",
+      "breakpoints": true
     }
   ]
 }

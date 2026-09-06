@@ -504,6 +504,7 @@ export class RadarrClient {
     queueItem: QueueItem,
     candidates: ManualImportCandidate[],
     proposal: ResolutionProposal,
+    mayMutate: () => boolean = () => true,
   ): Promise<ApplyResult> {
     const preflight = await this.preflightImportProposal(queueItem, candidates, proposal);
     if (!preflight.ok) {
@@ -533,6 +534,8 @@ export class RadarrClient {
         };
       },
     );
+    if (!mayMutate())
+      return { ok: false, message: "Dry-run enabled during preflight; import was held." };
     const command = await this.request<{ id?: number }>("/api/v3/command", {
       method: "POST",
       body: JSON.stringify({

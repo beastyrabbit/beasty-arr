@@ -11,12 +11,21 @@ beasty-arr is that something:
   organic Prowlarr usage, and automatically ramps up to consume leftover daily indexer budget —
   automatic hunts never overrun an indexer's cap. Explicit Force and manual Missing searches run
   immediately and intentionally bypass that automatic budget gate.
-- **AI Dub Oracle**: asks an LLM (Codex / local Ollama) with web verification whether a German dub
+- **AI Dub Oracle**: asks Codex with web verification whether a German dub
   even exists for a title; confident negative seasons are paused for at least a year.
 - **Fixer**: absorbed from the sonarr_fixer project — AI-assisted resolution of stuck import-queue
   items with deterministic validation and confidence-gated auto-apply.
 - **Web GUI** (dark, dense, live via SSE), **Homepage widget** (`GET /api/status`), and a
   **dry-run mode that is ON by default** — nothing mutates your arrs until you flip it.
+
+Dry-run still performs library reads and planning. Explicit Oracle rechecks and Fixer analysis
+can call AI while dry-run is enabled. Commands already accepted by an Arr can finish after
+dry-run is turned on. Ambiguous command responses hold targets until acceptance is reconciled.
+
+For an unconfigured local start, copy `.env.example`, run `pnpm build`, then
+`NODE_ENV=production pnpm start`. Optional integrations are omitted in the template.
+Supply both the URL and key for each integration through your secret manager.
+See [HANDOFF.md](HANDOFF.md) for current behavior and operator acceptance work.
 
 ## Security
 
@@ -40,7 +49,9 @@ browser-reachable arr origins to show direct title links in the library. Use `pn
 full local quality suite.
 
 Runs on Node 24, Fastify 5, SQLite (Drizzle), React 19 + Vite. Deployed to the homelab cluster via
-Forgejo Actions → `git.heerlab.com/beasty/beasty-arr` → Flux (see kub-homelab `apps/media/beasty-arr`).
+GitHub Actions on `arc-beasty-arr` → `ghcr.io/beastyrabbit/beasty-arr` → Flux. Publish a `v*` release
+tag, then pin its image tag and digest in kub-homelab
+`cluster/homelab/apps/media/beasty-arr/helmrelease.yaml` and reconcile Flux.
 Deployments should set `SONARR_EXTERNAL_URL` and `RADARR_EXTERNAL_URL` to the HTTPS origins users
 open in their browsers. These public URLs contain no API keys and are separate from the internal arr
 connection URLs.

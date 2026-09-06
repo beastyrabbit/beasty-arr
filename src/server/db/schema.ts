@@ -176,7 +176,7 @@ export const searchAttempts = sqliteTable(
     targetLabel: text("target_label"), // denorm "Series S02" for history after deletes
     trigger: text("trigger").notNull().default("scheduled"), // scheduled|forced|missing|retry
     estimatedQueries: integer("estimated_queries").notNull(),
-    status: text("status").notNull(), // dispatched|queued|started|completed|failed|timeout
+    status: text("status").notNull(), // dispatched|queued|started|completed|failed|timeout|interrupted
     result: text("result"), // grabbed|no_grab|error
     dryRun: integer("dry_run", { mode: "boolean" }).notNull().default(false),
     completedAt: integer("completed_at"),
@@ -185,6 +185,21 @@ export const searchAttempts = sqliteTable(
 );
 
 // ============ budget ledger ============
+
+/** Indexed membership for title history; migration triggers maintain the JSON mirror. */
+export const searchAttemptTargets = sqliteTable(
+  "search_attempt_targets",
+  {
+    attemptId: integer("attempt_id")
+      .notNull()
+      .references(() => searchAttempts.id, { onDelete: "cascade" }),
+    huntStateId: integer("hunt_state_id").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.attemptId, t.huntStateId] }),
+    index("idx_attempt_targets_hunt_state").on(t.huntStateId),
+  ],
+);
 
 export const indexers = sqliteTable("indexers", {
   id: integer("id").primaryKey(), // Prowlarr indexer id
@@ -237,6 +252,8 @@ export const pendingSelfEstimates = sqliteTable("pending_self_estimates", {
   at: integer("at").notNull(),
   queries: integer("queries").notNull(),
   attemptId: integer("attempt_id"),
+  reconciledAt: integer("reconciled_at"),
+  observedIds: text("observed_ids", { mode: "json" }).$type<number[]>().notNull().default([]),
 });
 
 // ============ AI verdicts ============

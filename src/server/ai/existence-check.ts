@@ -4,7 +4,7 @@ import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent
 import { Type } from "typebox";
 import { AI_VERDICTS, type AiVerdictValue } from "../../shared/domain.js";
 
-export const PROMPT_VERSION = "dub-oracle-v15";
+export const PROMPT_VERSION = "dub-oracle-v16";
 export const REPORT_TOOL_NAME = "report_dub_verdict";
 
 export const RECHECK_MIN_DAYS = 90;
@@ -14,6 +14,7 @@ export const KNOWLEDGE_ONLY_CONFIDENCE_CAP = 0.6;
 
 export const FETCH_URL_TIMEOUT_MS = 15_000;
 export const FETCH_URL_MAX_TEXT_CHARS = 100_000;
+export const FETCH_URL_MAX_BYTES = 2 * 1024 * 1024;
 const SEARCH_TIMEOUT_MS = 10_000;
 const MAX_REDIRECTS = 5;
 const JUSTWATCH_GERMAN_TITLE_PATH_RE = /^\/de\/(?:film|serie)\//;
@@ -211,15 +212,42 @@ export async function fetchUrlForOracle(
     });
     if (response.status >= 300 && response.status < 400) {
       const location = response.headers.get("location");
+      await response.body?.cancel();
       if (!location) throw new Error(`Redirect without Location from ${url.hostname}.`);
       if (hop >= MAX_REDIRECTS) throw new Error("Too many redirects.");
       // Every redirect hop goes through the SSRF guard again.
       url = await assertPublicHttpUrl(new URL(location, url).href, options.lookupFn);
       continue;
     }
-    if (!response.ok) throw new Error(`HTTP ${response.status} from ${url.hostname}.`);
-    const body = await response.text();
     const contentType = response.headers.get("content-type") ?? "";
+    if (
+      !response.ok ||
+      (contentType &&
+        !/^(?:text\/(?:html|plain)|application\/xhtml\+xml)(?:;|$)/i.test(contentType))
+    ) {
+      await response.body?.cancel();
+      throw new Error(`Unsupported document or HTTP ${response.status} from ${url.hostname}.`);
+    }
+    const reader = response.body?.getReader();
+    const chunks: Uint8Array[] = [];
+    let bytes = 0;
+    if (reader) {
+      try {
+        while (true) {
+          const chunk = await reader.read();
+          if (chunk.done) break;
+          bytes += chunk.value.byteLength;
+          if (bytes > FETCH_URL_MAX_BYTES) {
+            await reader.cancel();
+            throw new Error(`Document exceeds ${FETCH_URL_MAX_BYTES} decoded bytes.`);
+          }
+          chunks.push(chunk.value);
+        }
+      } finally {
+        reader.releaseLock();
+      }
+    }
+    const body = Buffer.concat(chunks).toString("utf8");
     const looksLikeHtml = /html|xml/i.test(contentType) || /^\s*</.test(body);
     const text = (looksLikeHtml ? extractTextFromHtml(body) : body).trim();
     if (!text) throw new Error(`Empty document from ${url.hostname}.`);
@@ -272,7 +300,19 @@ export function isOfficialProviderTitleUrl(rawUrl: string): boolean {
   if (host === "primevideo.com" || host.endsWith(".primevideo.com")) {
     return path.includes("/detail/");
   }
-  if (host.startsWith("amazon.") || host.includes(".amazon.")) {
+  if (
+    [
+      "amazon.de",
+      "amazon.com",
+      "amazon.co.uk",
+      "amazon.fr",
+      "amazon.it",
+      "amazon.es",
+      "amazon.co.jp",
+      "amazon.ca",
+      "amazon.com.au",
+    ].some((domain) => host === domain || host.endsWith(`.${domain}`))
+  ) {
     return path.includes("/gp/video/detail/") || path.includes("/detail/");
   }
   if (host === "disneyplus.com" || host.endsWith(".disneyplus.com")) {
@@ -734,6 +774,7 @@ export type DubCheckSession = {
   titlePageShowsGermanProduction(): boolean;
   localizedGermanSeasonReleases(): { season: number; url: string }[];
   originalOnlySeasonReleases(): { season: number; url: string }[];
+  officialGermanSeasonReleases(): { season: number; url: string }[];
 };
 
 const SYSTEM_PROMPT = [
@@ -800,6 +841,39 @@ export function buildDubCheckSession(
   const isMatchingTitlePage = (page: { url: string; text: string }) =>
     germanAggregatorPageMatchesTitle(page.url, page.text, subject.title) ||
     fernsehserienSearchPageMatchesTitle(page.url, page.text, subject.title);
+  const matchesOfficialWork = (page: { url: string; text: string }) => {
+    if (!isOfficialProviderTitleUrl(page.url)) return false;
+    const lines = page.text
+      .split("\n")
+      .slice(0, 12)
+      .map((line) => line.trim());
+    const titles = [subject.title, subject.originalTitle].filter((title): title is string =>
+      Boolean(title),
+    );
+    const matchesTitle = lines.some((line) =>
+      titles.some((title) => {
+        const heading = line
+          .replace(/\s*[|–—]\s*(?:Netflix|Prime Video|Disney\+|Apple TV|Max).*$/i, "")
+          .trim();
+        return [
+          heading,
+          heading.replace(/^Watch\s+/i, "").replace(/\s+(?:ansehen|streamen)\s*$/i, ""),
+        ].some((candidate) =>
+          [
+            candidate,
+            candidate.replace(/\s*(?:\(?\b(?:19|20)\d{2}\)?|(?:Season|Staffel)\s+\d+)\s*$/gi, ""),
+          ].some(
+            (variant) => normalizeComparableTitle(variant) === normalizeComparableTitle(title),
+          ),
+        );
+      }),
+    );
+    if (!matchesTitle) return false;
+    // Require the release year when known, preventing remake promotion.
+    return (
+      subject.year == null || lines.some((line) => new RegExp(`\\b${subject.year}\\b`).test(line))
+    );
+  };
   let captured: RawDubVerdict | undefined;
   const fetchOptions: FetchUrlOptions = {
     fetchImpl: options.fetchImpl,
@@ -864,7 +938,7 @@ ${
     titlePageHasGermanAudio: () =>
       state.fetchedPages.some(
         (page) =>
-          (isOfficialProviderTitleUrl(page.url) || isMatchingTitlePage(page)) &&
+          (matchesOfficialWork(page) || isMatchingTitlePage(page)) &&
           providerPageListsGermanAudio(page.text),
       ),
     titlePageShowsGermanProduction: () =>
@@ -872,6 +946,16 @@ ${
         (page) =>
           isMatchingTitlePage(page) && titlePageShowsGermanProduction(page.text, subject.year),
       ),
+    officialGermanSeasonReleases: () =>
+      state.fetchedPages.flatMap((page) => {
+        if (!matchesOfficialWork(page) || !providerPageListsGermanAudio(page.text)) return [];
+        const seasons = [...page.text.matchAll(/\b(?:Season|Staffel)\s+(\d+)\b/gi)].map((match) =>
+          Number(match[1]),
+        );
+        const unique = [...new Set(seasons)];
+        // A multi-season title page does not tie its Audio list to one season.
+        return unique.length === 1 ? [{ season: unique[0], url: page.url }] : [];
+      }),
     localizedGermanSeasonReleases: () =>
       state.fetchedPages.flatMap((page) => {
         const localizedSeriesTitleWasFetched = state.fetchedPages.some(

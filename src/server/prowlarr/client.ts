@@ -193,9 +193,9 @@ export class ProwlarrClient {
           source: record.data?.source ?? "Unknown",
         });
       }
-      if (reachedCutoff || records.length < pageSize) break;
+      if (reachedCutoff || records.length < pageSize) return out;
     }
-    return out;
+    throw new Error("Prowlarr history exceeded 50 pages; accounting observation is incomplete");
   }
 
   async getSystemStatus(): Promise<ProwlarrSystemStatus> {

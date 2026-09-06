@@ -5,6 +5,9 @@ import { eq } from "drizzle-orm";
 import type { FastifyBaseLogger } from "fastify";
 import { afterEach, describe, expect, it } from "vitest";
 import { backoffForTier } from "../../shared/domain.js";
+import { RadarrRequestError } from "../arr/radarr-client.js";
+import { BudgetManager } from "../budget/manager.js";
+import { setEnginePaused } from "../config/engine-flag.js";
 import { SettingsService } from "../config/settings.js";
 import { createDb, type Db } from "../db/index.js";
 import {
@@ -98,6 +101,9 @@ class FakeBudget implements BudgetManagerPort {
   }
   recordDispatch(estimates: Map<number, number>, attemptId: number): void {
     this.recorded.push({ estimates, attemptId });
+  }
+  releaseRejectedDispatch(attemptId: number): void {
+    this.recorded = this.recorded.filter((row) => row.attemptId !== attemptId);
   }
 }
 
@@ -696,8 +702,8 @@ describe("runCycle — live dispatch", () => {
     await engine.runCycle();
     expect(sonarr.getCommandCalls).toBeGreaterThanOrEqual(59);
     const attempt = db.select().from(searchAttempts).all()[0];
-    expect(attempt).toMatchObject({ status: "timeout", result: "no_grab" });
-    expect(huntRow(db, hs).tier).toBe(1); // search presumably ran — back off
+    expect(attempt).toMatchObject({ status: "interrupted", result: null, completedAt: null });
+    expect(huntRow(db, hs).tier).toBe(0); // Hold unresolved work without claiming completion.
   });
 
   it("caps commands per cycle at maxCommandsPerCycle", async () => {
@@ -1366,5 +1372,288 @@ describe("queue management and views", () => {
     expect(status.nextTickAt).toBe(T0 + settings.get().huntTickMinutes * 60_000);
     engine.setNextTickAt(T0 + 123);
     expect(engine.engineStatus().nextTickAt).toBe(T0 + 123);
+  });
+});
+
+describe("dispatch safety and recovery", () => {
+  it.each(["attach_command", "confirm_not_accepted"] as const)(
+    "makes a crash before command ID persistence recoverable through %s without replay",
+    async (action) => {
+      const { db, engine, settings, radarr, budget } = makeHarness();
+      settings.update({ dryRun: false });
+      const target = seedMovie(db, { id: 1, hasFile: true }, { state: "non_german" });
+      const attempt = db
+        .insert(searchAttempts)
+        .values({
+          createdAt: T0 - 1000,
+          source: "radarr",
+          commandName: "MoviesSearch",
+          payload: { name: "MoviesSearch", movieIds: [1] },
+          targetIds: [target],
+          estimatedQueries: 1,
+          status: "dispatched",
+        })
+        .returning()
+        .get();
+      budget.recordDispatch(new Map([[1, 1]]), attempt.id);
+      await engine.runCycle();
+      expect(radarr.sent).toHaveLength(0);
+      expect(db.select().from(searchAttempts).get()).toMatchObject({
+        status: "interrupted",
+        arrCommandId: null,
+        completedAt: null,
+      });
+      expect(budget.recorded).toHaveLength(1);
+      expect(
+        engine.resolveInterruptedAttempt(attempt.id, {
+          action,
+          commandId: 77,
+          note: "Verified upstream history after restart",
+        }),
+      ).toBe(true);
+      expect(budget.recorded).toHaveLength(action === "attach_command" ? 1 : 0);
+    },
+  );
+
+  it.each(["error", "grabbed"])(
+    "reconciles an attached command with prior result %s",
+    async (result) => {
+      const { db, engine, settings, radarr } = makeHarness();
+      const checks: { keys: string[]; force: boolean }[] = [];
+      engine.onAiCheckRequested = (keys, force) => checks.push({ keys, force });
+      settings.update({ dryRun: false });
+      const target = seedMovie(db, { id: 1, hasFile: true }, { state: "non_german" });
+      const attempt = db
+        .insert(searchAttempts)
+        .values({
+          createdAt: T0 - 1000,
+          source: "radarr",
+          commandName: "MoviesSearch",
+          payload: { name: "MoviesSearch", movieIds: [1] },
+          targetIds: [target],
+          estimatedQueries: 1,
+          status: "interrupted",
+          result,
+        })
+        .returning()
+        .get();
+      expect(
+        engine.resolveInterruptedAttempt(attempt.id, {
+          action: "attach_command",
+          commandId: 77,
+          note: "Verified matching accepted command",
+        }),
+      ).toBe(true);
+      await engine.runCycle();
+      expect(radarr.sent).toHaveLength(0);
+      expect(db.select().from(searchAttempts).get()).toMatchObject({
+        status: "completed",
+        result: result === "error" ? "no_grab" : "grabbed",
+      });
+      expect(checks).toEqual([{ keys: ["radarr:1"], force: false }]);
+    },
+  );
+
+  it.each([429, 503, null])(
+    "distinguishes HTTP rejection %s from unknown acceptance",
+    async (status) => {
+      const { db, engine, settings, radarr, budget } = makeHarness();
+      settings.update({ dryRun: false });
+      seedMovie(db, { id: 1, hasFile: true }, { state: "non_german" });
+      const send = radarr.sendCommand.bind(radarr);
+      radarr.sendCommand = async () => {
+        throw status === null
+          ? new Error("response lost")
+          : new RadarrRequestError("rejected", status, "error", "", "/command");
+      };
+      await engine.runCycle();
+      expect(db.select().from(searchAttempts).get()?.status).toBe(
+        status === 429 ? "failed" : "interrupted",
+      );
+      expect(budget.recorded).toHaveLength(status === 429 ? 0 : 1);
+      radarr.sendCommand = send;
+      engine.forceSubject({ source: "radarr", kind: "movie", id: 1 });
+      await engine.runCycle();
+      expect(radarr.sent).toHaveLength(status === 429 ? 1 : 0);
+      if (status !== 429) {
+        const attempt = db.select().from(searchAttempts).get()!;
+        expect(
+          engine.resolveInterruptedAttempt(attempt.id, {
+            action: "confirm_not_accepted",
+            note: "Operator checked Arr commands and history",
+          }),
+        ).toBe(true);
+        expect(budget.recorded).toHaveLength(0);
+        await engine.runCycle();
+        expect(radarr.sent).toHaveLength(1);
+      }
+    },
+  );
+
+  it.each(["dryRun", "paused"] as const)(
+    "checks current %s after the preceding command",
+    async (control) => {
+      const { db, engine, settings, radarr, sync } = makeHarness();
+      settings.update({ dryRun: false });
+      for (let id = 1; id <= 6; id++) seedMovie(db, { id, hasFile: true }, { state: "non_german" });
+      sync.onMovieRefresh = () =>
+        control === "dryRun" ? settings.update({ dryRun: true }) : setEnginePaused(db, true);
+      await engine.runCycle();
+      expect(radarr.sent).toHaveLength(1);
+      const attempts = db.select().from(searchAttempts).all();
+      expect(attempts.filter((row) => !row.dryRun)).toHaveLength(1);
+      if (control === "dryRun") expect(attempts[1].dryRun).toBe(true);
+    },
+  );
+
+  it("holds automatic work on real accounting failure, but preserves explicit Force", async () => {
+    const { db, settings, sonarr, radarr, sync, bus, clock } = makeHarness();
+    settings.update({ dryRun: false });
+    seedMovie(db, { id: 1, hasFile: true }, { state: "non_german" });
+    const manager = new BudgetManager(
+      db,
+      settings,
+      {
+        getIndexers: async () => {
+          throw new Error("offline");
+        },
+        getIndexerStats: async () => [],
+        getIndexerStatus: async () => [],
+      },
+      bus,
+      noopLog,
+      { now: () => clock.ms },
+    );
+    const engine = new HuntEngine(db, settings, { sonarr, radarr }, manager, sync, bus, noopLog, {
+      now: () => clock.ms,
+      sleep: async () => {},
+    });
+    await engine.runCycle();
+    expect(radarr.sent).toHaveLength(0);
+    engine.forceSubject({ source: "radarr", kind: "movie", id: 1 });
+    await engine.runCycle();
+    expect(radarr.sent).toHaveLength(1);
+  });
+
+  it.each(["dispatched", "interrupted"])(
+    "recovers orphaned %s attempts without replay or stale transport errors",
+    async (status) => {
+      const { db, engine, settings, radarr } = makeHarness();
+      settings.update({ dryRun: false });
+      const target = seedMovie(db, { id: 1, hasFile: true }, { state: "non_german" });
+      const attempt = db
+        .insert(searchAttempts)
+        .values({
+          createdAt: T0 - 1000,
+          source: "radarr",
+          commandName: "MoviesSearch",
+          payload: { name: "MoviesSearch", movieIds: [1] },
+          targetIds: [target],
+          estimatedQueries: 1,
+          status,
+          result: status === "interrupted" ? "error" : null,
+        })
+        .returning()
+        .get();
+      await engine.runCycle();
+      expect(radarr.sent).toHaveLength(0);
+      expect(db.select().from(searchAttempts).get()?.status).toBe("interrupted");
+      expect(
+        engine.resolveInterruptedAttempt(attempt.id, {
+          action: "attach_command",
+          commandId: 77,
+          note: "Verified matching targets and dispatch time",
+        }),
+      ).toBe(true);
+      radarr.defaultCommandStatus = "completed";
+      await engine.runCycle();
+      expect(radarr.sent).toHaveLength(0);
+      expect(db.select().from(searchAttempts).get()).toMatchObject({
+        status: "completed",
+        result: "no_grab",
+      });
+      expect(huntRow(db, target).searchCount).toBe(1);
+    },
+  );
+
+  it("reconciles accepted queued commands before allowing retries", async () => {
+    const { db, engine, settings, radarr } = makeHarness();
+    settings.update({ dryRun: false });
+    const target = seedMovie(db, { id: 1, hasFile: true }, { state: "non_german" });
+    db.insert(searchAttempts)
+      .values({
+        createdAt: T0 - 1000,
+        source: "radarr",
+        commandName: "MoviesSearch",
+        arrCommandId: 77,
+        payload: { name: "MoviesSearch", movieIds: [1] },
+        targetIds: [target],
+        estimatedQueries: 1,
+        status: "queued",
+      })
+      .run();
+    radarr.defaultCommandStatus = "queued";
+    await engine.runCycle();
+    expect(radarr.sent).toHaveLength(0);
+    radarr.defaultCommandStatus = "completed";
+    await engine.runCycle();
+    expect(radarr.sent).toHaveLength(0);
+    expect(db.select().from(searchAttempts).get()?.status).toBe("completed");
+    expect(huntRow(db, target).searchCount).toBe(1);
+  });
+
+  it("splits full episode batches against a real 100-query indexer", async () => {
+    const { db, settings, sonarr, radarr, sync, bus, clock } = makeHarness();
+    settings.update({ dryRun: false });
+    seedSeries(db, { id: 1 });
+    for (let id = 1; id <= 10; id++)
+      seedEpisode(
+        db,
+        { id, seriesId: 1, episodeNumber: id, hasFile: true },
+        { state: "non_german" },
+      );
+    const manager = new BudgetManager(
+      db,
+      settings,
+      {
+        getIndexers: async () => [
+          {
+            id: 1,
+            name: "Small",
+            enable: true,
+            priority: 1,
+            protocol: "usenet",
+            queryLimit: 100,
+            grabLimit: null,
+            supportsTv: true,
+            supportsMovies: true,
+          },
+        ],
+        getIndexerStats: async () => [
+          {
+            indexerId: 1,
+            indexerName: "Small",
+            numberOfQueries: 0,
+            numberOfRssQueries: 0,
+            numberOfAuthQueries: 0,
+            numberOfGrabs: 0,
+          },
+        ],
+        getIndexerStatus: async () => [],
+      },
+      bus,
+      noopLog,
+      { now: () => clock.ms },
+    );
+    const engine = new HuntEngine(db, settings, { sonarr, radarr }, manager, sync, bus, noopLog, {
+      now: () => clock.ms,
+      sleep: async () => {},
+    });
+    await engine.runCycle();
+    expect(sonarr.sent.length).toBeGreaterThan(0);
+    expect(sonarr.sent.length).toBeLessThanOrEqual(3);
+    expect(sonarr.sent.every((command) => (command.episodeIds as number[]).length === 1)).toBe(
+      true,
+    );
   });
 });

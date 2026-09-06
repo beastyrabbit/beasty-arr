@@ -1,5 +1,6 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
+import { QueryError } from "../components/QueryError.js";
 import { DataTable, EmptyState, Pager, Panel, SkeletonRows, Td, Th } from "../components/Shell.js";
 import { Select } from "../components/ui/select.js";
 import { fmtDateTime } from "../lib/format.js";
@@ -45,9 +46,11 @@ export function ActivityPage({ tab }: { tab: ActivityTab }) {
 function SearchesTab() {
   const [page, setPage] = useState(1);
   const [trigger, setTrigger] = useState<string>("all");
+  const [status, setStatus] = useState("all");
   const attempts = useAttempts({
     page,
     pageSize: PAGE_SIZE,
+    status: status === "interrupted" ? "interrupted" : undefined,
     trigger:
       trigger === "all" ? undefined : (trigger as "scheduled" | "forced" | "missing" | "retry"),
   });
@@ -55,22 +58,37 @@ function SearchesTab() {
   return (
     <Panel
       title="Search attempts"
+      className="[&>header]:h-auto [&>header]:flex-wrap [&>header]:gap-2 [&>header]:py-2"
       actions={
-        <Select
-          value={trigger}
-          onValueChange={(v) => {
-            setTrigger(v);
-            setPage(1);
-          }}
-          options={[
-            { value: "all", label: "All triggers" },
-            { value: "scheduled", label: "Scheduled" },
-            { value: "forced", label: "Forced" },
-            { value: "missing", label: "Missing" },
-            { value: "retry", label: "Retry" },
-          ]}
-          className="h-6"
-        />
+        <div className="flex flex-wrap gap-2">
+          <Select
+            value={status}
+            onValueChange={(value) => {
+              setStatus(value);
+              setPage(1);
+            }}
+            options={[
+              { value: "all", label: "All statuses" },
+              { value: "interrupted", label: "Needs reconciliation" },
+            ]}
+            className="h-6 whitespace-nowrap"
+          />
+          <Select
+            value={trigger}
+            onValueChange={(v) => {
+              setTrigger(v);
+              setPage(1);
+            }}
+            options={[
+              { value: "all", label: "All triggers" },
+              { value: "scheduled", label: "Scheduled" },
+              { value: "forced", label: "Forced" },
+              { value: "missing", label: "Missing" },
+              { value: "retry", label: "Retry" },
+            ]}
+            className="h-6"
+          />
+        </div>
       }
     >
       <DataTable
@@ -86,7 +104,14 @@ function SearchesTab() {
           </>
         }
       >
-        {attempts.isPending ? (
+        {attempts.isError ? (
+          <tr>
+            <td colSpan={10}>
+              <QueryError query={attempts} />
+            </td>
+          </tr>
+        ) : null}
+        {attempts.isError && !attempts.data ? null : attempts.isPending ? (
           <SkeletonRows rows={10} cols={7} />
         ) : attempts.data && attempts.data.items.length > 0 ? (
           attempts.data.items.map((a) => (
@@ -117,7 +142,19 @@ function SearchesTab() {
                 <span className="font-mono text-[11px] text-muted">{a.estimatedQueries}</span>
               </Td>
               <Td>
-                <span className="font-mono text-[11px] text-muted">{a.status}</span>
+                <span
+                  className={cn(
+                    "font-mono text-[11px]",
+                    a.status === "interrupted" ? "text-accent" : "text-muted",
+                  )}
+                  title={
+                    a.status === "interrupted"
+                      ? `Search ${a.id}: acceptance is unknown. Check the Arr command/history and use the recovery endpoint documented in HANDOFF.md.`
+                      : undefined
+                  }
+                >
+                  {a.status === "interrupted" ? "Needs reconciliation" : a.status}
+                </span>
               </Td>
               <Td>
                 <span
@@ -169,7 +206,14 @@ function AiTab() {
           </>
         }
       >
-        {verdicts.isPending ? (
+        {verdicts.isError ? (
+          <tr>
+            <td colSpan={10}>
+              <QueryError query={verdicts} />
+            </td>
+          </tr>
+        ) : null}
+        {verdicts.isError && !verdicts.data ? null : verdicts.isPending ? (
           <SkeletonRows rows={8} cols={6} />
         ) : verdicts.data && verdicts.data.items.length > 0 ? (
           verdicts.data.items.map((v) => (
@@ -262,7 +306,14 @@ function BudgetTab() {
           </>
         }
       >
-        {ledger.isPending ? (
+        {ledger.isError ? (
+          <tr>
+            <td colSpan={10}>
+              <QueryError query={ledger} />
+            </td>
+          </tr>
+        ) : null}
+        {ledger.isError && !ledger.data ? null : ledger.isPending ? (
           <SkeletonRows rows={10} cols={6} />
         ) : ledger.data && ledger.data.items.length > 0 ? (
           ledger.data.items.map((b) => (

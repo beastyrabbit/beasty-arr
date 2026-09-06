@@ -33,6 +33,7 @@ export type AiSeasonVerdict = {
   evidence?: string[];
   expectedAvailability?: number | null;
   recheckAfter?: number;
+  checkedAt?: number;
 };
 
 export const SEARCH_TRIGGERS = ["scheduled", "forced", "missing", "retry"] as const;

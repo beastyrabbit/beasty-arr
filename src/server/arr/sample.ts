@@ -3,6 +3,12 @@ import type { ManualImportCandidate } from "../../shared/fixer-types.js";
 const SAMPLE_WORD = /(^|[.\-_\s()[\]])sample([.\-_\s()[\]]|$)/i;
 const SAMPLE_SIZE_BYTES = 80 * 1024 * 1024;
 
+export function isDiscStreamPath(filePath: string): boolean {
+  return /(?:^|\/)BDMV\/STREAM\/(?:SSIF\/)?[^/]+\.(?:m2ts|mts|ssif)$/i.test(
+    filePath.replaceAll("\\", "/"),
+  );
+}
+
 export function detectLikelySample(input: {
   path?: string;
   relativePath?: string;

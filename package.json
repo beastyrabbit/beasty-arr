@@ -1,6 +1,6 @@
 {
   "name": "beasty-arr",
-  "version": "0.4.20",
+  "version": "0.5.0",
   "description": "German-hunting companion for Sonarr/Radarr: budget-aware forced searches until everything has German audio",
   "main": "dist/server/server/index.js",
   "scripts": {
@@ -9,7 +9,7 @@
     "dev:app": "infisical run --env=dev --path=/ -- concurrently -k -n prowlarr,api,web \"kubectl port-forward --address 127.0.0.1 -n media service/prowlarr 19696:9696\" \"API_PORT=3001 tsx watch src/server/index.ts\" \"vite --host 0.0.0.0\"",
     "build": "tsc -p tsconfig.server.json && vite build",
     "start": "node dist/server/server/index.js",
-    "typecheck": "tsc --noEmit && tsc -p tsconfig.server.json --noEmit",
+    "typecheck": "tsc -p tsconfig.test.json --noEmit && tsc -p tsconfig.server.json --noEmit",
     "lint": "biome ci .",
     "lint:fix": "biome check --write .",
     "deadcode": "knip --include files,dependencies,unlisted,binaries,unresolved --no-config-hints",
@@ -39,7 +39,7 @@
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "drizzle-orm": "^0.45.2",
-    "fastify": "^5.11.0",
+    "fastify": "^5.12.3",
     "lucide-react": "^1.28.0",
     "nanoid": "^6.0.1",
     "radix-ui": "^1.6.7",

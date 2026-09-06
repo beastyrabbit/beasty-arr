@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { useState } from "react";
 import type { FixerHistoryEntry } from "../../shared/api-types.js";
+import { QueryError } from "../components/QueryError.js";
 import { DataTable, EmptyState, Pager, Panel, SkeletonRows, Td, Th } from "../components/Shell.js";
 import { fmtDateTime } from "../lib/format.js";
 import { useFixerHistory } from "../lib/queries.js";
@@ -38,7 +39,14 @@ export function FixerHistoryPage() {
             </>
           }
         >
-          {history.isPending ? (
+          {history.isError ? (
+            <tr>
+              <td colSpan={10}>
+                <QueryError query={history} />
+              </td>
+            </tr>
+          ) : null}
+          {history.isError && !history.data ? null : history.isPending ? (
             <SkeletonRows rows={8} cols={7} />
           ) : history.data && history.data.items.length > 0 ? (
             history.data.items.map((entry) => <HistoryRow key={entry.id} entry={entry} />)

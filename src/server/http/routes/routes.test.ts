@@ -37,10 +37,22 @@ function get(app: FastifyInstance, url: string) {
   return app.inject({ method: "GET", url });
 }
 function post(app: FastifyInstance, url: string, payload?: unknown) {
-  return app.inject({ method: "POST", url, payload });
+  return app.inject({
+    method: "POST",
+    url,
+    ...(payload === undefined
+      ? {}
+      : { payload: JSON.stringify(payload), headers: { "content-type": "application/json" } }),
+  });
 }
 function put(app: FastifyInstance, url: string, payload?: unknown) {
-  return app.inject({ method: "PUT", url, payload });
+  return app.inject({
+    method: "PUT",
+    url,
+    ...(payload === undefined
+      ? {}
+      : { payload: JSON.stringify(payload), headers: { "content-type": "application/json" } }),
+  });
 }
 
 const now = Date.now();
@@ -649,6 +661,64 @@ describe("budget", () => {
 
 // ============ logs: attempts / activity / verdicts ============
 
+it("requires verified operator recovery and prevents resolving an interrupted attempt twice", async () => {
+  const b = await makeApp();
+  try {
+    const attempts = b.ctx.db
+      .insert(searchAttempts)
+      .values(
+        [1, 2].map((id) => ({
+          id,
+          createdAt: now,
+          source: "radarr" as const,
+          commandName: "MoviesSearch",
+          payload: { name: "MoviesSearch", movieIds: [1] },
+          targetIds: [],
+          estimatedQueries: 1,
+          status: "interrupted",
+        })),
+      )
+      .returning()
+      .all();
+    expect((await get(b.app, "/api/attempts?status=interrupted")).json().total).toBe(2);
+    const url = `/api/hunt/attempts/${attempts[0].id}/resolve`;
+    expect(
+      (await post(b.app, url, { action: "confirm_not_accepted", note: "Checked history" }))
+        .statusCode,
+    ).toBe(400);
+    const resolution = {
+      action: "confirm_not_accepted",
+      note: "Checked Arr command and history records",
+      confirm: "verified_in_arr",
+    };
+    expect((await post(b.app, url, resolution)).statusCode).toBe(200);
+    expect((await post(b.app, url, resolution)).statusCode).toBe(409);
+    expect(
+      (
+        await post(b.app, `/api/hunt/attempts/${attempts[1].id}/resolve`, {
+          action: "attach_command",
+          commandId: 77,
+          note: "Verified matching command targets and time",
+          confirm: "verified_in_arr",
+        })
+      ).statusCode,
+    ).toBe(200);
+    expect(
+      b.ctx.db.select().from(searchAttempts).where(eq(searchAttempts.id, attempts[1].id)).get(),
+    ).toMatchObject({ status: "queued", arrCommandId: 77, completedAt: null });
+    expect((await get(b.app, "/api/attempts?status=interrupted")).json().total).toBe(0);
+    expect(
+      b.ctx.db
+        .select()
+        .from(activityLog)
+        .all()
+        .filter((row) => row.message.startsWith("Operator resolved")),
+    ).toHaveLength(2);
+  } finally {
+    await closeApp(b);
+  }
+});
+
 describe("logs", () => {
   let b: Built;
   beforeAll(async () => {
@@ -812,27 +882,24 @@ describe("fixer", () => {
     start.mockRestore();
   });
 
-  // This replaces the whole fixer service, so it runs last.
   it("maps the queue with latest-analysis fields", async () => {
-    b.ctx.services.fixer = {
-      getQueue: async () => ({
-        fetchedAt: 123,
-        items: [
-          {
-            id: 5,
-            service: "sonarr",
-            title: "Stuck",
-            statusMessages: [],
-            episodeIds: [],
-            absoluteEpisodeNumbers: [],
-            episodeLabels: [],
-            canAnalyze: true,
-            issueType: "import blocked",
-          },
-        ],
-        errors: {},
-      }),
-    } as never;
+    vi.spyOn(b.ctx.services.fixer, "getQueue").mockResolvedValue({
+      fetchedAt: 123,
+      items: [
+        {
+          id: 5,
+          service: "sonarr",
+          title: "Stuck",
+          statusMessages: [],
+          episodeIds: [],
+          absoluteEpisodeNumbers: [],
+          episodeLabels: [],
+          canAnalyze: true,
+          issueType: "import blocked",
+        },
+      ],
+      errors: {},
+    });
     const res = await get(b.app, "/api/fixer/queue");
     expect(res.json().fetchedAt).toBe(123);
     expect(res.json().items[0].analysisId).toBeNull();
@@ -874,9 +941,8 @@ describe("config", () => {
   });
 
   it("rejects dryRun via the config PUT", async () => {
-    // dryRun is stripped by the schema; a settings-only PUT still succeeds and leaves dryRun on.
-    await put(b.app, "/api/config", { huntTickMinutes: 15 });
-    expect(b.ctx.settings.get().huntTickMinutes).toBe(15);
+    const response = await put(b.app, "/api/config", { dryRun: false });
+    expect(response.statusCode).toBe(400);
     expect(b.ctx.settings.get().dryRun).toBe(true);
   });
 
@@ -960,5 +1026,43 @@ describe("diagnostics", () => {
     const body = res.json();
     expect(body.connections.sonarr.keyPresent).toBe(true);
     expect(body.dryRun).toBe(true);
+  });
+});
+
+describe("title-scoped history", () => {
+  it("keeps cumulative season metrics after unrelated searches and verdict history", async () => {
+    const b = await makeApp();
+    try {
+      seedLibrary(b.ctx);
+      const target = b.ctx.db.select().from(huntState).where(eq(huntState.source, "sonarr")).get();
+      if (!target?.seriesId) throw new Error("missing synthetic episode");
+      const seriesId = target.seriesId;
+      const baseAttempt = {
+        source: "sonarr" as const,
+        commandName: "EpisodeSearch",
+        payload: {},
+        estimatedQueries: 1,
+        status: "completed",
+        completedAt: now,
+      };
+      b.ctx.db
+        .insert(searchAttempts)
+        .values({ ...baseAttempt, createdAt: now - 1000, targetIds: [target.id] })
+        .run();
+      for (let i = 0; i < 405; i++)
+        b.ctx.db
+          .insert(searchAttempts)
+          .values({ ...baseAttempt, createdAt: now + i, targetIds: [999999] })
+          .run();
+      const detail = (await get(b.app, `/api/library/series/${seriesId}`)).json();
+      const season = detail.seasons.find(
+        (row: { seasonNumber: number }) => row.seasonNumber === target.seasonNumber,
+      );
+      expect(season.searchCount).toBe(1);
+      expect(season.lastSearchAt).toBe(now - 1000);
+      expect(season.history.some((entry: { kind: string }) => entry.kind === "search")).toBe(true);
+    } finally {
+      await closeApp(b);
+    }
   });
 });

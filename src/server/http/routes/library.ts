@@ -31,6 +31,7 @@ import {
   itemOverrides,
   movies,
   searchAttempts,
+  searchAttemptTargets,
   series,
 } from "../../db/schema.js";
 import {
@@ -47,7 +48,6 @@ type HsRow = typeof huntState.$inferSelect;
 
 const IN_FLIGHT_STATUSES = ["dispatched", "queued", "started"] as const;
 const HISTORY_LIMIT = 60;
-const ATTEMPT_SCAN_LIMIT = 400;
 const TRAILING_SLASHES_RE = /\/+$/;
 
 function arrDeepLink(
@@ -84,8 +84,17 @@ function inFlightHuntStateIds(ctx: AppContext): Set<number> {
   return set;
 }
 
-function loadActiveVerdicts(ctx: AppContext): Map<string, VerdictRow> {
-  const rows = ctx.db.select().from(aiVerdicts).where(isNull(aiVerdicts.supersededBy)).all();
+function loadActiveVerdicts(ctx: AppContext, subjectKey?: string): Map<string, VerdictRow> {
+  const rows = ctx.db
+    .select()
+    .from(aiVerdicts)
+    .where(
+      and(
+        isNull(aiVerdicts.supersededBy),
+        subjectKey ? eq(aiVerdicts.subjectKey, subjectKey) : undefined,
+      ),
+    )
+    .all();
   const out = new Map<string, VerdictRow>();
   for (const r of rows) {
     const cur = out.get(r.subjectKey);
@@ -170,14 +179,24 @@ type SeriesAccumulator = {
   searching: boolean;
 };
 
-function buildSeriesItems(ctx: AppContext): SeriesListItem[] {
+function buildSeriesItems(ctx: AppContext, id?: number): SeriesListItem[] {
   const inFlight = inFlightHuntStateIds(ctx);
-  const verdicts = loadActiveVerdicts(ctx);
-  const seriesRows = ctx.db.select().from(series).all();
+  const verdicts = loadActiveVerdicts(ctx, id == null ? undefined : `sonarr:${id}`);
+  const seriesRows = ctx.db
+    .select()
+    .from(series)
+    .where(id == null ? undefined : eq(series.id, id))
+    .all();
   const hs = ctx.db
     .select()
     .from(huntState)
-    .where(and(eq(huntState.source, "sonarr"), eq(huntState.targetKind, "episode")))
+    .where(
+      and(
+        eq(huntState.source, "sonarr"),
+        eq(huntState.targetKind, "episode"),
+        id == null ? undefined : eq(huntState.seriesId, id),
+      ),
+    )
     .all();
 
   const bySeriesId = new Map<number, SeriesAccumulator>();
@@ -238,15 +257,25 @@ function buildSeriesItems(ctx: AppContext): SeriesListItem[] {
 
 // ============ movie list ============
 
-function buildMovieItems(ctx: AppContext): MovieListItem[] {
+function buildMovieItems(ctx: AppContext, id?: number): MovieListItem[] {
   const inFlight = inFlightHuntStateIds(ctx);
-  const verdicts = loadActiveVerdicts(ctx);
-  const movieRows = ctx.db.select().from(movies).all();
+  const verdicts = loadActiveVerdicts(ctx, id == null ? undefined : `radarr:${id}`);
+  const movieRows = ctx.db
+    .select()
+    .from(movies)
+    .where(id == null ? undefined : eq(movies.id, id))
+    .all();
   const hsByMovieId = new Map<number, HsRow>();
   for (const row of ctx.db
     .select()
     .from(huntState)
-    .where(and(eq(huntState.source, "radarr"), eq(huntState.targetKind, "movie")))
+    .where(
+      and(
+        eq(huntState.source, "radarr"),
+        eq(huntState.targetKind, "movie"),
+        id == null ? undefined : eq(huntState.targetId, id),
+      ),
+    )
     .all()) {
     hsByMovieId.set(row.targetId, row);
   }
@@ -377,9 +406,19 @@ function attemptHistory(
   const rows = ctx.db
     .select()
     .from(searchAttempts)
-    .where(eq(searchAttempts.source, source))
+    .where(
+      and(
+        eq(searchAttempts.source, source),
+        inArray(
+          searchAttempts.id,
+          ctx.db
+            .select({ id: searchAttemptTargets.attemptId })
+            .from(searchAttemptTargets)
+            .where(inArray(searchAttemptTargets.huntStateId, [...huntStateIds])),
+        ),
+      ),
+    )
     .orderBy(desc(searchAttempts.createdAt))
-    .limit(ATTEMPT_SCAN_LIMIT)
     .all();
   const out: ItemHistoryEntry[] = [];
   for (const a of rows) {
@@ -393,6 +432,7 @@ function attemptHistory(
         trigger: a.trigger,
         estimatedQueries: a.estimatedQueries,
         dryRun: a.dryRun,
+        targetIds: a.targetIds,
       },
     });
   }
@@ -424,39 +464,42 @@ function verdictHistory(
   ctx: AppContext,
   subjectKey: string,
   seasonNumber?: number,
+  cached?: VerdictRow[],
 ): ItemHistoryEntry[] {
-  return ctx.db
-    .select()
-    .from(aiVerdicts)
-    .where(eq(aiVerdicts.subjectKey, subjectKey))
-    .orderBy(desc(aiVerdicts.checkedAt))
-    .limit(HISTORY_LIMIT)
-    .all()
-    .flatMap((verdict) => {
-      const seasonVerdict =
-        seasonNumber == null
-          ? undefined
-          : verdict.perSeason?.find((entry) => entry.season === seasonNumber);
-      if (seasonNumber != null && verdict.perSeason?.length && !seasonVerdict) return [];
-      const value = seasonVerdict?.verdict ?? verdict.verdict;
-      return [
-        {
-          at: verdict.checkedAt,
-          kind: "verdict" as const,
-          message: `Dub oracle${seasonNumber == null ? "" : ` S${String(seasonNumber).padStart(2, "0")}`}: ${value} (${verdict.confidence.toFixed(2)})`,
-          detail: {
-            verdictId: verdict.id,
-            provider: verdict.provider,
-            model: verdict.model,
-            promptVersion: verdict.promptVersion,
-            recheckAfter: verdict.recheckAfter,
-            evidence: verdict.evidence,
-            note: seasonVerdict?.note,
-            superseded: verdict.supersededBy != null,
-          },
+  return (
+    cached ??
+    ctx.db
+      .select()
+      .from(aiVerdicts)
+      .where(eq(aiVerdicts.subjectKey, subjectKey))
+      .orderBy(desc(aiVerdicts.checkedAt))
+      .limit(HISTORY_LIMIT)
+      .all()
+  ).flatMap((verdict) => {
+    const seasonVerdict =
+      seasonNumber == null
+        ? undefined
+        : verdict.perSeason?.find((entry) => entry.season === seasonNumber);
+    if (seasonNumber != null && verdict.perSeason?.length && !seasonVerdict) return [];
+    const value = seasonVerdict?.verdict ?? verdict.verdict;
+    return [
+      {
+        at: verdict.checkedAt,
+        kind: "verdict" as const,
+        message: `Dub oracle${seasonNumber == null ? "" : ` S${String(seasonNumber).padStart(2, "0")}`}: ${value} (${verdict.confidence.toFixed(2)})`,
+        detail: {
+          verdictId: verdict.id,
+          provider: verdict.provider,
+          model: verdict.model,
+          promptVersion: verdict.promptVersion,
+          recheckAfter: verdict.recheckAfter,
+          evidence: verdict.evidence,
+          note: seasonVerdict?.note,
+          superseded: verdict.supersededBy != null,
         },
-      ];
-    });
+      },
+    ];
+  });
 }
 
 function mergeHistory(...parts: ItemHistoryEntry[][]): ItemHistoryEntry[] {
@@ -527,11 +570,11 @@ export function registerLibraryRoutes(app: FastifyInstance, ctx: AppContext): vo
     const p = parse(reply, z.object({ id: z.coerce.number().int() }), request.params);
     if (!p.ok) return;
     const id = p.data.id;
-    const summary = buildSeriesItems(ctx).find((it) => it.id === id);
+    const summary = buildSeriesItems(ctx, id).find((it) => it.id === id);
     const seriesRow = ctx.db.select().from(series).where(eq(series.id, id)).get();
     if (!summary || !seriesRow) return notFound(reply, "series not found");
 
-    const verdicts = loadActiveVerdicts(ctx);
+    const verdicts = loadActiveVerdicts(ctx, `sonarr:${id}`);
     const verdictRow = verdicts.get(`sonarr:${id}`);
     const inFlight = inFlightHuntStateIds(ctx);
 
@@ -605,24 +648,33 @@ export function registerLibraryRoutes(app: FastifyInstance, ctx: AppContext): vo
       season.episodes.push(episodeItem);
     }
 
+    const titleAttempts = attemptHistory(ctx, "sonarr", new Set(hsRows.map((row) => row.id)));
+    const titleVerdicts = ctx.db
+      .select()
+      .from(aiVerdicts)
+      .where(eq(aiVerdicts.subjectKey, `sonarr:${id}`))
+      .orderBy(desc(aiVerdicts.checkedAt))
+      .limit(HISTORY_LIMIT)
+      .all();
     for (const season of seasons.values()) {
       const seasonHsIds = new Set(
         season.episodes
           .map((episode) => hsByEpisodeId.get(episode.id)?.id)
           .filter((value): value is number => value != null),
       );
-      season.history = mergeHistory(
-        attemptHistory(ctx, "sonarr", seasonHsIds),
-        verdictHistory(ctx, `sonarr:${id}`, season.seasonNumber),
+      const seasonAttempts = titleAttempts.filter((entry) =>
+        ((entry.detail?.targetIds ?? []) as number[]).some((target) => seasonHsIds.has(target)),
       );
-      season.searchCount = season.history.filter((entry) => entry.kind === "search").length;
+      season.history = mergeHistory(
+        seasonAttempts,
+        verdictHistory(ctx, `sonarr:${id}`, season.seasonNumber, titleVerdicts),
+      );
+      season.searchCount = seasonAttempts.length;
       season.lastSearchAt =
-        season.history
-          .filter((entry) => entry.kind === "search")
-          .reduce<number | null>(
-            (latest, entry) => (latest == null ? entry.at : Math.max(latest, entry.at)),
-            null,
-          ) ?? null;
+        seasonAttempts.reduce<number | null>(
+          (latest, entry) => (latest == null ? entry.at : Math.max(latest, entry.at)),
+          null,
+        ) ?? null;
       const huntable = season.episodes.filter(
         (episode) =>
           episode.state === "missing" ||
@@ -638,10 +690,9 @@ export function registerLibraryRoutes(app: FastifyInstance, ctx: AppContext): vo
           : Math.min(...nextTimes);
     }
 
-    const huntStateIds = new Set(hsRows.map((r) => r.id));
     const history = mergeHistory(
-      attemptHistory(ctx, "sonarr", huntStateIds),
-      verdictHistory(ctx, `sonarr:${id}`),
+      titleAttempts,
+      verdictHistory(ctx, `sonarr:${id}`, undefined, titleVerdicts),
       activityHistory(ctx, sql`json_extract(${activityLog.data}, '$.seriesId') = ${id}`),
     );
 
@@ -661,7 +712,7 @@ export function registerLibraryRoutes(app: FastifyInstance, ctx: AppContext): vo
     const p = parse(reply, z.object({ id: z.coerce.number().int() }), request.params);
     if (!p.ok) return;
     const id = p.data.id;
-    const summary = buildMovieItems(ctx).find((it) => it.id === id);
+    const summary = buildMovieItems(ctx, id).find((it) => it.id === id);
     const movieRow = ctx.db.select().from(movies).where(eq(movies.id, id)).get();
     if (!summary || !movieRow) return notFound(reply, "movie not found");
     const hs = ctx.db

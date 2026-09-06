@@ -53,3 +53,25 @@ describe("Scheduler", () => {
     scheduler.stop();
   });
 });
+
+it("reschedules exactly once after a manual run and concurrent cadence edit", async () => {
+  vi.useFakeTimers();
+  const scheduler = new Scheduler(log);
+  let release = () => {};
+  const blocked = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const run = vi.fn(async () => {
+    if (run.mock.calls.length === 1) await blocked;
+  });
+  scheduler.registerJob({ name: "hunt", intervalMs: 60_000, jitter: 0, run });
+  const manual = scheduler.trigger("hunt");
+  scheduler.updateInterval("hunt", 2000);
+  release();
+  await manual;
+  expect(vi.getTimerCount()).toBe(1);
+  await vi.advanceTimersByTimeAsync(4000);
+  expect(run).toHaveBeenCalledTimes(3);
+  expect(vi.getTimerCount()).toBe(1);
+  scheduler.stop();
+});

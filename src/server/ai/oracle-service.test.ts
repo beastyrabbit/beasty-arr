@@ -512,7 +512,7 @@ describe("OracleService.runDailyBatch", () => {
       subjectKind: "series",
       verdict: "unlikely",
       germanTitle: "Die Serie",
-      promptVersion: "dub-oracle-v15",
+      promptVersion: "dub-oracle-v16",
       checkedAt: NOW,
       recheckAfter: NOW + 365 * DAY,
       confidence: 0.95,
@@ -534,6 +534,7 @@ describe("OracleService.runDailyBatch", () => {
       ok: true,
       status: 200,
       headers: new Headers({ "content-type": "text/html" }),
+      body: new Response("<p>Deutsche Fassung bei Synchronkartei</p>").body,
       text: async () => "<p>Deutsche Fassung bei Synchronkartei</p>",
     })) as unknown as typeof fetch;
     const { runner } = scriptedRunner(async (req) => {
@@ -546,7 +547,7 @@ describe("OracleService.runDailyBatch", () => {
     });
     await oracle.runDailyBatch();
     const row = ctx.db.select().from(aiVerdicts).get();
-    expect(row).toMatchObject({ verdict: "unlikely", confidence: 0.95 });
+    expect(row).toMatchObject({ verdict: "unknown", confidence: 0.6 });
   });
 
   it("discards a verdict when no web source was fetched", async () => {
@@ -852,11 +853,11 @@ describe("OracleService.runDailyBatch", () => {
     }).runDailyBatch();
     expect(result).toMatchObject({ checked: 1, failed: 0 });
     expect(ctx.db.select().from(aiVerdicts).get()).toMatchObject({
-      verdict: "unlikely",
+      verdict: "unknown",
       perSeason: [
         {
           season: 1,
-          verdict: "unlikely",
+          verdict: "unknown",
           note: expect.stringContaining("independent season-specific source"),
         },
       ],
@@ -877,7 +878,7 @@ describe("OracleService.runDailyBatch", () => {
     });
     const result = await makeOracle(ctx, runner.runner, {
       fetchImpl: async () =>
-        new Response("Audio\nEnglish, Deutsch\nUntertitel\nEnglish", {
+        new Response("Movie 1\n2015\nAudio\nEnglish, Deutsch\nUntertitel\nEnglish", {
           headers: { "content-type": "text/plain" },
         }),
     }).runDailyBatch();
@@ -1291,7 +1292,7 @@ describe("OracleService.recheckSubject", () => {
     const { runner } = scriptedRunner(reportVerdict({ verdict: "exists" }));
     const oracle = makeOracle(ctx, runner);
     const row = await oracle.recheckSubject("sonarr:1");
-    expect(row).toMatchObject({ subjectKey: "sonarr:1", verdict: "unlikely" });
+    expect(row).toMatchObject({ subjectKey: "sonarr:1", verdict: "unknown" });
     const oldRow = ctx.db.select().from(aiVerdicts).where(eq(aiVerdicts.id, old.id)).get();
     expect(oldRow?.supersededBy).not.toBeNull();
   });
@@ -1358,5 +1359,124 @@ describe("OracleService.recheckSubject", () => {
       verdict: "announced",
     });
     expect(calls[0]?.prompt).toContain('"kind": "movie"');
+  });
+});
+
+describe("exact official evidence and partial replacement", () => {
+  it.each([
+    ["Movie 1", "Watch Movie 1 | Netflix Official Site"],
+    ["Movie 1", "Movie 1 ansehen | Netflix"],
+    ["Watch Me", "Watch Me"],
+    ["Watch Me", "Watch Watch Me | Netflix"],
+    ["Blade Runner 2049", "Watch Blade Runner 2049 | Netflix Official Site"],
+    ["Wonder Woman 1984", "Wonder Woman 1984 ansehen | Netflix"],
+    ["1917", "1917 | Netflix"],
+  ])("recognizes provider HTML title prefix: %s", async (subjectTitle, title) => {
+    const ctx = setup();
+    seedMovieSubject(ctx.db, 1, { title: subjectTitle, year: 2020 });
+    const scripted = scriptedRunner(async (req) => {
+      await callTool(req, "fetch_url", { url: "https://www.netflix.com/title/81234567" });
+      await callTool(req, REPORT_TOOL_NAME, {
+        verdict: "unknown",
+        confidence: 0.4,
+        evidence: ["Provider page"],
+        recheckAfterDays: 90,
+      });
+    });
+    // Synthetic HTML with common provider title formatting, not a live-page snapshot.
+    const html = `<html><head><title>${title}</title></head><body><div>2020</div>${"<div>Navigation</div>".repeat(20)}<h1>Movie 1</h1><h2>Audio</h2><div>Deutsch</div><h2>Untertitel</h2><div>English</div></body></html>`;
+    await makeOracle(ctx, scripted.runner, {
+      fetchImpl: async () => new Response(html, { headers: { "content-type": "text/html" } }),
+    }).runDailyBatch();
+    expect(ctx.db.select().from(aiVerdicts).get()).toMatchObject({
+      verdict: "exists",
+      confidence: 1,
+    });
+  });
+
+  it.each(["Other movie\n2020", "Movie 1\n1990", "Audio only"])(
+    "does not promote mismatched movie identity: %s",
+    async (heading) => {
+      const ctx = setup();
+      seedMovieSubject(ctx.db, 1, { year: 2020 });
+      const scripted = scriptedRunner(async (req) => {
+        await callTool(req, "fetch_url", { url: "https://www.netflix.com/title/81234567" });
+        await callTool(req, REPORT_TOOL_NAME, {
+          verdict: "unknown",
+          confidence: 0.4,
+          evidence: ["Identity unclear"],
+          recheckAfterDays: 90,
+        });
+      });
+      await makeOracle(ctx, scripted.runner, {
+        fetchImpl: async () => new Response(heading + "\nAudio\nDeutsch\nUntertitel\nEnglish"),
+      }).runDailyBatch();
+      expect(ctx.db.select().from(aiVerdicts).get()).toMatchObject({
+        verdict: "unknown",
+        confidence: 0.4,
+      });
+    },
+  );
+
+  it("accepts exact official season audio and preserves untouched season evidence and dates", async () => {
+    const ctx = setup();
+    seedSeriesSubject(ctx.db, 1, { season: 2 });
+    const retained = {
+      season: 1,
+      verdict: "unlikely" as const,
+      confidence: 0.95,
+      evidence: ["previous exact evidence"],
+      checkedAt: NOW - DAY,
+      recheckAfter: NOW + 500 * DAY,
+    };
+    ctx.db
+      .insert(aiVerdicts)
+      .values({
+        subjectKey: "sonarr:1",
+        subjectKind: "series",
+        title: "Series 1",
+        verdict: "unlikely",
+        confidence: 0.95,
+        perSeason: [retained],
+        evidence: retained.evidence,
+        provider: "codex",
+        model: "fixture",
+        promptVersion: "fixture",
+        checkedAt: retained.checkedAt,
+        recheckAfter: retained.recheckAfter,
+      })
+      .run();
+    const scripted = scriptedRunner(async (req) => {
+      await callTool(req, "fetch_url", { url: "https://www.netflix.com/title/81234567" });
+      await callTool(req, REPORT_TOOL_NAME, {
+        verdict: "exists",
+        confidence: 0.9,
+        evidence: ["official season audio"],
+        recheckAfterDays: 90,
+        perSeason: [
+          {
+            season: 2,
+            verdict: "exists",
+            confidence: 0.9,
+            evidence: ["official season audio"],
+            recheckAfterDays: 90,
+          },
+        ],
+      });
+    });
+    await makeOracle(ctx, scripted.runner, {
+      fetchImpl: async () =>
+        new Response("Series 1\n2018\nSeason 2\nAudio\nDeutsch\nUntertitel\nEnglish"),
+    }).runDailyBatch();
+    const active = ctx.db
+      .select()
+      .from(aiVerdicts)
+      .all()
+      .find((row) => row.supersededBy === null);
+    expect(active?.perSeason?.find((entry) => entry.season === 1)).toEqual(retained);
+    expect(active?.perSeason?.find((entry) => entry.season === 2)).toMatchObject({
+      verdict: "exists",
+      confidence: 0.9,
+    });
   });
 });

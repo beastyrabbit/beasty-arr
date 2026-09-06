@@ -5,6 +5,7 @@ import {
   type DnsLookupFn,
   evidenceClaimsProviderAvailability,
   extractTextFromHtml,
+  FETCH_URL_MAX_BYTES,
   FETCH_URL_MAX_TEXT_CHARS,
   fernsehserienPageMatchesTitle,
   fernsehserienSearchPageMatchesTitle,
@@ -34,12 +35,13 @@ const privateLookup: DnsLookupFn = async () => [{ address: "10.0.0.7" }];
 
 function fakeResponse(
   body: string,
-  init: Partial<Response> & { headers?: Record<string, string> } = {},
+  init: Omit<Partial<Response>, "headers"> & { headers?: Record<string, string> } = {},
 ) {
   return {
     ok: init.ok ?? true,
     status: init.status ?? 200,
     headers: new Headers(init.headers ?? { "content-type": "text/html" }),
+    body: new Response(body).body,
     text: async () => body,
   } as unknown as Response;
 }
@@ -430,7 +432,7 @@ describe("buildDubCheckSession", () => {
       const url = String(input);
       return fakeResponse(
         url.includes("netflix.com/title/")
-          ? "Audio\nEnglish, Deutsch\nUntertitel\nEnglish"
+          ? `${subject.title}\n${subject.year}\nAudio\nEnglish, Deutsch\nUntertitel\nEnglish`
           : "Stream Some Show on Netflix",
         { headers: { "content-type": "text/plain" } },
       );
@@ -642,4 +644,29 @@ describe("finalizeDubVerdict", () => {
       finalizeDubVerdict({ ...base, expectedAvailability: "soon" }, true).expectedAvailability,
     ).toBeNull();
   });
+});
+
+it("stops reading and cancels once the decoded document limit is exceeded", async () => {
+  let reads = 0;
+  let cancelled = false;
+  const stream = new ReadableStream<Uint8Array>(
+    {
+      pull(controller) {
+        reads++;
+        controller.enqueue(new Uint8Array(512 * 1024));
+      },
+      cancel() {
+        cancelled = true;
+      },
+    },
+    { highWaterMark: 0 },
+  );
+  await expect(
+    fetchUrlForOracle("https://example.com/document", {
+      lookupFn: publicLookup,
+      fetchImpl: async () => new Response(stream, { headers: { "content-type": "text/plain" } }),
+    }),
+  ).rejects.toThrow("decoded bytes");
+  expect(cancelled).toBe(true);
+  expect(reads).toBe(FETCH_URL_MAX_BYTES / (512 * 1024) + 1);
 });

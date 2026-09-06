@@ -9,6 +9,7 @@ export default defineConfig({
     environment: "node",
     include: ["src/**/*.test.ts", "src/**/*.test.tsx", "test/**/*.test.ts"],
     setupFiles: ["./test/setup.ts"],
+    restoreMocks: true,
     // Suites share the persistent SQLite module; keep files in one process so
     // WAL setup cannot race in CI.
     fileParallelism: false,

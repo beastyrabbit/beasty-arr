@@ -127,7 +127,8 @@ export function AppLayout() {
             className="dry-run-stripes flex h-7 w-full shrink-0 cursor-pointer items-center justify-center border-b border-accent/40 text-[12px] font-medium text-accent"
           >
             <span className="hidden sm:inline">
-              DRY RUN — nothing is sent to Sonarr/Radarr/Prowlarr. Click to change.
+              DRY RUN — no new Arr commands. Library reads and manual AI research still run. Click
+              to change.
             </span>
             <span className="sm:hidden">DRY RUN — no arr commands sent</span>
           </button>
