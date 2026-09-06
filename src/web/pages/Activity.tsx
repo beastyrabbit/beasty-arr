@@ -58,8 +58,9 @@ function SearchesTab() {
   return (
     <Panel
       title="Search attempts"
+      className="[&>header]:h-auto [&>header]:flex-wrap [&>header]:gap-2 [&>header]:py-2"
       actions={
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Select
             value={status}
             onValueChange={(value) => {
@@ -70,7 +71,7 @@ function SearchesTab() {
               { value: "all", label: "All statuses" },
               { value: "interrupted", label: "Needs reconciliation" },
             ]}
-            className="h-6"
+            className="h-6 whitespace-nowrap"
           />
           <Select
             value={trigger}
