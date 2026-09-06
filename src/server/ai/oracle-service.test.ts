@@ -1368,6 +1368,9 @@ describe("exact official evidence and partial replacement", () => {
     ["Movie 1", "Movie 1 ansehen | Netflix"],
     ["Watch Me", "Watch Me"],
     ["Watch Me", "Watch Watch Me | Netflix"],
+    ["Blade Runner 2049", "Watch Blade Runner 2049 | Netflix Official Site"],
+    ["Wonder Woman 1984", "Wonder Woman 1984 ansehen | Netflix"],
+    ["1917", "1917 | Netflix"],
   ])("recognizes provider HTML title prefix: %s", async (subjectTitle, title) => {
     const ctx = setup();
     seedMovieSubject(ctx.db, 1, { title: subjectTitle, year: 2020 });
