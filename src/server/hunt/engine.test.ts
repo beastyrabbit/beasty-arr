@@ -1457,6 +1457,47 @@ describe("dispatch safety and recovery", () => {
     expect(radarr.sent).toHaveLength(1);
   });
 
+  it.each(["dispatched", "interrupted"])(
+    "recovers orphaned %s attempts without replay or stale transport errors",
+    async (status) => {
+      const { db, engine, settings, radarr } = makeHarness();
+      settings.update({ dryRun: false });
+      const target = seedMovie(db, { id: 1, hasFile: true }, { state: "non_german" });
+      const attempt = db
+        .insert(searchAttempts)
+        .values({
+          createdAt: T0 - 1000,
+          source: "radarr",
+          commandName: "MoviesSearch",
+          payload: { name: "MoviesSearch", movieIds: [1] },
+          targetIds: [target],
+          estimatedQueries: 1,
+          status,
+          result: status === "interrupted" ? "error" : null,
+        })
+        .returning()
+        .get();
+      await engine.runCycle();
+      expect(radarr.sent).toHaveLength(0);
+      expect(db.select().from(searchAttempts).get()?.status).toBe("interrupted");
+      expect(
+        engine.resolveInterruptedAttempt(attempt.id, {
+          action: "attach_command",
+          commandId: 77,
+          note: "Verified matching targets and dispatch time",
+        }),
+      ).toBe(true);
+      radarr.defaultCommandStatus = "completed";
+      await engine.runCycle();
+      expect(radarr.sent).toHaveLength(0);
+      expect(db.select().from(searchAttempts).get()).toMatchObject({
+        status: "completed",
+        result: "no_grab",
+      });
+      expect(huntRow(db, target).searchCount).toBe(1);
+    },
+  );
+
   it("reconciles accepted queued commands before allowing retries", async () => {
     const { db, engine, settings, radarr } = makeHarness();
     settings.update({ dryRun: false });
