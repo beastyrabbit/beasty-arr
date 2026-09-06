@@ -1376,6 +1376,84 @@ describe("queue management and views", () => {
 });
 
 describe("dispatch safety and recovery", () => {
+  it.each(["attach_command", "confirm_not_accepted"] as const)(
+    "makes a crash before command ID persistence recoverable through %s without replay",
+    async (action) => {
+      const { db, engine, settings, radarr, budget } = makeHarness();
+      settings.update({ dryRun: false });
+      const target = seedMovie(db, { id: 1, hasFile: true }, { state: "non_german" });
+      const attempt = db
+        .insert(searchAttempts)
+        .values({
+          createdAt: T0 - 1000,
+          source: "radarr",
+          commandName: "MoviesSearch",
+          payload: { name: "MoviesSearch", movieIds: [1] },
+          targetIds: [target],
+          estimatedQueries: 1,
+          status: "dispatched",
+        })
+        .returning()
+        .get();
+      budget.recordDispatch(new Map([[1, 1]]), attempt.id);
+      await engine.runCycle();
+      expect(radarr.sent).toHaveLength(0);
+      expect(db.select().from(searchAttempts).get()).toMatchObject({
+        status: "interrupted",
+        arrCommandId: null,
+        completedAt: null,
+      });
+      expect(budget.recorded).toHaveLength(1);
+      expect(
+        engine.resolveInterruptedAttempt(attempt.id, {
+          action,
+          commandId: 77,
+          note: "Verified upstream history after restart",
+        }),
+      ).toBe(true);
+      expect(budget.recorded).toHaveLength(action === "attach_command" ? 1 : 0);
+    },
+  );
+
+  it.each(["error", "grabbed"])(
+    "reconciles an attached command with prior result %s",
+    async (result) => {
+      const { db, engine, settings, radarr } = makeHarness();
+      const checks: { keys: string[]; force: boolean }[] = [];
+      engine.onAiCheckRequested = (keys, force) => checks.push({ keys, force });
+      settings.update({ dryRun: false });
+      const target = seedMovie(db, { id: 1, hasFile: true }, { state: "non_german" });
+      const attempt = db
+        .insert(searchAttempts)
+        .values({
+          createdAt: T0 - 1000,
+          source: "radarr",
+          commandName: "MoviesSearch",
+          payload: { name: "MoviesSearch", movieIds: [1] },
+          targetIds: [target],
+          estimatedQueries: 1,
+          status: "interrupted",
+          result,
+        })
+        .returning()
+        .get();
+      expect(
+        engine.resolveInterruptedAttempt(attempt.id, {
+          action: "attach_command",
+          commandId: 77,
+          note: "Verified matching accepted command",
+        }),
+      ).toBe(true);
+      await engine.runCycle();
+      expect(radarr.sent).toHaveLength(0);
+      expect(db.select().from(searchAttempts).get()).toMatchObject({
+        status: "completed",
+        result: result === "error" ? "no_grab" : "grabbed",
+      });
+      expect(checks).toEqual([{ keys: ["radarr:1"], force: false }]);
+    },
+  );
+
   it.each([429, 503, null])(
     "distinguishes HTTP rejection %s from unknown acceptance",
     async (status) => {

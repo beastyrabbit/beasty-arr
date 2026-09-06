@@ -359,7 +359,11 @@ export class HuntEngine {
       tx.update(searchAttempts)
         .set(
           resolution.action === "attach_command"
-            ? { arrCommandId: resolution.commandId, status: "queued" }
+            ? {
+                arrCommandId: resolution.commandId,
+                status: "queued",
+                result: attempt.result === "error" ? null : attempt.result,
+              }
             : { status: "failed", result: "error", completedAt: this.now() },
         )
         .where(eq(searchAttempts.id, attemptId))
@@ -617,6 +621,15 @@ export class HuntEngine {
           status === "completed" ? "completed" : "failed",
         );
       } else {
+        // A crash can precede persistence of either the response or its error.
+        // Expose that unknown acceptance through the same operator recovery path.
+        if (attempt.arrCommandId === null && attempt.status !== "interrupted") {
+          this.db
+            .update(searchAttempts)
+            .set({ status: "interrupted" })
+            .where(eq(searchAttempts.id, attempt.id))
+            .run();
+        }
         for (const id of attempt.targetIds) held.add(id);
         this.setHold(
           `search ${attempt.id} awaiting command reconciliation${attempt.arrCommandId == null ? "; acceptance unknown" : ""}`,
