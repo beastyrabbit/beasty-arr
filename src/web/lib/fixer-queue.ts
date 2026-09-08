@@ -1,7 +1,11 @@
 import type { FixerQueueItemDto } from "../../shared/api-types.js";
 
 export function waitsForReview(item: FixerQueueItemDto): boolean {
-  return item.analysisState === "proposal" || item.analysisState === "needs_review";
+  return (
+    item.analysisState === "proposal" ||
+    item.analysisState === "needs_review" ||
+    item.analysisState === "apply_error"
+  );
 }
 
 /** One visible row per service/download, preferring the row that owns its analysis. */

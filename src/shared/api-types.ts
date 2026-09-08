@@ -640,6 +640,7 @@ export type FixerAnalysisState =
   | "proposal"
   | "needs_review"
   | "error"
+  | "apply_error"
   | "applied"
   | "cancelled";
 
@@ -649,6 +650,9 @@ export type FixerQueueItemDto = QueueItem & {
   analysisId: string | null;
   analysisState: FixerAnalysisState | null;
   confidence: number | null;
+  waitingReason?: string | null;
+  applyError?: string | null;
+  retryAt?: number | null;
 };
 export type FixerQueueResponse = {
   items: FixerQueueItemDto[];
@@ -692,6 +696,7 @@ export type FixerBulkStatusResponse = {
   failed: number;
   activeItemIds: number[];
   autoApply: boolean;
+  pausedUntil?: number | null;
 };
 
 export type FixerHistoryEntry = {

@@ -121,10 +121,20 @@ describe("automatic Fixer scheduling", () => {
       serveStatic: false,
       registerJobs: true,
     });
-    scheduled.ctx.settings.update({ fixerAutoRun: true });
+    const start = vi
+      .spyOn(scheduled.ctx.services.fixerBulk, "start")
+      .mockResolvedValue({ ok: true, total: 0 });
+    scheduled.ctx.settings.update({ fixerAutoRun: true, dryRun: false });
 
     expect(scheduled.ctx.scheduler.status().map((job) => job.name)).toContain("fixer.auto");
     expect(await scheduled.ctx.scheduler.trigger("fixer.auto")).toBe(true);
+    expect(start).toHaveBeenLastCalledWith({ skipAnalyzed: true, pendingOnly: false });
+    scheduled.ctx.settings.update({ fixerAutoRun: false, fixerAutoApply: true });
+    await scheduled.ctx.scheduler.trigger("fixer.auto");
+    expect(start).toHaveBeenLastCalledWith({ skipAnalyzed: true, pendingOnly: true });
+    scheduled.ctx.settings.update({ dryRun: true });
+    await scheduled.ctx.scheduler.trigger("fixer.auto");
+    expect(start).toHaveBeenCalledTimes(2);
     expect(scheduled.ctx.services.fixerBulk.getStatus()).toMatchObject({
       running: false,
       total: 0,

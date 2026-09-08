@@ -175,7 +175,10 @@ export function FixerPage() {
   const autoApply = config.data?.settings.fixerAutoApply ?? false;
   const items = useMemo(() => uniqueQueueItems(queue.data?.items ?? []), [queue.data?.items]);
   const selectedItems = items.filter((item) => selected.has(keyOf(item)));
-  const pendingItems = items.filter((item) => item.analysisState === null);
+  const pendingItems = items.filter(
+    (item) =>
+      item.canAnalyze && item.analysisState !== "analyzing" && item.analysisState !== "applied",
+  );
   const activeItem = items.find((i) => keyOf(i) === activeKey) ?? null;
   const activeAnalyses = bulkStatus.data?.activeItemIds.length ?? 0;
   const waitingReviews = items.filter(waitsForReview).length;
@@ -253,7 +256,7 @@ export function FixerPage() {
             <OctagonX size={12} />
             Stop all
           </Button>
-          <Tip content="Automatically analyze each new stuck download once. Existing proposals waiting for review are skipped.">
+          <Tip content="Analyze new stuck downloads and retry failed analyses after a cooldown. Proposals requiring review are held.">
             <span className="flex items-center gap-2 text-[12px] text-muted">
               auto-run
               <Switch
@@ -278,7 +281,7 @@ export function FixerPage() {
             content={
               dryRun
                 ? "Auto-apply is disabled while dry-run is on."
-                : "Automatically apply proposals above the confidence gate."
+                : "Recheck eligible pending proposals and automatically apply fresh results above the confidence gate."
             }
           >
             <span className="flex items-center gap-2 text-[12px] text-muted">
@@ -292,6 +295,13 @@ export function FixerPage() {
           </Tip>
         </div>
       </div>
+
+      {bulkStatus.data?.pausedUntil ? (
+        <p role="status" className="px-3 py-2 text-[12px] text-accent">
+          Provider usage limit reached. Analysis is paused until{" "}
+          {new Date(bulkStatus.data.pausedUntil).toLocaleString()}.
+        </p>
+      ) : null}
 
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(420px,5fr)_minmax(420px,6fr)]">
         {/* left: stuck queue */}
@@ -433,6 +443,7 @@ function AnalysisStateBadge({ item }: { item: FixerQueueItemDto }) {
     },
     needs_review: { label: "NEEDS REVIEW", color: "#fbbf24" },
     error: { label: "ERROR", color: STATE_META.missing.color },
+    apply_error: { label: "APPLY FAILED", color: STATE_META.missing.color },
     applied: { label: "APPLIED", color: STATE_META.german.color },
     cancelled: { label: "CANCELLED", color: "#5c6370" },
   };
@@ -440,6 +451,7 @@ function AnalysisStateBadge({ item }: { item: FixerQueueItemDto }) {
   if (!meta) return <span className="text-[10px] text-faint">—</span>;
   return (
     <span
+      title={item.waitingReason ?? undefined}
       className="rounded-[4px] border px-1.5 py-px font-mono text-[10px] font-semibold tracking-[0.05em]"
       style={{
         color: meta.color,
@@ -454,6 +466,7 @@ function AnalysisStateBadge({ item }: { item: FixerQueueItemDto }) {
 function ReviewPanel({ item, dryRun }: { item: FixerQueueItemDto | null; dryRun: boolean }) {
   const analysis = useFixerAnalysis(item?.analysisId ?? null);
   const cancel = useFixerCancel();
+  const retry = useFixerBulk();
   const [liveEvents, setLiveEvents] = useState<Record<string, ResolverEvent[]>>({});
 
   useSseEvent("fixer.analysis.progress", (e) => {
@@ -537,8 +550,27 @@ function ReviewPanel({ item, dryRun }: { item: FixerQueueItemDto | null; dryRun:
       <Panel title={item.title}>
         <EmptyState
           message={a?.error ? `Analysis failed: ${a.error}` : "Not analyzed yet."}
-          hint='Hit "Analyze" on the left to start.'
+          hint={
+            item.retryAt
+              ? `Retry cooldown ends ${new Date(item.retryAt).toLocaleString()}.`
+              : 'Select this item and click "Analyze selected" to start.'
+          }
         />
+        {a?.error ? (
+          <Button
+            className="m-3"
+            variant="outline"
+            disabled={retry.isPending}
+            onClick={() =>
+              retry.mutate({
+                action: "start",
+                body: { targets: [{ service: item.service, queueItemId: item.id }] },
+              })
+            }
+          >
+            Retry analysis
+          </Button>
+        ) : null}
       </Panel>
     );
   }
@@ -547,6 +579,41 @@ function ReviewPanel({ item, dryRun }: { item: FixerQueueItemDto | null; dryRun:
     <>
       <QueryError query={analysis} />
       <ProposalCard key={a.id} item={item} analysis={a} dryRun={dryRun} />
+    </>
+  );
+}
+
+function ProposalRecovery({ item }: { item: FixerQueueItemDto }) {
+  const retry = useFixerBulk();
+  return (
+    <>
+      {item.waitingReason ? (
+        <p
+          role="status"
+          className={`text-[12px] ${item.applyError ? "text-red-400" : "text-muted"}`}
+        >
+          {item.waitingReason}
+        </p>
+      ) : null}
+      {item.retryAt ? (
+        <p className="text-[12px] text-muted">
+          Retry cooldown ends {new Date(item.retryAt).toLocaleString()}.
+        </p>
+      ) : null}
+      {item.applyError ? (
+        <Button
+          variant="outline"
+          disabled={retry.isPending}
+          onClick={() =>
+            retry.mutate({
+              action: "start",
+              body: { targets: [{ service: item.service, queueItemId: item.id }] },
+            })
+          }
+        >
+          Reanalyze and retry
+        </Button>
+      ) : null}
     </>
   );
 }
@@ -565,7 +632,10 @@ function ProposalCard({
   const remove = useFixerRemove();
   const ignore = useFixerIgnore();
   const proposal = analysis.proposal;
-  const threshold = config.data?.settings.fixerAutoImportConfidence ?? 0.8;
+  const threshold =
+    proposal?.action === "remove_queue_item"
+      ? (config.data?.settings.fixerAutoRemoveConfidence ?? 0.95)
+      : (config.data?.settings.fixerAutoImportConfidence ?? 0.8);
   const [includes, setIncludes] = useState<Set<string> | null>(null);
   const [confirm, setConfirm] = useState<"apply" | "ignore" | "remove" | "blocklist" | null>(null);
   const [showDebug, setShowDebug] = useState(false);
@@ -620,9 +690,14 @@ function ProposalCard({
         </div>
 
         {/* confidence meter with threshold tick */}
+        <ProposalRecovery item={item} />
         <div>
           <div className="mb-1 flex items-baseline justify-between">
             <span className="microlabel">Confidence</span>
+            <span className="text-[11px] text-muted">
+              {proposal.action === "remove_queue_item" ? "Removal" : "Import"} gate{" "}
+              {Math.round(threshold * 100)}%
+            </span>
             <span className="font-mono text-[13px] text-ink">{proposal.confidence.toFixed(2)}</span>
           </div>
           <div className="relative h-2 overflow-hidden rounded-[3px] bg-raised">
@@ -636,7 +711,9 @@ function ProposalCard({
                     : STATE_META.non_german.color,
               }}
             />
-            <Tip content={`auto-import gate ${threshold.toFixed(2)}`}>
+            <Tip
+              content={`auto-${proposal.action === "remove_queue_item" ? "removal" : "import"} gate ${threshold.toFixed(2)}`}
+            >
               <div
                 className="absolute inset-y-0 w-px cursor-help bg-ink"
                 style={{ left: `${threshold * 100}%` }}

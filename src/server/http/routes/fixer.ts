@@ -1,4 +1,4 @@
-import { desc, inArray } from "drizzle-orm";
+import { inArray } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type {
@@ -15,17 +15,23 @@ import type {
   FixerRemoveResponse,
 } from "../../../shared/api-types.js";
 import { ARR_SOURCES, type ArrSource } from "../../../shared/domain.js";
+import { autoApplyBlockReason } from "../../../shared/fixer-policy.js";
 import type {
   ManualImportCandidate,
   QueueRemovalOptions,
   ResolutionProposal,
   ValidationResult,
 } from "../../../shared/fixer-types.js";
+import type { AppSettings } from "../../config/settings.js";
 import type { AppContext } from "../../context.js";
 import { fixerAnalyses } from "../../db/schema.js";
 import type { FixerAnalysisEvent } from "../../fixer/ai-port.js";
 import { toResolverEvent } from "../../fixer/events-map.js";
-import { type FixerAnalysisRow, manualRemovalOptions } from "../../fixer/service.js";
+import {
+  type FixerAnalysisRow,
+  FixerProviderPausedError,
+  manualRemovalOptions,
+} from "../../fixer/service.js";
 import { dryRunResult, notFound, parse, serviceUnavailable } from "./util.js";
 
 const serviceParamsSchema = z.object({
@@ -64,35 +70,56 @@ function toAnalysisDto(row: FixerAnalysisRow): FixerAnalysisDto {
   };
 }
 
-/** Latest analysis per `${service}:${queueItemId}` from the recent analysis rows. */
-function latestAnalyses(ctx: AppContext): Map<string, FixerAnalysisRow> {
-  const rows = ctx.db
-    .select()
-    .from(fixerAnalyses)
-    .orderBy(desc(fixerAnalyses.createdAt))
-    .limit(500)
-    .all();
-  const map = new Map<string, FixerAnalysisRow>();
-  for (const r of rows) {
-    const key = `${r.service}:${r.queueItemId}`;
-    if (!map.has(key)) map.set(key, r);
-  }
-  return map;
+function waitingReasonForAnalysis(
+  analysis: FixerAnalysisRow | undefined,
+  settings: AppSettings,
+  applyError: string | null,
+): string | null {
+  if (applyError) return `Apply failed: ${applyError}`;
+  if (analysis?.error) return `Analysis failed: ${analysis.error}`;
+  if (!analysis?.proposal) return null;
+  const reason = autoApplyBlockReason(
+    analysis.proposal as unknown as ResolutionProposal,
+    analysis.validation as unknown as ValidationResult | null,
+    settings,
+  );
+  if (reason) return reason;
+  if (settings.dryRun) return "Dry-run is on.";
+  if (!settings.fixerAutoApply) return "Auto-apply is off.";
+  return "Waiting for fresh analysis before automatic application.";
 }
 
 export function registerFixerRoutes(app: FastifyInstance, ctx: AppContext): void {
   const buildQueueResponse = (
     snapshot: Awaited<ReturnType<AppContext["services"]["fixer"]["getQueue"]>>,
   ): FixerQueueResponse => {
-    const analyses = latestAnalyses(ctx);
+    const settings = ctx.settings.get();
+    const providerRetryAt = ctx.services.fixer.providerRetryAt();
     const items: FixerQueueItemDto[] = snapshot.items.map((item) => {
-      const analysis = analyses.get(`${item.service}:${item.id}`);
+      const analysis = ctx.services.fixer.analysisForItem(item);
       const proposal = analysis?.proposal as unknown as ResolutionProposal | null | undefined;
+      const applied = analysis ? ctx.services.fixer.latestApply(analysis.id) : undefined;
+      const applyError =
+        applied?.result === "error" ? String(applied.detail?.message ?? "Apply failed.") : null;
+      const retryAt = Math.max(providerRetryAt ?? 0, ctx.services.fixer.retryAt(item) ?? 0) || null;
+      const waitingReason =
+        applied?.result === "ok"
+          ? "Last application succeeded."
+          : waitingReasonForAnalysis(analysis, settings, applyError);
       return {
         ...item,
         analysisId: analysis?.id ?? null,
-        analysisState: analysis ? analysisStateOf(analysis) : null,
+        analysisState: applyError
+          ? "apply_error"
+          : applied?.result === "ok"
+            ? "applied"
+            : analysis
+              ? analysisStateOf(analysis)
+              : null,
         confidence: proposal?.confidence ?? null,
+        applyError,
+        waitingReason,
+        retryAt,
       };
     });
     return {
@@ -119,6 +146,12 @@ export function registerFixerRoutes(app: FastifyInstance, ctx: AppContext): void
       const response: FixerAnalyzeResponse = { analysisId };
       return reply.code(202).send(response);
     } catch (error) {
+      if (error instanceof FixerProviderPausedError) {
+        return reply
+          .code(429)
+          .header("Retry-After", Math.max(1, Math.ceil((error.retryAt - Date.now()) / 1000)))
+          .send({ error: error.message, retryAt: error.retryAt });
+      }
       const msg = error instanceof Error ? error.message : String(error);
       if (/not configured/i.test(msg)) return serviceUnavailable(reply, msg);
       if (/not found/i.test(msg)) return notFound(reply, msg);
@@ -249,6 +282,7 @@ export function registerFixerRoutes(app: FastifyInstance, ctx: AppContext): void
       failed: s.failed,
       activeItemIds: s.inFlight.map((e) => e.queueItemId),
       autoApply: s.autoApply,
+      pausedUntil: s.pausedUntil,
     };
     return response;
   });

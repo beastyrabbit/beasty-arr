@@ -54,6 +54,26 @@ function queueItem(overrides: Partial<QueueItem> = {}): QueueItem {
 }
 
 describe("SonarrClient", () => {
+  it("loads every queue page and can include in-progress records for reconciliation", async () => {
+    const fetchMock = vi
+      .fn<FetchImpl>()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          totalRecords: 501,
+          records: [{ id: 1, status: "downloading", size: 100, sizeleft: 20 }],
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          totalRecords: 501,
+          records: [{ id: 501, status: "completed", size: 100, sizeleft: 0 }],
+        }),
+      );
+    const queue = await client(fetchMock).listQueue({ includeInProgress: true });
+    expect(queue.map((item) => item.id)).toEqual([1, 501]);
+    expect(queue[0]?.isInProgress).toBe(true);
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("page=2");
+  });
   it("loads system status for connection tests", async () => {
     const fetchMock = vi.fn(async () => jsonResponse({ version: "4.0.0", instanceName: "Series" }));
 

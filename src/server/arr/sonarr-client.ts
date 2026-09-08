@@ -677,21 +677,33 @@ export class SonarrClient {
     return this.request<SonarrEpisodeRecord[]>(`/api/v3/episode?${params.toString()}`);
   }
 
-  async listQueue(): Promise<QueueItem[]> {
-    const response = await this.request<ArrPaged<SonarrQueueRecord>>(
-      appendQuery("/api/v3/queue", {
-        page: 1,
-        pageSize: 500,
-        sortKey: "timeleft",
-        sortDirection: "ascending",
-        includeUnknownSeriesItems: true,
-        includeSeries: true,
-        includeEpisode: true,
-      }),
-    );
-    return (response.records ?? [])
-      .map(normalizeQueueRecord)
-      .filter((queueItem) => !queueItem.isInProgress);
+  async listQueue(options: { includeInProgress?: boolean } = {}): Promise<QueueItem[]> {
+    const items: QueueItem[] = [];
+    const pageSize = 500;
+    for (let page = 1; ; page += 1) {
+      const response = await this.request<ArrPaged<SonarrQueueRecord>>(
+        appendQuery("/api/v3/queue", {
+          page,
+          pageSize,
+          sortKey: "timeleft",
+          sortDirection: "ascending",
+          includeUnknownSeriesItems: true,
+          includeSeries: true,
+          includeEpisode: true,
+        }),
+      );
+      const records = response.records ?? [];
+      if (records.length === 0 && items.length < (response.totalRecords ?? 0))
+        throw new Error("Sonarr returned an incomplete queue page.");
+      items.push(...records.map(normalizeQueueRecord));
+      if (
+        response.totalRecords !== undefined
+          ? page * pageSize >= response.totalRecords
+          : records.length < pageSize
+      )
+        break;
+    }
+    return options.includeInProgress ? items : items.filter((item) => !item.isInProgress);
   }
 
   async getManualImportCandidates(queueItem: QueueItem): Promise<ManualImportCandidate[]> {

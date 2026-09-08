@@ -22,6 +22,16 @@ Dry-run still performs library reads and planning. Explicit Oracle rechecks and 
 can call AI while dry-run is enabled. Commands already accepted by an Arr can finish after
 dry-run is turned on. Ambiguous command responses hold targets until acceptance is reconciled.
 
+Fixer auto-run and Run all retry failed analyses after a cooldown starting at 15 minutes,
+doubling up to six hours. Provider usage limits pause new Fixer analyses for one hour.
+Auto-apply reanalyzes eligible saved proposals against current queue and library evidence before
+applying them, even with auto-run off. Failed applications appear in the queue with their error
+and a reanalysis/retry action. Manual review remains required below the configured confidence
+thresholds or when no usable import candidates are available.
+
+Version 0.5.1 adds SQLite indexes for Fixer recovery lookups. Startup applies the migration;
+keep a pre-upgrade database backup.
+
 For an unconfigured local start, copy `.env.example`, run `pnpm build`, then
 `NODE_ENV=production pnpm start`. Optional integrations are omitted in the template.
 Supply both the URL and key for each integration through your secret manager.
@@ -55,3 +65,6 @@ tag, then pin its image tag and digest in kub-homelab
 Deployments should set `SONARR_EXTERNAL_URL` and `RADARR_EXTERNAL_URL` to the HTTPS origins users
 open in their browsers. These public URLs contain no API keys and are separate from the internal arr
 connection URLs.
+
+Container publication uses the encrypted `GHCR_PUBLISH_TOKEN` repository secret when present,
+falling back to `GITHUB_TOKEN` for packages that grant the repository Actions access.

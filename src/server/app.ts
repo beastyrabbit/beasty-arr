@@ -205,8 +205,13 @@ export async function buildApp(
       name: "fixer.auto",
       intervalMs: 5 * 60 * 1000,
       run: async (signal) => {
-        if (signal.aborted || !settings.get().fixerAutoRun) return;
-        const result = await fixerBulk.start({ skipAnalyzed: true });
+        const config = settings.get();
+        if (signal.aborted || (!config.fixerAutoRun && (!config.fixerAutoApply || config.dryRun)))
+          return;
+        const result = await fixerBulk.start({
+          skipAnalyzed: true,
+          pendingOnly: !config.fixerAutoRun,
+        });
         if (!result.ok && !fixerBulk.getStatus().running) {
           throw new Error(result.message ?? "automatic Fixer run could not start");
         }

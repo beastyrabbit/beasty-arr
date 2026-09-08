@@ -173,7 +173,7 @@ export class InferenceTimeoutError extends Error {
 }
 
 const TERMINAL_PROVIDER_ERROR =
-  /(?:insufficient[_ -]?quota|out of budget|quota exceeded|billing|unauthori[sz]ed|forbidden|invalid api key|authentication|configuration)/i;
+  /(?:usage limit|insufficient[_ -]?quota|out of budget|quota exceeded|billing|unauthori[sz]ed|forbidden|invalid api key|authentication|configuration)/i;
 const RETRYABLE_PROVIDER_ERROR =
   /(?:\b408\b|\b429\b|\b5\d\d\b|rate.?limit|too many requests|service.?unavailable|server.?error|internal.?error|network.?error|connection.?error|connection.?refused|connection.?lost|fetch failed|upstream.?connect|reset before headers|socket hang up|websocket|timed? out|timeout|terminated|an error occurred while processing your request|you can retry your request)/i;
 
@@ -417,6 +417,11 @@ async function runPiSessionAttempt(
     let promptError: unknown;
     try {
       await session.prompt(request.prompt, { expandPromptTemplates: false, source: "rpc" });
+      const response = [...session.messages]
+        .reverse()
+        .find((entry) => entry.role === "assistant") as AssistantMessage | undefined;
+      if (response?.stopReason === "error")
+        throw new Error(response.errorMessage || "The provider aborted the inference.");
       if (!terminated && !combinedSignal.aborted) {
         // pi-resolver pattern: one re-prompt when the forced terminating tool was skipped.
         request.onEvent?.({
