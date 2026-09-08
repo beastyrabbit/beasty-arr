@@ -78,6 +78,13 @@
       "when": 1788688797153,
       "tag": "0010_uneven_justin_hammer",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1788874969160,
+      "tag": "0011_closed_chameleon",
+      "breakpoints": true
     }
   ]
 }

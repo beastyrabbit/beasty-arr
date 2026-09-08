@@ -312,6 +312,8 @@ describe("Fixer recovery", () => {
     await h.bulk.wait();
     expect(h.calls).toHaveLength(1);
     expect(h.bulk.getStatus().pausedUntil).toBe(now + 60 * 60_000);
+    await expect(h.svc.analyze("sonarr", 2)).rejects.toThrow("Provider usage limit");
+    expect(h.calls).toHaveLength(1);
     expect((await h.bulk.start()).total).toBe(0);
     limited = false;
     now += 60 * 60_000;

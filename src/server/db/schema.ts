@@ -325,7 +325,11 @@ export const fixerAnalyses = sqliteTable(
     error: text("error"),
     completedAt: integer("completed_at"),
   },
-  (t) => [index("idx_fixer_analyses_created").on(t.createdAt)],
+  (t) => [
+    index("idx_fixer_analyses_created").on(t.createdAt),
+    index("idx_fixer_analyses_download").on(t.service, t.downloadId, t.createdAt),
+    index("idx_fixer_analyses_queue_item").on(t.service, t.queueItemId, t.createdAt),
+  ],
 );
 
 export const fixerHistory = sqliteTable(
@@ -343,7 +347,10 @@ export const fixerHistory = sqliteTable(
     result: text("result").notNull(), // ok|error|simulated
     detail: text("detail", { mode: "json" }).$type<Record<string, unknown>>(),
   },
-  (t) => [index("idx_fixer_history_at").on(t.at)],
+  (t) => [
+    index("idx_fixer_history_at").on(t.at),
+    index("idx_fixer_history_analysis").on(t.analysisId, t.at, t.id),
+  ],
 );
 
 // ============ ops ============

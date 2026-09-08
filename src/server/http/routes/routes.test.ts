@@ -17,6 +17,7 @@ import {
   searchAttempts,
   series,
 } from "../../db/schema.js";
+import { FixerProviderPausedError } from "../../fixer/service.js";
 
 type Built = { app: FastifyInstance; ctx: AppContext; dir: string };
 
@@ -950,6 +951,17 @@ describe("fixer", () => {
   it("503s analyze when the service is not configured", async () => {
     const res = await post(b.app, "/api/fixer/items/sonarr/5/analyze");
     expect(res.statusCode).toBe(503);
+  });
+
+  it("returns retry timing when a single-item analysis is paused", async () => {
+    const retryAt = Date.now() + 60_000;
+    vi.spyOn(b.ctx.services.fixer, "analyze").mockRejectedValue(
+      new FixerProviderPausedError(retryAt),
+    );
+    const res = await post(b.app, "/api/fixer/items/sonarr/5/analyze");
+    expect(res.statusCode).toBe(429);
+    expect(res.json().retryAt).toBe(retryAt);
+    expect(Number(res.headers["retry-after"])).toBeGreaterThan(0);
   });
 
   it("passes exact selected targets to the auto-apply bulk runner", async () => {

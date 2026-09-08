@@ -837,6 +837,19 @@ describe("FixerService apply", () => {
 });
 
 describe("FixerService remove/ignore", () => {
+  it("never records removal success when the download became in-progress", async () => {
+    const { svc, sonarr, settings } = makeHarness();
+    sonarr.queue = [makeQueueItem(1)];
+    await svc.refreshQueue();
+    settings.update({ dryRun: false });
+    vi.spyOn(sonarr, "listQueue").mockResolvedValue([makeQueueItem(1, { isInProgress: true })]);
+    const outcome = await svc.removeQueueItem("sonarr", 1);
+    expect(outcome.ok).toBe(false);
+    expect(outcome.message).toContain("still in progress");
+    expect(sonarr.listQueue).toHaveBeenCalledWith({ includeInProgress: true });
+    expect(sonarr.removeCalls).toHaveLength(0);
+    expect(svc.listHistory().items[0]?.result).toBe("error");
+  });
   it("resolves the current queue ID by download before removing", async () => {
     const { svc, sonarr, settings } = makeHarness();
     sonarr.queue = [makeQueueItem(1)];
@@ -848,6 +861,7 @@ describe("FixerService remove/ignore", () => {
     settings.update({ dryRun: false });
     expect((await svc.removeQueueItem("sonarr", 1)).ok).toBe(true);
     expect(sonarr.removeCalls.map((call) => call.queueItemId)).toEqual([9]);
+    expect((await svc.getQueue()).items.some((item) => item.downloadId === "dl-1")).toBe(false);
   });
 
   it.each([true, false])(

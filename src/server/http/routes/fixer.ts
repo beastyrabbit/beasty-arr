@@ -27,7 +27,11 @@ import type { AppContext } from "../../context.js";
 import { fixerAnalyses } from "../../db/schema.js";
 import type { FixerAnalysisEvent } from "../../fixer/ai-port.js";
 import { toResolverEvent } from "../../fixer/events-map.js";
-import { type FixerAnalysisRow, manualRemovalOptions } from "../../fixer/service.js";
+import {
+  type FixerAnalysisRow,
+  FixerProviderPausedError,
+  manualRemovalOptions,
+} from "../../fixer/service.js";
 import { dryRunResult, notFound, parse, serviceUnavailable } from "./util.js";
 
 const serviceParamsSchema = z.object({
@@ -142,6 +146,12 @@ export function registerFixerRoutes(app: FastifyInstance, ctx: AppContext): void
       const response: FixerAnalyzeResponse = { analysisId };
       return reply.code(202).send(response);
     } catch (error) {
+      if (error instanceof FixerProviderPausedError) {
+        return reply
+          .code(429)
+          .header("Retry-After", Math.max(1, Math.ceil((error.retryAt - Date.now()) / 1000)))
+          .send({ error: error.message, retryAt: error.retryAt });
+      }
       const msg = error instanceof Error ? error.message : String(error);
       if (/not configured/i.test(msg)) return serviceUnavailable(reply, msg);
       if (/not found/i.test(msg)) return notFound(reply, msg);

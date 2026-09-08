@@ -171,6 +171,12 @@ export type FixerActionOpts = {
   confidence?: number;
 };
 
+export class FixerProviderPausedError extends Error {
+  constructor(readonly retryAt: number) {
+    super(`Provider usage limit; retry after ${new Date(retryAt).toISOString()}.`);
+  }
+}
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -277,7 +283,11 @@ export class FixerService {
     }
   }
 
-  private dropFromQueueCache(service: MediaService, queueItemId: number): void {
+  private dropFromQueueCache(
+    service: MediaService,
+    queueItemId: number,
+    downloadId?: string | null,
+  ): void {
     if (!this.queueCache) {
       return;
     }
@@ -287,7 +297,8 @@ export class FixerService {
     const items = this.queueCache.items.filter((item) => {
       if (item.service !== service) return true;
       if (item.id === queueItemId) return false;
-      return !removed?.downloadId || item.downloadId !== removed.downloadId;
+      const removedDownloadId = downloadId ?? removed?.downloadId;
+      return !removedDownloadId || item.downloadId !== removedDownloadId;
     });
     if (items.length !== this.queueCache.items.length) {
       this.queueCache = { ...this.queueCache, items };
@@ -447,14 +458,17 @@ export class FixerService {
     queueItemId: number,
     downloadId?: string | null,
   ): Promise<FixerQueueItem | undefined> {
-    const snapshot = await this.refreshQueue();
-    if (snapshot.errors[service])
-      throw new Error(`Cannot verify current queue: ${snapshot.errors[service]}`);
-    return snapshot.items.find(
-      (item) =>
-        item.service === service &&
-        (downloadId ? item.downloadId === downloadId : item.id === queueItemId),
-    );
+    try {
+      const items = await this.requireClient(service).listQueue({ includeInProgress: true });
+      const item = items.find((entry) =>
+        downloadId ? entry.downloadId === downloadId : entry.id === queueItemId,
+      );
+      if (item?.isInProgress)
+        throw new Error("Download is still in progress; reanalyze when complete.");
+      return item ? { ...item, issueType: queueIssueType(item) } : undefined;
+    } catch (error) {
+      throw new Error(`Cannot verify current queue: ${errorMessage(error)}`);
+    }
   }
 
   private activeDubVerdict(
@@ -512,6 +526,8 @@ export class FixerService {
   async analyze(service: MediaService, queueItemId: number): Promise<{ analysisId: string }> {
     const client = this.requireClient(service);
     const queueItem = await this.requireQueueItem(service, queueItemId);
+    const retryAt = this.providerRetryAt();
+    if (retryAt) throw new FixerProviderPausedError(retryAt);
     const key = itemKey(service, queueItemId);
     this.activeByItem.get(key)?.controller.abort();
 
@@ -1059,7 +1075,7 @@ export class FixerService {
         detail: { message: result.message, options },
       });
       if (result.ok) {
-        this.dropFromQueueCache(service, current?.id ?? queueItemId);
+        this.dropFromQueueCache(service, current?.id ?? queueItemId, downloadId);
       }
       return { ok: result.ok, dryRun: false, historyId, message: result.message };
     } catch (error) {
