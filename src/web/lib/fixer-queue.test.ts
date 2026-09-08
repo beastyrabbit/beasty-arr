@@ -39,6 +39,7 @@ describe("Fixer queue presentation", () => {
   it("counts proposals and needs-review results as waiting, not running", () => {
     expect(waitsForReview(item({ analysisState: "proposal" }))).toBe(true);
     expect(waitsForReview(item({ analysisState: "needs_review" }))).toBe(true);
+    expect(waitsForReview(item({ analysisState: "apply_error" }))).toBe(true);
     expect(waitsForReview(item({ analysisState: "analyzing" }))).toBe(false);
   });
 });

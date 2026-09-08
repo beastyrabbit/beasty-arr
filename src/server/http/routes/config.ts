@@ -85,7 +85,11 @@ export function registerConfigRoutes(app: FastifyInstance, ctx: AppContext): voi
   app.put("/api/config", async (request, reply) => {
     const b = parse(reply, configPatchSchema, request.body);
     if (!b.ok) return;
+    const previous = ctx.settings.get();
     ctx.settings.update(b.data);
+    if (b.data.fixerAutoApply === true && !previous.fixerAutoApply && !ctx.settings.get().dryRun) {
+      await ctx.services.fixerBulk.start({ pendingOnly: true });
+    }
     if (b.data.huntTickMinutes !== undefined) {
       ctx.scheduler.updateInterval("hunt.cycle", b.data.huntTickMinutes * 60_000);
     }

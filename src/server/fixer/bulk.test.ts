@@ -189,7 +189,7 @@ type RunnerScript = (
   req: FixerPiRunRequest,
 ) => ResolutionProposal | undefined | Promise<ResolutionProposal | undefined>;
 
-function makeHarness(script: RunnerScript) {
+function makeHarness(script: RunnerScript, now = Date.now) {
   const dir = mkdtempSync(path.join(tmpdir(), "beasty-fixer-bulk-test-"));
   const { db, sqlite } = createDb(dir, {
     migrationsFolder: path.resolve(process.cwd(), "drizzle"),
@@ -211,10 +211,157 @@ function makeHarness(script: RunnerScript) {
     }
     return { log: [] };
   };
-  const svc = new FixerService(db, settings, { sonarr, radarr }, runner, bus, noopLog);
-  const bulk = new FixerBulk(svc, settings, noopLog);
+  const svc = new FixerService(db, settings, { sonarr, radarr }, runner, bus, noopLog, { now });
+  const bulk = new FixerBulk(svc, settings, noopLog, { now });
   return { db, settings, bus, sonarr, radarr, svc, bulk, calls };
 }
+
+describe("Fixer recovery", () => {
+  it("honors an auto-apply toggle changed while an analysis is running", async () => {
+    let ready: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => {
+      ready = resolve;
+    });
+    let finish: (() => void) | undefined;
+    const blocked = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const h = makeHarness(async () => {
+      ready?.();
+      await blocked;
+      return importProposal("candidate_1", [101], 0.99);
+    });
+    h.settings.update({ fixerAutoApply: true, dryRun: false });
+    h.sonarr.queue = [makeQueueItem(1)];
+    h.sonarr.candidatesByItem.set(1, [makeCandidate("candidate_1", [101])]);
+    await h.bulk.start();
+    await started;
+    h.settings.update({ fixerAutoApply: false });
+    finish?.();
+    await h.bulk.wait();
+    expect(h.sonarr.applyCalls).toHaveLength(0);
+  });
+
+  it("retries failed rechecks with auto-run off", async () => {
+    let now = Date.now();
+    let fail = false;
+    const h = makeHarness(
+      () => {
+        if (fail) throw new Error("temporary failure");
+        return importProposal("candidate_1", [101], 0.99);
+      },
+      () => now,
+    );
+    h.sonarr.queue = [makeQueueItem(1)];
+    h.sonarr.candidatesByItem.set(1, [makeCandidate("candidate_1", [101])]);
+    await h.bulk.start();
+    await h.bulk.wait();
+    now += 1;
+    fail = true;
+    h.settings.update({ fixerAutoApply: true, dryRun: false });
+    await h.bulk.start({ pendingOnly: true });
+    await h.bulk.wait();
+    expect((await h.bulk.start({ pendingOnly: true })).total).toBe(0);
+    now += 15 * 60_000;
+    fail = false;
+    expect((await h.bulk.start({ pendingOnly: true })).total).toBe(1);
+    await h.bulk.wait();
+    expect(h.sonarr.applyCalls).toHaveLength(1);
+  });
+
+  it("retries failures after escalating cooldowns", async () => {
+    let now = Date.now();
+    const h = makeHarness(
+      () => {
+        throw new Error("temporary failure");
+      },
+      () => now,
+    );
+    h.sonarr.queue = [makeQueueItem(1)];
+    h.sonarr.candidatesByItem.set(1, [makeCandidate("candidate_1", [101])]);
+    await h.bulk.start({ skipAnalyzed: true });
+    await h.bulk.wait();
+    expect((await h.bulk.start({ skipAnalyzed: true })).total).toBe(0);
+    now += 15 * 60_000;
+    expect((await h.bulk.start({ skipAnalyzed: true })).total).toBe(1);
+    await h.bulk.wait();
+    now += 15 * 60_000;
+    expect((await h.bulk.start({ skipAnalyzed: true })).total).toBe(0);
+    now += 15 * 60_000;
+    expect((await h.bulk.start({ skipAnalyzed: true })).total).toBe(1);
+    await h.bulk.wait();
+  });
+
+  it("pauses the whole queue on a usage limit and resumes after an hour", async () => {
+    let now = Date.now();
+    let limited = true;
+    const h = makeHarness(
+      () => {
+        if (limited) throw new Error("Codex error: The usage limit has been reached");
+        return needsReviewProposal();
+      },
+      () => now,
+    );
+    h.settings.update({ fixerParallelism: 1 });
+    h.sonarr.queue = [makeQueueItem(1), makeQueueItem(2)];
+    for (const item of h.sonarr.queue)
+      h.sonarr.candidatesByItem.set(item.id, [
+        makeCandidate(`candidate_${item.id}`, [100 + item.id]),
+      ]);
+    await h.bulk.start({ skipAnalyzed: true });
+    await h.bulk.wait();
+    expect(h.calls).toHaveLength(1);
+    expect(h.bulk.getStatus().pausedUntil).toBe(now + 60 * 60_000);
+    expect((await h.bulk.start()).total).toBe(0);
+    limited = false;
+    now += 60 * 60_000;
+    await h.bulk.start({ skipAnalyzed: true });
+    await h.bulk.wait();
+    expect(h.calls).toHaveLength(3);
+  });
+
+  it("rechecks pending proposals, holds low confidence, and never reapplies a success", async () => {
+    const h = makeHarness((req) =>
+      importProposal(
+        `candidate_${req.queueItemId}`,
+        [100 + req.queueItemId],
+        req.queueItemId === 2 ? 0.5 : 0.99,
+      ),
+    );
+    h.sonarr.queue = [makeQueueItem(1), makeQueueItem(2)];
+    for (const item of h.sonarr.queue)
+      h.sonarr.candidatesByItem.set(item.id, [
+        makeCandidate(`candidate_${item.id}`, [100 + item.id]),
+      ]);
+    await h.bulk.start();
+    await h.bulk.wait();
+    h.settings.update({ fixerAutoApply: true, dryRun: false });
+    h.sonarr.queue.push(makeQueueItem(3));
+    expect((await h.bulk.start({ pendingOnly: true })).total).toBe(1);
+    await h.bulk.wait();
+    expect(h.calls).toHaveLength(3);
+    expect(h.sonarr.applyCalls).toHaveLength(1);
+    expect((await h.bulk.start({ pendingOnly: true })).total).toBe(0);
+  });
+
+  it("does not apply when fresh analysis changes the proposal or auto-apply is disabled", async () => {
+    let fresh = false;
+    const h = makeHarness(() =>
+      fresh ? needsReviewProposal() : importProposal("candidate_1", [101], 0.99),
+    );
+    h.sonarr.queue = [makeQueueItem(1)];
+    h.sonarr.candidatesByItem.set(1, [makeCandidate("candidate_1", [101])]);
+    await h.bulk.start();
+    await h.bulk.wait();
+    fresh = true;
+    h.settings.update({ fixerAutoApply: true, dryRun: false });
+    await h.bulk.start({ pendingOnly: true });
+    await h.bulk.wait();
+    expect(h.sonarr.applyCalls).toHaveLength(0);
+    h.settings.update({ fixerAutoApply: false });
+    expect((await h.bulk.start({ pendingOnly: true })).total).toBe(0);
+  });
+});
 
 describe("auto-apply gates", () => {
   it("autoRemovalOptionsForResult enforces the explicit safe options", () => {

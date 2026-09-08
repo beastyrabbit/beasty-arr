@@ -22,6 +22,10 @@ selection isolation, the exact apply request, error versus empty states, Retry,
 and a stale-cache refresh after SSE reconnect. Its screenshots contain fixture
 data only. Use a context with video recording to capture the interaction.
 
+`browser-fixer-recovery.mjs` exports `verifyFixerRecovery(page, baseUrl, evidenceDir)` for the
+same isolated fixture app. It checks apply-error badges, provider cooldown messages, the 95%
+removal gate, and the exact requests sent by Retry analysis, Reanalyze and retry, and Run all.
+
 The optional profiling checks count writes for a 1,000-delta Fixer stream and
 check overlapping incremental history cutoffs against periodic full-day reads.
 The title-history regression seeds over 400 unrelated searches. Route splitting

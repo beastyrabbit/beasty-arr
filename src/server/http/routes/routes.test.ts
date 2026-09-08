@@ -10,6 +10,8 @@ import {
   activityLog,
   aiVerdicts,
   episodes,
+  fixerAnalyses,
+  fixerHistory,
   huntState,
   movies,
   searchAttempts,
@@ -858,6 +860,91 @@ describe("fixer", () => {
   it("reports idle bulk status and empty history", async () => {
     expect((await get(b.app, "/api/fixer/bulk/status")).json().running).toBe(false);
     expect((await get(b.app, "/api/fixer/history")).json().total).toBe(0);
+  });
+
+  it("starts pending rechecks when auto-apply is enabled in live mode", async () => {
+    b.ctx.settings.update({ dryRun: false, fixerAutoApply: false });
+    const start = vi
+      .spyOn(b.ctx.services.fixerBulk, "start")
+      .mockResolvedValue({ ok: true, total: 0 });
+    expect((await put(b.app, "/api/config", { fixerAutoApply: true })).statusCode).toBe(200);
+    expect(start).toHaveBeenCalledWith({ pendingOnly: true });
+    await put(b.app, "/api/config", { fixerAutoApply: true });
+    expect(start).toHaveBeenCalledTimes(1);
+    b.ctx.settings.update({ dryRun: true, fixerAutoApply: false });
+    await put(b.app, "/api/config", { fixerAutoApply: true });
+    expect(start).toHaveBeenCalledTimes(1);
+    start.mockRestore();
+  });
+
+  it("shows apply errors across changed queue IDs and explains removal thresholds", async () => {
+    const item = {
+      id: 77,
+      downloadId: "fixture-download",
+      service: "sonarr" as const,
+      title: "Fixture",
+      statusMessages: [],
+      episodeIds: [],
+      absoluteEpisodeNumbers: [],
+      episodeLabels: [],
+      canAnalyze: true,
+      issueType: "quality",
+    };
+    vi.spyOn(b.ctx.services.fixer, "getQueue").mockResolvedValue({
+      fetchedAt: Date.now(),
+      items: [item],
+      errors: {},
+    });
+    b.ctx.db
+      .insert(fixerAnalyses)
+      .values({
+        id: "fixture-analysis",
+        createdAt: Date.now(),
+        completedAt: Date.now(),
+        queueItemId: 1,
+        downloadId: item.downloadId,
+        service: "sonarr",
+        itemLabel: "Fixture",
+        status: "completed",
+        proposal: {
+          action: "remove_queue_item",
+          confidence: 0.94,
+          reason: "Existing file is better",
+          queueRemovalOptions: {
+            removeFromClient: true,
+            blocklist: false,
+            skipRedownload: false,
+            changeCategory: false,
+          },
+        },
+        validation: { ok: true, issues: [] },
+      })
+      .run();
+    let response = (await get(b.app, "/api/fixer/queue")).json();
+    expect(response.items[0]).toMatchObject({
+      analysisId: "fixture-analysis",
+      waitingReason: "94% confidence; removal requires 95%.",
+    });
+    b.ctx.db
+      .insert(fixerHistory)
+      .values({
+        at: Date.now(),
+        analysisId: "fixture-analysis",
+        service: "sonarr",
+        itemLabel: "Fixture",
+        action: "remove",
+        sourceKind: "ai_auto",
+        result: "error",
+        detail: { message: "Sonarr 404 Not Found" },
+      })
+      .run();
+    response = (await get(b.app, "/api/fixer/queue")).json();
+    expect(response.items[0]).toMatchObject({
+      analysisState: "apply_error",
+      applyError: "Sonarr 404 Not Found",
+      waitingReason: "Apply failed: Sonarr 404 Not Found",
+    });
+    expect(response.items[0].retryAt).toBeGreaterThan(Date.now());
   });
 
   it("503s analyze when the service is not configured", async () => {

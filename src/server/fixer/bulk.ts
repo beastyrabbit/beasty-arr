@@ -1,4 +1,5 @@
 import type { FastifyBaseLogger } from "fastify";
+import { isProviderUsageLimit } from "../../shared/fixer-policy.js";
 import type {
   AnalysisResult,
   MediaService,
@@ -75,7 +76,8 @@ export function uniqueQueueItemsByDownload<
 /** Structural port of FixerService — the orchestrator passes the service itself. */
 export interface FixerBulkServicePort {
   refreshQueue(): Promise<FixerQueueSnapshot>;
-  hasAnalysis(item: FixerQueueItem): boolean;
+  shouldProcess(item: FixerQueueItem, pendingOnly?: boolean): boolean;
+  providerRetryAt(): number | null;
   analyzeAndWait(service: MediaService, queueItemId: number): Promise<FixerRunOutcome>;
   apply(
     analysisId: string,
@@ -98,6 +100,7 @@ export type FixerBulkStatus = {
   finishedAt: number | null;
   issueTypes: string[] | null;
   autoApply: boolean;
+  pausedUntil: number | null;
   total: number;
   completed: number;
   failed: number;
@@ -139,6 +142,7 @@ export class FixerBulk {
       finishedAt: null,
       issueTypes: null,
       autoApply: false,
+      pausedUntil: null,
       total: 0,
       completed: 0,
       failed: 0,
@@ -149,7 +153,12 @@ export class FixerBulk {
   }
 
   getStatus(): FixerBulkStatus {
-    return { ...this.status, inFlight: [...this.inFlight.values()] };
+    return {
+      ...this.status,
+      autoApply: this.settings.get().fixerAutoApply,
+      pausedUntil: this.service.providerRetryAt(),
+      inFlight: [...this.inFlight.values()],
+    };
   }
 
   /** Resolves when the current run finishes (tests / graceful shutdown). */
@@ -166,6 +175,7 @@ export class FixerBulk {
       issueTypes?: string[];
       targets?: Array<{ service: MediaService; queueItemId: number }>;
       skipAnalyzed?: boolean;
+      pendingOnly?: boolean;
     } = {},
   ): Promise<{
     ok: boolean;
@@ -175,6 +185,13 @@ export class FixerBulk {
     if (this.status.running) {
       return { ok: false, total: 0, message: "A bulk analysis is already running." };
     }
+    const pausedUntil = this.service.providerRetryAt();
+    if (pausedUntil)
+      return {
+        ok: true,
+        total: 0,
+        message: `Provider usage limit; retry after ${new Date(pausedUntil).toISOString()}.`,
+      };
     const settings = this.settings.get();
     this.status = {
       ...FixerBulk.idleStatus(),
@@ -196,7 +213,8 @@ export class FixerBulk {
         snapshot.items.filter(
           (item) =>
             item.canAnalyze &&
-            (!input.skipAnalyzed || !this.service.hasAnalysis(item)) &&
+            (!(input.skipAnalyzed || input.pendingOnly) ||
+              this.service.shouldProcess(item, input.pendingOnly)) &&
             (!issueTypeSet || issueTypeSet.has(item.issueType)) &&
             (!targetSet || targetSet.has(`${item.service}:${item.id}`)),
         ),
@@ -254,7 +272,7 @@ export class FixerBulk {
   }
 
   private async worker(items: FixerQueueItem[], next: () => number): Promise<void> {
-    while (!this.status.cancelRequested) {
+    while (!this.status.cancelRequested && !this.service.providerRetryAt()) {
       const index = next();
       if (index >= items.length) {
         return;
@@ -273,11 +291,12 @@ export class FixerBulk {
         const outcome = await this.service.analyzeAndWait(item.service, item.id);
         if (outcome.status === "completed" && outcome.result) {
           this.status.completed += 1;
-          if (this.status.autoApply) {
+          if (this.settings.get().fixerAutoApply && !this.status.cancelRequested) {
             await this.autoApplyOutcome(item, outcome, outcome.result);
           }
         } else {
           this.status.failed += 1;
+          if (isProviderUsageLimit(outcome.error ?? "")) return;
         }
       } catch (error) {
         this.status.failed += 1;

@@ -654,13 +654,13 @@ describe("FixerService apply", () => {
 
     const result = await svc.apply(analysisId);
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       ok: false,
       dryRun: true,
       message: "Blocked language downgrade: the existing file has German audio.",
     });
     expect(sonarr.applyCalls).toHaveLength(0);
-    expect(svc.listHistory().total).toBe(0);
+    expect(svc.listHistory().items[0]).toMatchObject({ result: "error", analysisId });
   });
 
   it("applies live when dry-run is off, records history, and drops the queue row", async () => {
@@ -739,7 +739,10 @@ describe("FixerService apply", () => {
     expect(result.ok).toBe(false);
     expect(result.message).toContain("flagged as a sample");
     expect(harness.sonarr.applyCalls).toHaveLength(0);
-    expect(harness.svc.listHistory().total).toBe(0);
+    expect(harness.svc.listHistory().items[0]).toMatchObject({
+      result: "error",
+      analysisId: outcome.analysisId,
+    });
   });
 
   it("rejects a candidate subset that selects nothing from the proposal", async () => {
@@ -834,6 +837,61 @@ describe("FixerService apply", () => {
 });
 
 describe("FixerService remove/ignore", () => {
+  it("resolves the current queue ID by download before removing", async () => {
+    const { svc, sonarr, settings } = makeHarness();
+    sonarr.queue = [makeQueueItem(1)];
+    await svc.refreshQueue();
+    sonarr.queue = [
+      makeQueueItem(9, { downloadId: "dl-1" }),
+      makeQueueItem(1, { downloadId: "different" }),
+    ];
+    settings.update({ dryRun: false });
+    expect((await svc.removeQueueItem("sonarr", 1)).ok).toBe(true);
+    expect(sonarr.removeCalls.map((call) => call.queueItemId)).toEqual([9]);
+  });
+
+  it.each([true, false])(
+    "reconciles a 404 and only succeeds if the download disappeared: %s",
+    async (disappeared) => {
+      const { svc, sonarr, settings } = makeHarness();
+      sonarr.queue = [makeQueueItem(1)];
+      settings.update({ dryRun: false });
+      vi.spyOn(sonarr, "removeQueueItem").mockImplementation(async () => {
+        if (disappeared) sonarr.queue = [];
+        throw new Error("Sonarr 404 Not Found");
+      });
+      const outcome = await svc.removeQueueItem("sonarr", 1);
+      expect(outcome.ok).toBe(disappeared);
+      expect(svc.listHistory().items[0]?.result).toBe(disappeared ? "ok" : "error");
+    },
+  );
+
+  it("does not treat an unavailable queue as proof that a 404 item disappeared", async () => {
+    const { svc, sonarr, settings } = makeHarness();
+    sonarr.queue = [makeQueueItem(1)];
+    settings.update({ dryRun: false });
+    vi.spyOn(sonarr, "removeQueueItem").mockImplementation(async () => {
+      vi.spyOn(sonarr, "listQueue").mockRejectedValue(new Error("offline"));
+      throw new Error("Sonarr 404 Not Found");
+    });
+    const outcome = await svc.removeQueueItem("sonarr", 1);
+    expect(outcome.ok).toBe(false);
+    expect(outcome.message).toContain("Cannot verify current queue");
+  });
+
+  it("does not remove when dry-run is enabled during queue refresh", async () => {
+    const { svc, sonarr, settings } = makeHarness();
+    sonarr.queue = [makeQueueItem(1)];
+    await svc.refreshQueue();
+    settings.update({ dryRun: false });
+    vi.spyOn(sonarr, "listQueue").mockImplementation(async () => {
+      settings.update({ dryRun: true });
+      return sonarr.queue;
+    });
+    expect((await svc.removeQueueItem("sonarr", 1)).ok).toBe(false);
+    expect(sonarr.removeCalls).toHaveLength(0);
+  });
+
   it("simulates removal in dry-run with a history entry", async () => {
     const { svc, sonarr } = makeHarness();
     sonarr.queue = [makeQueueItem(1)];
@@ -850,7 +908,7 @@ describe("FixerService remove/ignore", () => {
   it("removes live with the exact options and logs blocklist actions distinctly", async () => {
     const { svc, sonarr, settings } = makeHarness();
     sonarr.queue = [makeQueueItem(1)];
-    settings.update({ dryRun: false });
+    settings.update({ dryRun: false, fixerAutoApply: true });
     const options: QueueRemovalOptions = {
       removeFromClient: true,
       blocklist: true,

@@ -1,6 +1,7 @@
 import { and, desc, eq, gt, isNull } from "drizzle-orm";
 import type { FastifyBaseLogger } from "fastify";
 import { nanoid } from "nanoid";
+import { autoApplyBlockReason, isProviderUsageLimit } from "../../shared/fixer-policy.js";
 import type {
   AnalysisResult,
   FixerDubVerdictContext,
@@ -14,7 +15,7 @@ import type {
 import { canLoadManualImportCandidates } from "../arr/sonarr-client.js";
 import type { SettingsService } from "../config/settings.js";
 import type { Db } from "../db/index.js";
-import { aiVerdicts, fixerAnalyses } from "../db/schema.js";
+import { aiVerdicts, fixerAnalyses, fixerHistory } from "../db/schema.js";
 import type { EventBus } from "../events/bus.js";
 import { isAiVerdictValue } from "../hunt/state.js";
 import type { FixerAnalysisEvent, FixerPiRunner } from "./ai-port.js";
@@ -294,18 +295,112 @@ export class FixerService {
     }
   }
 
-  /** Whether this exact download already has any saved analysis outcome. */
-  hasAnalysis(item: FixerQueueItem): boolean {
+  /** Latest saved analysis for this download, even if its queue ID changed. */
+  analysisForItem(
+    item: Pick<QueueItem, "id" | "service" | "downloadId">,
+  ): FixerAnalysisRow | undefined {
     const identity = item.downloadId
       ? eq(fixerAnalyses.downloadId, item.downloadId)
       : eq(fixerAnalyses.queueItemId, item.id);
-    return (
-      this.db
-        .select({ id: fixerAnalyses.id })
+    return this.db
+      .select()
+      .from(fixerAnalyses)
+      .where(and(eq(fixerAnalyses.service, item.service), identity))
+      .orderBy(desc(fixerAnalyses.createdAt))
+      .get();
+  }
+
+  latestApply(analysisId: string) {
+    return this.db
+      .select()
+      .from(fixerHistory)
+      .where(eq(fixerHistory.analysisId, analysisId))
+      .orderBy(desc(fixerHistory.at), desc(fixerHistory.id))
+      .get();
+  }
+
+  providerRetryAt(): number | null {
+    const rows = this.db
+      .select({ error: fixerAnalyses.error, completedAt: fixerAnalyses.completedAt })
+      .from(fixerAnalyses)
+      .where(
+        and(
+          eq(fixerAnalyses.status, "failed"),
+          gt(fixerAnalyses.completedAt, this.now() - 60 * 60_000),
+        ),
+      )
+      .orderBy(desc(fixerAnalyses.createdAt))
+      .all();
+    const failure = rows.find((row) => isProviderUsageLimit(row.error ?? ""));
+    const retryAt = failure?.completedAt ? failure.completedAt + 60 * 60_000 : 0;
+    return retryAt > this.now() ? retryAt : null;
+  }
+
+  retryAt(item: FixerQueueItem): number | null {
+    const identity = item.downloadId
+      ? eq(fixerAnalyses.downloadId, item.downloadId)
+      : eq(fixerAnalyses.queueItemId, item.id);
+    const rows = this.db
+      .select({
+        id: fixerAnalyses.id,
+        status: fixerAnalyses.status,
+        createdAt: fixerAnalyses.createdAt,
+        completedAt: fixerAnalyses.completedAt,
+      })
+      .from(fixerAnalyses)
+      .where(and(eq(fixerAnalyses.service, item.service), identity))
+      .orderBy(desc(fixerAnalyses.createdAt))
+      .all();
+    let failures = 0;
+    let lastAttempt = 0;
+    for (const row of rows) {
+      const applied = this.latestApply(row.id);
+      if (row.status !== "failed" && applied?.result !== "error") break;
+      failures += 1;
+      lastAttempt = Math.max(lastAttempt, row.completedAt ?? row.createdAt, applied?.at ?? 0);
+    }
+    const retryAt =
+      lastAttempt + Math.min(6 * 60 * 60_000, 15 * 60_000 * 2 ** Math.min(failures - 1, 5));
+    return failures > 0 && retryAt > this.now() ? retryAt : null;
+  }
+
+  shouldProcess(item: FixerQueueItem, pendingOnly = false): boolean {
+    if (this.providerRetryAt() || this.retryAt(item)) return false;
+    let row = this.analysisForItem(item);
+    if (!row) return !pendingOnly;
+    if (row.status === "failed") {
+      if (!pendingOnly) return true;
+      const identity = item.downloadId
+        ? eq(fixerAnalyses.downloadId, item.downloadId)
+        : eq(fixerAnalyses.queueItemId, item.id);
+      row = this.db
+        .select()
         .from(fixerAnalyses)
-        .where(and(eq(fixerAnalyses.service, item.service), identity))
+        .where(
+          and(
+            eq(fixerAnalyses.service, item.service),
+            identity,
+            eq(fixerAnalyses.status, "completed"),
+          ),
+        )
         .orderBy(desc(fixerAnalyses.createdAt))
-        .get() !== undefined
+        .get();
+      if (!row) return false;
+    }
+    if (
+      row.status !== "completed" ||
+      !row.proposal ||
+      !this.settings.get().fixerAutoApply ||
+      this.settings.get().dryRun
+    )
+      return false;
+    if (this.latestApply(row.id)?.result === "ok") return false;
+    return (
+      autoApplyBlockReason(
+        row.proposal as unknown as ResolutionProposal,
+        row.validation as unknown as ValidationResult | null,
+        this.settings.get(),
+      ) === null
     );
   }
 
@@ -345,6 +440,21 @@ export class FixerService {
       );
     }
     return item;
+  }
+
+  private async currentQueueItem(
+    service: MediaService,
+    queueItemId: number,
+    downloadId?: string | null,
+  ): Promise<FixerQueueItem | undefined> {
+    const snapshot = await this.refreshQueue();
+    if (snapshot.errors[service])
+      throw new Error(`Cannot verify current queue: ${snapshot.errors[service]}`);
+    return snapshot.items.find(
+      (item) =>
+        item.service === service &&
+        (downloadId ? item.downloadId === downloadId : item.id === queueItemId),
+    );
   }
 
   private activeDubVerdict(
@@ -668,6 +778,35 @@ export class FixerService {
     candidateIds?: string[],
     opts: FixerActionOpts = {},
   ): Promise<FixerApplyOutcome> {
+    let outcome: FixerApplyOutcome;
+    try {
+      outcome = await this.applyProposal(analysisId, candidateIds, opts);
+    } catch (error) {
+      outcome = { ok: false, dryRun: this.settings.get().dryRun, message: errorMessage(error) };
+    }
+    const row = this.getAnalysis(analysisId);
+    if (!outcome.ok && !outcome.historyId && row) {
+      outcome.historyId = recordFixerHistory(this.db, {
+        at: this.now(),
+        service: row.service,
+        itemLabel: row.itemLabel,
+        action: row.proposal?.action === "remove_queue_item" ? "remove" : "import",
+        sourceKind: opts.sourceKind ?? "ai_user",
+        analysisId,
+        dryRun: outcome.dryRun,
+        result: "error",
+        detail: { message: outcome.message },
+      });
+    }
+    this.emitQueueChanged();
+    return outcome;
+  }
+
+  private async applyProposal(
+    analysisId: string,
+    candidateIds?: string[],
+    opts: FixerActionOpts = {},
+  ): Promise<FixerApplyOutcome> {
     const row = this.getAnalysis(analysisId);
     if (!row) {
       return { ok: false, dryRun: false, message: `Unknown analysis ${analysisId}.` };
@@ -708,7 +847,10 @@ export class FixerService {
     let queueItem: FixerQueueItem;
     try {
       client = this.requireClient(row.service);
-      queueItem = await this.requireQueueItem(row.service, row.queueItemId);
+      const current = await this.currentQueueItem(row.service, row.queueItemId, row.downloadId);
+      if (!current) throw new Error("Download is no longer in the queue. Refresh before applying.");
+      if (this.autoApplyDisabled(opts)) throw new Error("Auto-apply was disabled; no change made.");
+      queueItem = current;
     } catch (error) {
       return { ok: false, dryRun: false, message: errorMessage(error) };
     }
@@ -785,7 +927,7 @@ export class FixerService {
         queueItem,
         candidates,
         effective,
-        () => !this.settings.get().dryRun,
+        () => !this.settings.get().dryRun && !this.autoApplyDisabled(opts),
       );
       const result =
         started.ok && client.verifyImportApplied
@@ -835,7 +977,9 @@ export class FixerService {
     opts: FixerActionOpts = {},
   ): Promise<FixerApplyOutcome> {
     const action: FixerHistoryAction = options.blocklist ? "blocklist" : "remove";
-    return this.removal(service, queueItemId, options, action, opts);
+    const outcome = await this.removal(service, queueItemId, options, action, opts);
+    this.emitQueueChanged();
+    return outcome;
   }
 
   async ignoreQueueItem(
@@ -859,8 +1003,14 @@ export class FixerService {
     } catch (error) {
       return { ok: false, dryRun: false, message: errorMessage(error) };
     }
+    const analysis = opts.analysisId ? this.getAnalysis(opts.analysisId) : undefined;
+    if (opts.analysisId && (!analysis || analysis.service !== service)) {
+      return { ok: false, dryRun: false, message: "Removal analysis does not match the service." };
+    }
     const queueItem = await this.findQueueItem(service, queueItemId);
-    const itemLabel = queueItem ? queueItemLabel(queueItem) : `Queue item ${queueItemId}`;
+    const downloadId = analysis?.downloadId ?? queueItem?.downloadId;
+    const itemLabel =
+      analysis?.itemLabel ?? (queueItem ? queueItemLabel(queueItem) : `Queue item ${queueItemId}`);
     const base = {
       service,
       itemLabel,
@@ -887,7 +1037,20 @@ export class FixerService {
     }
 
     try {
-      const result = await client.removeQueueItem(queueItemId, options);
+      const current = await this.currentQueueItem(service, queueItemId, downloadId);
+      if (!current && !downloadId && !queueItem)
+        throw new Error("Queue item could not be identified. Refresh before removing.");
+      let result = {
+        ok: true,
+        message: "Download is no longer in the queue. Removal options were not sent.",
+      };
+      if (current) {
+        if (this.settings.get().dryRun)
+          throw new Error("Dry-run was enabled before removal; no change made.");
+        if (this.autoApplyDisabled(opts))
+          throw new Error("Auto-apply was disabled; no change made.");
+        result = await this.removeCurrentItem(client, current, options);
+      }
       const historyId = recordFixerHistory(this.db, {
         ...base,
         at: this.now(),
@@ -896,7 +1059,7 @@ export class FixerService {
         detail: { message: result.message, options },
       });
       if (result.ok) {
-        this.dropFromQueueCache(service, queueItemId);
+        this.dropFromQueueCache(service, current?.id ?? queueItemId);
       }
       return { ok: result.ok, dryRun: false, historyId, message: result.message };
     } catch (error) {
@@ -913,6 +1076,33 @@ export class FixerService {
   }
 
   // ============ history ============
+
+  private autoApplyDisabled(opts: FixerActionOpts): boolean {
+    return opts.sourceKind === "ai_auto" && !this.settings.get().fixerAutoApply;
+  }
+
+  private async removeCurrentItem(
+    client: FixerClientPort,
+    current: FixerQueueItem,
+    options: QueueRemovalOptions,
+  ) {
+    let result: { ok: boolean; message: string };
+    try {
+      result = await client.removeQueueItem(current.id, options);
+    } catch (error) {
+      result = { ok: false, message: errorMessage(error) };
+    }
+    if (!result.ok && result.message.includes("404")) {
+      if (!(await this.currentQueueItem(current.service, current.id, current.downloadId))) {
+        return {
+          ok: true,
+          message:
+            "Download disappeared from the queue after a 404. Removal options could not be confirmed.",
+        };
+      }
+    }
+    return result;
+  }
 
   listHistory(opts: { page?: number; pageSize?: number } = {}): FixerHistoryPage {
     return listFixerHistory(this.db, opts);

@@ -35,6 +35,9 @@ describe("isRetryableProviderError", () => {
   it("classifies auth/quota/config errors as terminal", () => {
     expect(isRetryableProviderError(new Error("invalid api key"))).toBe(false);
     expect(isRetryableProviderError(new Error("insufficient_quota"))).toBe(false);
+    expect(isRetryableProviderError(new Error("429: The usage limit has been reached"))).toBe(
+      false,
+    );
     expect(isRetryableProviderError(new Error("Unauthorized"))).toBe(false);
     expect(isRetryableProviderError(new Error("something unexpected"))).toBe(false);
   });
