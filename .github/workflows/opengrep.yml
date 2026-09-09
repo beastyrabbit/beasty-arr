@@ -1,0 +1,24 @@
+name: OpenGrep
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review]
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+  schedule:
+    - cron: '37 0 * * *'
+permissions:
+  contents: read
+  actions: read
+  pull-requests: write
+  checks: write
+concurrency:
+  group: opengrep-${{ github.event.pull_request.number || 'full' }}
+  cancel-in-progress: true
+jobs:
+  opengrep:
+    uses: beastyrabbit/schaffa/.github/workflows/opengrep-shared.yml@34b6db9e42b505f36f8ba1193b1b72c4f8726145
+    with:
+      runner: arc-opengrep-beasty-arr
+      profile: all
+      tooling-ref: 34b6db9e42b505f36f8ba1193b1b72c4f8726145
