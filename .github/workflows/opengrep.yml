@@ -17,8 +17,8 @@ concurrency:
   cancel-in-progress: true
 jobs:
   opengrep:
-    uses: beastyrabbit/schaffa/.github/workflows/opengrep-shared.yml@1d0e0110deb94136a4cf4b6d7e039193e895f9e8
+    uses: beastyrabbit/schaffa/.github/workflows/opengrep-shared.yml@cd0e2b67cb0c599fbc148a4c73d2b321a8b35dbc
     with:
       runner: arc-opengrep-beasty-arr
       profile: all
-      tooling-ref: 1d0e0110deb94136a4cf4b6d7e039193e895f9e8
+      tooling-ref: cd0e2b67cb0c599fbc148a4c73d2b321a8b35dbc
