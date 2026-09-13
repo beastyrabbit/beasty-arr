@@ -13,20 +13,6 @@ Finds the German dub for series and movies already managed by Sonarr and Radarr.
 - Repairs stuck import-queue items with validation and confidence gates.
 - Exposes a live dashboard, status endpoint, and manual Missing workspace.
 
-- **Hunts continuously**: loops over existing non-German files and forces German upgrade searches
-  until every series and movie has **German audio**. Missing episodes are handled separately in the
-  manual Missing workspace, where completeness matters and audio language does not.
-- **Budget-aware**: a demand-adaptive controller keeps a low search trickle, forecasts the arrs'
-  organic Prowlarr usage, and automatically ramps up to consume leftover daily indexer budget —
-  automatic hunts never overrun an indexer's cap. Explicit Force and manual Missing searches run
-  immediately and intentionally bypass that automatic budget gate.
-- **AI Dub Oracle**: asks Codex with web verification whether a German dub
-  even exists for a title; confident negative seasons are paused for at least a year.
-- **Fixer**: absorbed from the sonarr_fixer project — AI-assisted resolution of stuck import-queue
-  items with deterministic validation and confidence-gated auto-apply.
-- **Web GUI** (dark, dense, live via SSE), **Homepage widget** (`GET /api/status`), and a
-  **dry-run mode that is ON by default** — nothing mutates your arrs until you flip it.
-
 Dry-run still performs library reads and planning. Explicit Oracle rechecks and Fixer analysis
 can call AI while dry-run is enabled. Commands already accepted by an Arr can finish after
 dry-run is turned on. Ambiguous command responses hold targets until acceptance is reconciled.
