@@ -1,8 +1,17 @@
 # beasty-arr
 
-German-hunting companion for Sonarr and Radarr. The arrs only pick up releases via RSS at grab
-time — German dubs that appear months later are never found unless something re-triggers a search.
-beasty-arr is that something:
+
+Finds the German dub for series and movies already managed by Sonarr and Radarr. beasty-arr keeps searching after the initial release window, while a dry-run mode lets you inspect every decision first.
+
+![beasty-arr hunt dashboard](dashboard.png)
+
+## What it does
+
+- Hunts existing non-German files for later German upgrades.
+- Tracks indexer budgets before automatic searches.
+- Uses an AI oracle to pause titles that have no German dub.
+- Repairs stuck import-queue items with validation and confidence gates.
+- Exposes a live dashboard, status endpoint, and manual Missing workspace.
 
 - **Hunts continuously**: loops over existing non-German files and forces German upgrade searches
   until every series and movie has **German audio**. Missing episodes are handled separately in the
