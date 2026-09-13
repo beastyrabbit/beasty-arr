@@ -63,3 +63,9 @@ connection URLs.
 
 Container publication uses the encrypted `GHCR_PUBLISH_TOKEN` repository secret when present,
 falling back to `GITHUB_TOKEN` for packages that grant the repository Actions access.
+
+## Live preview
+
+The live dashboard shows coverage, indexer budgets, automation status, and recent German-language wins.
+
+![Beasty Arr dashboard](https://schaffa.dev/f/ipnddFylw0NyQr8ETVFvHQ.webp)
