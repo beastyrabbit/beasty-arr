@@ -1,0 +1,38 @@
+name: SonarQube
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# SonarQube Community Build has no pull-request analysis, so the scan runs on
+# every push to main (i.e. every merged PR) instead of on the PR itself.
+permissions:
+  contents: read
+
+concurrency:
+  group: sonarqube-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sonarqube:
+    runs-on: arc-beasty-arr
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install dirmngr for scanner signature verification
+        # The minimal ARC runner image ships gpg without dirmngr.
+        run: |
+          if ! command -v dirmngr >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq --no-install-recommends dirmngr
+          fi
+      - uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8.2.1
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+        with:
+          args: >
+            -Dsonar.projectKey=beastyrabbit_beasty-arr_3283b871-80c4-49dd-a4cf-4c451b4822be
