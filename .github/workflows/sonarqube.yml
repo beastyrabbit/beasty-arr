@@ -33,6 +33,11 @@ jobs:
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+          # The runner image has no UTF-8 locale; without it the scanner
+          # fails on non-ASCII file names.
+          LANG: C.UTF-8
+          LC_ALL: C.UTF-8
+          SONAR_SCANNER_JAVA_OPTS: -Dfile.encoding=UTF-8 -Dsun.jnu.encoding=UTF-8
         with:
           args: >
             -Dsonar.projectKey=beastyrabbit_beasty-arr_3283b871-80c4-49dd-a4cf-4c451b4822be
