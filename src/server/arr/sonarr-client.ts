@@ -1,12 +1,15 @@
 import { hasGermanAudio } from "../../shared/domain.js";
 import type {
   ApplyResult,
+  LeftoverDisposition,
   ManualImportCandidate,
   QueueItem,
   QueueRemovalOptions,
   ResolutionProposal,
+  SelectedImport,
   SonarrSystemStatus,
 } from "../../shared/fixer-types.js";
+import { type AssessedImport, assessImportMappings } from "../fixer/upgrade.js";
 import {
   normalizeProposal,
   resolveImportEpisodeIds,
@@ -15,7 +18,7 @@ import {
 import { animeTitleConflict } from "./anime-title-match.js";
 import { type ArrClientOptions, arrFetch } from "./http-util.js";
 import { verifyManualImport } from "./import-verification.js";
-import { detectLikelySample } from "./sample.js";
+import { detectLikelySample, isDiscStreamPath } from "./sample.js";
 import { episodeLabel } from "./sonarr-format.js";
 
 export class SonarrRequestError extends Error {
@@ -498,6 +501,81 @@ function normalizeManualImportRecords(
   return candidates;
 }
 
+function nonUpgradeMessages(
+  assessed: AssessedImport[],
+  candidatesById: Map<string, ManualImportCandidate>,
+): string[] {
+  return assessed.flatMap(({ candidateId, assessment }) => {
+    if (assessment.decision !== "skip" && assessment.decision !== "blocked") return [];
+    const candidate = candidatesById.get(candidateId);
+    const label = candidate?.relativePath ?? candidate?.path ?? candidateId;
+    return [
+      `Blocked non-upgrade: ${label} would not improve the library. ${assessment.reason} Import manually in Sonarr if the replacement is intended.`,
+    ];
+  });
+}
+
+/** A non-German file must never replace German audio; unknown language metadata counts as non-German here. */
+function languageDowngradeMessages(
+  selectedImports: SelectedImport[],
+  candidatesById: Map<string, ManualImportCandidate>,
+  episodesById: Map<number, SonarrEpisodeRecord>,
+): string[] {
+  return selectedImports.flatMap((selectedImport) => {
+    const candidate = candidatesById.get(selectedImport.candidateId);
+    if (!candidate || hasGermanAudio(candidate.languages)) return [];
+    const existing = selectedImport.episodeIds.flatMap((episodeId) => {
+      const episode = episodesById.get(episodeId);
+      if (!episode || !hasGermanAudio(episode.episodeFile?.languages ?? [])) return [];
+      return [
+        episode.episodeFile?.relativePath ?? episode.episodeFile?.path ?? `episode ${episodeId}`,
+      ];
+    });
+    if (existing.length === 0) return [];
+    return [
+      `Blocked language downgrade: candidate ${selectedImport.candidateId} has no German language but would replace German-audio file(s) ${existing.join(", ")}. Import manually in Sonarr if the replacement is intended.`,
+    ];
+  });
+}
+
+type UnselectedFiles = {
+  /** Every candidate the proposal did not select, samples included. */
+  unselected: ManualImportCandidate[];
+  /** Unselected real files that Sonarr mapped to episodes and that need an upgrade check. */
+  mappable: ManualImportCandidate[];
+  /** Unselected real files that cannot be assessed (unmapped or disc streams). */
+  unassessable: ManualImportCandidate[];
+};
+
+function unselectedFiles(
+  proposal: ResolutionProposal,
+  candidates: ManualImportCandidate[],
+): UnselectedFiles {
+  const selected = new Set(proposal.selectedImports.map((item) => item.candidateId));
+  const unselected = candidates.filter((candidate) => !selected.has(candidate.id));
+  // Samples are never importable, so they are discardable leftovers like
+  // verified non-upgrades; only real files need an upgrade assessment.
+  const files = unselected.filter((candidate) => !candidate.isLikelySample);
+  const mappable = files.filter(
+    (candidate) => candidate.episodeIds.length > 0 && !isDiscStreamPath(candidate.path),
+  );
+  return {
+    unselected,
+    mappable,
+    unassessable: files.filter((candidate) => !mappable.includes(candidate)),
+  };
+}
+
+/** Decides what happens to the files of the download that were not selected. */
+function leftoverDisposition(
+  leftovers: UnselectedFiles,
+  assessed: AssessedImport[],
+): LeftoverDisposition {
+  if (leftovers.unselected.length === 0) return "none";
+  if (leftovers.unassessable.length > 0) return "keep";
+  return assessed.every(({ assessment }) => assessment.decision === "skip") ? "remove" : "keep";
+}
+
 export class SonarrClient {
   constructor(private readonly options: ArrClientOptions) {}
 
@@ -823,19 +901,54 @@ export class SonarrClient {
     return {
       ok: true,
       commandId: command.id,
+      leftover: preflight.leftover ?? "none",
       message: command.id
         ? `Started Sonarr ManualImport command ${command.id}.`
         : "Started Sonarr ManualImport.",
     };
   }
 
+  /**
+   * Removes every queue row of a download. Sonarr drops all rows of a
+   * download when any one of them is deleted with removeFromClient.
+   */
+  async removeDownloadFromQueue(
+    downloadId: string,
+    options: QueueRemovalOptions,
+  ): Promise<boolean> {
+    const row = (await this.listQueue({ includeInProgress: true })).find(
+      (item) => item.downloadId === downloadId,
+    );
+    if (!row) return false;
+    await this.removeQueueItem(row.id, options);
+    return true;
+  }
+
   async verifyImportApplied(queueItem: QueueItem, result: ApplyResult): Promise<ApplyResult> {
+    const downloadId = queueItem.downloadId;
+    const leftover = result.leftover ?? "none";
     return verifyManualImport({
       serviceName: "Sonarr",
       commandId: result.commandId,
-      downloadId: queueItem.downloadId,
+      downloadId,
       getCommand: (id) => this.getCommand(id),
       getQueueDownloadIds: () => this.getQueueDownloadIds(),
+      ...(leftover === "none" || !downloadId
+        ? {}
+        : {
+            onRemaining: async () => {
+              if (leftover !== "remove") return "kept";
+              // Non-upgrade leftovers follow the same rule as a single
+              // non-upgrade download: drop it from the client, never blocklist.
+              await this.removeDownloadFromQueue(downloadId, {
+                removeFromClient: true,
+                blocklist: false,
+                skipRedownload: false,
+                changeCategory: false,
+              });
+              return "removed";
+            },
+          }),
     });
   }
 
@@ -871,11 +984,80 @@ export class SonarrClient {
     if (titleConflicts.length > 0) {
       return { ok: false, message: titleConflicts.join(" ") };
     }
-    const languageDowngrades = await this.findGermanAudioDowngrades(normalizedProposal, byId);
+    // One Sonarr round trip covers the language check, the selected files
+    // and the leftovers.
+    const leftovers = unselectedFiles(normalizedProposal, candidates);
+    const { assessed, episodesById } = await this.assessImports(
+      [
+        ...normalizedProposal.selectedImports.map(({ candidateId, episodeIds }) => ({
+          candidateId,
+          episodeIds,
+        })),
+        ...leftovers.mappable.map((candidate) => ({
+          candidateId: candidate.id,
+          episodeIds: candidate.episodeIds,
+        })),
+      ],
+      byId,
+    );
+    const languageDowngrades = languageDowngradeMessages(
+      normalizedProposal.selectedImports,
+      byId,
+      episodesById,
+    );
     if (languageDowngrades.length > 0) {
       return { ok: false, message: languageDowngrades.join(" ") };
     }
-    return { ok: true, message: "Sonarr import proposal passed preflight." };
+    const selectedIds = new Set(normalizedProposal.selectedImports.map((item) => item.candidateId));
+    const upgradeBlocks = nonUpgradeMessages(
+      assessed.filter((item) => selectedIds.has(item.candidateId)),
+      byId,
+    );
+    if (upgradeBlocks.length > 0) {
+      return { ok: false, message: upgradeBlocks.join(" ") };
+    }
+    const leftover = leftoverDisposition(
+      leftovers,
+      assessed.filter((item) => !selectedIds.has(item.candidateId)),
+    );
+    return { ok: true, leftover, message: "Sonarr import proposal passed preflight." };
+  }
+
+  /**
+   * Deterministic upgrade check for every selected file against the current
+   * episode files and the series quality profile. The AI proposes the mapping;
+   * this is the authority that a selected file actually improves its target.
+   */
+  async assessImports(
+    imports: Array<{ candidateId: string; episodeIds: number[] }>,
+    candidatesById: Map<string, ManualImportCandidate>,
+  ): Promise<{ assessed: AssessedImport[]; episodesById: Map<number, SonarrEpisodeRecord> }> {
+    const episodeIds = [...new Set(imports.flatMap((item) => item.episodeIds))];
+    if (episodeIds.length === 0) return { assessed: [], episodesById: new Map() };
+    let episodes: SonarrEpisodeRecord[];
+    let profiles: SonarrQualityProfileRecord[];
+    try {
+      [episodes, profiles] = await Promise.all([
+        this.getEpisodes({ episodeIds, includeSeries: true, includeEpisodeFile: true }),
+        this.getQualityProfiles(),
+      ]);
+    } catch (error) {
+      throw new Error("Could not verify existing Sonarr episode files; refusing the import.", {
+        cause: error,
+      });
+    }
+    const episodesById = new Map(
+      episodes.flatMap((episode) => (episode.id === undefined ? [] : [[episode.id, episode]])),
+    );
+    const assessed = assessImportMappings({
+      imports,
+      candidatesById,
+      episodesById,
+      profilesById: new Map(
+        profiles.flatMap((profile) => (profile.id === undefined ? [] : [[profile.id, profile]])),
+      ),
+    });
+    return { assessed, episodesById };
   }
 
   private async findAnimeTitleConflicts(
@@ -928,55 +1110,6 @@ export class SonarrClient {
       }
     }
     return conflicts;
-  }
-
-  private async findGermanAudioDowngrades(
-    proposal: ResolutionProposal,
-    candidatesById: Map<string, ManualImportCandidate>,
-  ): Promise<string[]> {
-    const nonGermanImports = proposal.selectedImports.filter((selectedImport) => {
-      const candidate = candidatesById.get(selectedImport.candidateId);
-      return candidate !== undefined && !hasGermanAudio(candidate.languages);
-    });
-    const episodeIds = [
-      ...new Set(nonGermanImports.flatMap((selectedImport) => selectedImport.episodeIds)),
-    ];
-    if (episodeIds.length === 0) {
-      return [];
-    }
-    let episodes: SonarrEpisodeRecord[];
-    try {
-      episodes = await this.getEpisodes({ episodeIds, includeEpisodeFile: true });
-    } catch (error) {
-      throw new Error(
-        "Could not verify existing Sonarr episode-file languages; refusing the import.",
-        { cause: error },
-      );
-    }
-    const germanFilesByEpisodeId = new Map<number, string>();
-    for (const episode of episodes) {
-      const fileLanguages = episode.episodeFile?.languages ?? [];
-      if (episode.id !== undefined && hasGermanAudio(fileLanguages)) {
-        germanFilesByEpisodeId.set(
-          episode.id,
-          episode.episodeFile?.relativePath ?? episode.episodeFile?.path ?? `episode ${episode.id}`,
-        );
-      }
-    }
-    return nonGermanImports.flatMap((selectedImport) => {
-      const affected = selectedImport.episodeIds.filter((episodeId) =>
-        germanFilesByEpisodeId.has(episodeId),
-      );
-      if (affected.length === 0) {
-        return [];
-      }
-      const existing = affected
-        .map((episodeId) => germanFilesByEpisodeId.get(episodeId))
-        .join(", ");
-      return [
-        `Blocked language downgrade: candidate ${selectedImport.candidateId} has no German language but would replace German-audio file(s) ${existing}. Import manually in Sonarr if the replacement is intended.`,
-      ];
-    });
   }
 
   async removeQueueItem(queueItemId: number, options: QueueRemovalOptions): Promise<ApplyResult> {

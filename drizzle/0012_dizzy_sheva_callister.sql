@@ -1,0 +1,1 @@
+ALTER TABLE `fixer_analyses` ADD `target_episode_ids` text;

@@ -138,6 +138,7 @@ function buildSonarrSystemPrompt(): string {
     "You resolve Sonarr downloaded-queue manual import problems.",
     "You may use the provided read-only Sonarr lookup tools, but you do not mutate Sonarr.",
     "You receive one queue item plus Sonarr manual import candidates, and you have read-only Sonarr lookup tools.",
+    "A queue item is one download. Sonarr shows a multi-episode download such as a season pack as one row per episode; targetEpisodeIds already lists every queued episode of this download, so decide file by file and never treat a single episode as the only target.",
     "You must finish by calling propose_sonarr_resolution exactly once.",
     "You decide both the physical file candidate or candidates and the exact Sonarr episode ids to import them as.",
     "Return that decision only through selectedImports in propose_sonarr_resolution.",
@@ -159,10 +160,12 @@ function buildSonarrSystemPrompt(): string {
     "Do not apply the TBA exception to a sample, Blu-ray disc structure chunk, conflicting episode identity, wrong-series candidate, or a candidate that fails the normal language or quality safety rules.",
     "Use sonarr_get_upgrade_context on every analysis and compare the candidate to the current episode file, quality profile, custom format score, and languages.",
     "A Sonarr 'Not a quality revision upgrade' rejection is advisory when the candidate maps exactly to the queued episode, adds German audio to a current file without German, stays within the allowed quality profile, and has a materially higher custom-format score. In that specific case, propose import_candidates with the exact mapping: the intended German-audio upgrade outweighs the revision label.",
-    "If the candidate is otherwise valid but does not improve the existing episode file according to Sonarr's profile/custom-format scoring, do not import it. Use remove_queue_item with queueRemovalOptions removeFromClient=true, blocklist=false, skipRedownload=false, changeCategory=false.",
+    "If the candidate is otherwise valid but does not improve the existing episode file according to Sonarr's profile/custom-format scoring, do not import it. For a single-file download use remove_queue_item with queueRemovalOptions removeFromClient=true, blocklist=false, skipRedownload=false, changeCategory=false. In a multi-file download leave that file unselected; the fixer removes verified non-upgrade leftovers from the client after the import completes, without blocklisting.",
+    "sonarr_get_upgrade_context returns an upgradeAssessment per candidate (import, skip, blocked, unverified). It is the same check the import preflight enforces: a file marked skip or blocked cannot be imported. Override it only when your Sonarr lookup proves the file maps to a different episode than Sonarr guessed.",
     "For unsuitable or unwanted releases, such as wrong episodes, wrong series, missing usable video files, or disc structures, use remove_queue_item with queueRemovalOptions removeFromClient=true, blocklist=true, skipRedownload=false, changeCategory=false so Sonarr searches again.",
-    "A multi-file Season Pack may be imported only when the selected files include the queued target episode. Never import unrelated episodes while leaving the target unresolved.",
-    "If a download does not contain the queued target episode, treat it as the wrong release and use remove_queue_item with removeFromClient=true, blocklist=true, skipRedownload=false, changeCategory=false so Sonarr can search again.",
+    "For a multi-file download, select every file whose upgradeAssessment is import: files for targets without a library file and genuine upgrades. Import them all in one proposal; do not pick only one episode of a season pack. The selection must include at least one queued target episode.",
+    "If no file of a multi-file download is importable because every target already has an equal or better file, use remove_queue_item with removeFromClient=true, blocklist=false, skipRedownload=false, changeCategory=false.",
+    "If a download does not contain any queued target episode, treat it as the wrong release and use remove_queue_item with removeFromClient=true, blocklist=true, skipRedownload=false, changeCategory=false so Sonarr can search again.",
     "Use sonarr_find_episodes to verify anime absolute numbers, scene numbers, season/episode mapping, and titles before resolving unexpected-episode warnings.",
     "For anime, an SxxExx or absolute number alone is never enough when the filename contains an episode title. The filename title must agree with the selected Sonarr episode title; if it names another known episode, remove and blocklist the release instead of importing it.",
     "Sonarr's candidate episode ids are Sonarr's current guess; you may override them in selectedImports when the warning and Sonarr episode lookup show the file should import as different episode ids.",
@@ -211,34 +214,18 @@ ${JSON.stringify(candidates.map(compactCandidate), null, 2)}
 Active Dub Oracle context:
 ${dubVerdict ? JSON.stringify(dubVerdict, null, 2) : "No active Dub Oracle verdict is available for this series."}
 
-Rules:
+Rules (the system prompt holds the full contract; these are the points that most often decide this case):
 - Read Sonarr's statusMessages first. They describe the actual failure mode.
-- Always call sonarr_get_upgrade_context before the proposal tool, even when the only warning is sample detection. The initial payload does not say whether a library file already exists.
 - When Sonarr's only rejection is the TBA episode title and/or future air date, propose import_candidates if the candidate belongs to the same series and its exact SYYYYE... numbering maps to the queued Sonarr episode id. A future air date alone is not blocking.
-- The TBA exception never overrides sample, Blu-ray disc structure, conflicting episode identity, wrong-series, language, or quality safety rules.
-- Use sonarr_find_episodes when Sonarr mentions an unexpected episode, anime absolute numbers, or scene numbering.
 - Compare Sonarr's target episode ids, the queue folder/title, the candidate filename/title, and Sonarr's episode lookup before deciding.
-- For anime, never trust numbering alone when the filename contains a recognizable episode title. The filename title must match the selected Sonarr episode title; if it matches another episode, remove and blocklist instead of importing.
-- Prefer candidates whose languages include German when several usable candidates exist. Candidates with known non-German language metadata are acceptable fallbacks only when the mapped target does not already have German audio.
-- Do not propose remove_queue_item only because no candidate includes German.
-- If the Active Dub Oracle context has confidence greater than 0.6, use only the exact perSeason verdict for each candidate's season when perSeason is non-empty; that season verdict overrides the global series verdict. If perSeason has no entry for the target season, treat the Oracle as unavailable for that season and never fall back to the global verdict. A relevant exists verdict means German audio is obtainable.
 - For a relevant verified exists verdict, reject every candidate with languageMetadataPresent=true and hasGermanAudio=false even if it is higher quality or the existing file is English-only or missing. Propose remove_queue_item with queueRemovalOptions { removeFromClient: true, blocklist: true, skipRedownload: false, changeCategory: false } so Sonarr searches for a German release. This rule takes precedence over the ordinary non-German fallback and quality-upgrade rules.
-- If the Dub Oracle context is absent, expired, not above 0.6 confidence, not exists for the target season, or the candidate language metadata is absent, do not infer this block from the Oracle; use the other evidence and normal rules.
 - If a candidate has languageMetadataPresent=true and hasGermanAudio=false while the mapped current file has hasGermanAudio=true, propose remove_queue_item with queueRemovalOptions { removeFromClient: true, blocklist: true, skipRedownload: true, changeCategory: false }. Block the exact bad release but do not start a replacement search because the library target is already satisfied. Do not import it, use needs_review, or treat it as an ordinary non-upgrade.
-- If candidate language metadata is absent, use needs_review; absence of metadata does not prove absence of German audio.
+- If the Dub Oracle context is absent, expired, not above 0.6 confidence, not exists for the target season, or the candidate language metadata is absent, do not infer a block from the Oracle; use the other evidence and normal rules.
 - A Sonarr "Not a quality revision upgrade" rejection is not blocking when all of these facts are established: the candidate maps exactly to the queued episode, it adds German audio to a current file without German, its quality is allowed by the profile, and its custom-format score is materially higher. In that case propose import_candidates with the exact selectedImports mapping; this is the intended German-audio upgrade, not ambiguity.
-- If Sonarr's upgrade context shows the existing file is already better and the candidate is otherwise valid, propose remove_queue_item with queueRemovalOptions { removeFromClient: true, blocklist: false, skipRedownload: false, changeCategory: false }. Do not blocklist these ordinary non-upgrades.
-- If the release is unsuitable or unwanted, such as wrong episode, wrong series, missing usable video files, or disc structure, propose remove_queue_item with queueRemovalOptions { removeFromClient: true, blocklist: true, skipRedownload: false, changeCategory: false } so Sonarr searches again.
-- You are allowed to import a candidate using episode ids different from Sonarr's parsed candidate ids if your Sonarr lookup supports that mapping.
-- For multi-file Season Pack candidates from the same download, you may select multiple safe candidates only when the selected files include the queued target episode. Never import a pack that leaves the queued target unresolved merely because it contains other valid monitored episodes.
-- If none of the physical files maps to the queued target after Sonarr lookup, propose remove_queue_item with queueRemovalOptions { removeFromClient: true, blocklist: true, skipRedownload: false, changeCategory: false } so Sonarr searches for the correct release.
-- Because blocklisting removes the whole download, use needs_review for a mixed Season Pack that contains both safe imports and a non-German-over-German conflict; do not discard safe files automatically.
+- Multi-file download: targetEpisodeIds lists every queued episode. Select every candidate whose upgradeAssessment from sonarr_get_upgrade_context is import, leave out files marked skip or blocked, and import them together. Unselected non-upgrade files are removed from the client automatically after the import; files blocked by a German-over-non-German conflict are simply not selected. Only when nothing is importable, propose remove_queue_item with queueRemovalOptions { removeFromClient: true, blocklist: false, skipRedownload: false, changeCategory: false }.
 - Put the exact import mapping in selectedImports: candidateId plus the Sonarr episode ids to import the file as.
 - Do not import if you cannot explain why the selected file and selected episode ids are the correct pair.
 - If one real episode file and one sample are present, select only the real episode file and list the sample id in sampleCandidateIds.
-- Do not select sample-like candidates even if Sonarr guessed an episode.
-- Do not import Blu-ray disc structure chunks such as BDMV/STREAM/*.m2ts.
-- If all candidates are Blu-ray disc structure chunks, use remove_queue_item.
 - Use needs_review for genuinely blocking Sonarr rejections or unclear episode/series mapping, but do not classify the explicit TBA/future-air-date or German-audio quality-revision exceptions above as blocking.
 - Call propose_sonarr_resolution now.`;
 }

@@ -133,6 +133,57 @@ export function queueIssueType(item: QueueItem): string {
   return item.trackedDownloadStatus ?? item.status ?? "queue";
 }
 
+function uniqueNumbers(values: number[]): number[] {
+  return [...new Set(values)];
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values.filter(Boolean))];
+}
+
+/** "S02E01 … S02E29 (29 episodes)" for packs, the plain list for short items. */
+export function summarizeSeasonEpisodes(parts: string[]): string | undefined {
+  const unique = uniqueStrings(parts);
+  if (unique.length === 0) return undefined;
+  if (unique.length <= 3) return unique.join(", ");
+  return `${unique[0]} … ${unique.at(-1)} (${unique.length} episodes)`;
+}
+
+/**
+ * Sonarr lists a multi-episode download (season pack) as one queue row per
+ * episode that all share a downloadId. The fixer treats the download as the
+ * unit of work: one item whose episode ids are the union of every row.
+ * The primary row keeps its id so existing analyses and routes stay valid.
+ */
+export function mergeDownloadRows<T extends QueueItem>(primary: T, rows: T[]): T {
+  const siblings = rows.filter(
+    (row) =>
+      row.id !== primary.id &&
+      row.service === primary.service &&
+      primary.downloadId !== undefined &&
+      row.downloadId === primary.downloadId,
+  );
+  if (siblings.length === 0) {
+    return { ...primary, queueItemIds: [primary.id] };
+  }
+  const ordered = [primary, ...siblings].sort((a, b) => a.id - b.id);
+  const all = [primary, ...siblings];
+  const seasonEpisodeParts = ordered.flatMap((row) =>
+    row.seasonEpisode ? row.seasonEpisode.split(",").map((part) => part.trim()) : [],
+  );
+  return {
+    ...primary,
+    queueItemIds: ordered.map((row) => row.id),
+    episodeIds: uniqueNumbers(ordered.flatMap((row) => row.episodeIds)),
+    absoluteEpisodeNumbers: uniqueNumbers(ordered.flatMap((row) => row.absoluteEpisodeNumbers)),
+    episodeLabels: uniqueStrings(ordered.flatMap((row) => row.episodeLabels)),
+    seasonEpisode: summarizeSeasonEpisodes(seasonEpisodeParts),
+    statusMessages: uniqueStrings(all.flatMap((row) => row.statusMessages)),
+    isInProgress: all.some((row) => row.isInProgress === true),
+    canAnalyze: all.every((row) => row.canAnalyze),
+  };
+}
+
 // ============ types ============
 
 export type FixerQueueItem = QueueItem & { issueType: string };
@@ -185,8 +236,11 @@ function serviceName(service: MediaService): string {
   return service === "radarr" ? "Radarr" : "Sonarr";
 }
 
-function itemKey(service: MediaService, queueItemId: number): string {
-  return `${service}:${queueItemId}`;
+/** One analysis lock per download, so sibling rows of a pack never run twice. */
+function unitKey(item: Pick<QueueItem, "service" | "id" | "downloadId">): string {
+  return item.downloadId
+    ? `${item.service}:dl:${item.downloadId}`
+    : `${item.service}:id:${item.id}`;
 }
 
 /** Ported from sonarr_fixer ipc.ts: analysis result when candidates cannot load. */
@@ -204,6 +258,29 @@ function candidateLoadFailure(queueItem: QueueItem, error: unknown): AnalysisRes
 
 function resultStatus(proposal: ResolutionProposal, validation: ValidationResult) {
   return proposal.action === "needs_review" || !validation.ok ? "needs_review" : "proposal";
+}
+
+type ImportHistoryBase = {
+  service: MediaService;
+  itemLabel: string;
+  action: FixerHistoryAction;
+  sourceKind: FixerHistorySourceKind;
+  confidence: number;
+  analysisId: string;
+};
+
+/** Restricts a proposal to a user-chosen subset of its candidates. */
+function narrowProposal(
+  proposal: ResolutionProposal,
+  candidateIds: string[] | undefined,
+): ResolutionProposal {
+  if (!candidateIds) return proposal;
+  const subset = new Set(candidateIds);
+  return {
+    ...proposal,
+    selectedCandidateIds: proposal.selectedCandidateIds.filter((id) => subset.has(id)),
+    selectedImports: proposal.selectedImports.filter((si) => subset.has(si.candidateId)),
+  };
 }
 
 export class FixerService {
@@ -450,7 +527,7 @@ export class FixerService {
         `Queue item ${queueItemId} was not found in the ${serviceName(service)} queue. Refresh the queue.`,
       );
     }
-    return item;
+    return mergeDownloadRows(item, this.queueCache?.items ?? []);
   }
 
   private async currentQueueItem(
@@ -460,12 +537,15 @@ export class FixerService {
   ): Promise<FixerQueueItem | undefined> {
     try {
       const items = await this.requireClient(service).listQueue({ includeInProgress: true });
-      const item = items.find((entry) =>
+      const rows = items.filter((entry) =>
         downloadId ? entry.downloadId === downloadId : entry.id === queueItemId,
       );
-      if (item?.isInProgress)
+      const primary = rows.find((entry) => entry.id === queueItemId) ?? rows[0];
+      if (!primary) return undefined;
+      const merged = mergeDownloadRows(primary, rows);
+      if (merged.isInProgress)
         throw new Error("Download is still in progress; reanalyze when complete.");
-      return item ? { ...item, issueType: queueIssueType(item) } : undefined;
+      return { ...merged, issueType: queueIssueType(merged) };
     } catch (error) {
       throw new Error(`Cannot verify current queue: ${errorMessage(error)}`);
     }
@@ -528,7 +608,7 @@ export class FixerService {
     const queueItem = await this.requireQueueItem(service, queueItemId);
     const retryAt = this.providerRetryAt();
     if (retryAt) throw new FixerProviderPausedError(retryAt);
-    const key = itemKey(service, queueItemId);
+    const key = unitKey(queueItem);
     this.activeByItem.get(key)?.controller.abort();
 
     const controller = new AbortController();
@@ -545,6 +625,7 @@ export class FixerService {
         itemLabel: queueItemLabel(queueItem),
         status: "running",
         events: [],
+        targetEpisodeIds: queueItem.episodeIds,
       })
       .run();
 
@@ -582,7 +663,12 @@ export class FixerService {
   }
 
   cancel(service: MediaService, queueItemId: number): boolean {
-    const active = this.activeByItem.get(itemKey(service, queueItemId));
+    const cached = this.queueCache?.items.find(
+      (item) => item.service === service && item.id === queueItemId,
+    );
+    const active =
+      this.activeByItem.get(unitKey(cached ?? { service, id: queueItemId })) ??
+      this.activeByItem.get(unitKey({ service, id: queueItemId }));
     if (!active) {
       return false;
     }
@@ -755,7 +841,7 @@ export class FixerService {
         "pi",
         `Pi proposal: ${result.proposal.action} (${Math.round(result.proposal.confidence * 100)}%).`,
       );
-      return finish("completed", result);
+      return finish("completed", await this.preflightResult(client, queueItem, result, step));
     } catch (error) {
       if (controller.signal.aborted) {
         return finish("cancelled", undefined, "Analysis was cancelled.");
@@ -765,6 +851,46 @@ export class FixerService {
       step("error", "fixer", `Analysis failed: ${message}`);
       return finish("failed", undefined, message);
     }
+  }
+
+  /**
+   * Runs the arr preflight (language, anime title, upgrade checks) while the
+   * analysis is still fresh, so a proposal that the apply step would refuse is
+   * shown as needs_review instead of "would auto-import" followed by an error.
+   */
+  private async preflightResult(
+    client: FixerClientPort,
+    queueItem: FixerQueueItem,
+    result: AnalysisResult,
+    step: (level: "info" | "warning" | "error", source: "fixer", message: string) => void,
+  ): Promise<AnalysisResult> {
+    if (result.proposal.action !== "import_candidates" || !result.validation.ok) {
+      return result;
+    }
+    let message: string | undefined;
+    try {
+      const preflight = await client.preflightImportProposal(
+        queueItem,
+        result.candidates,
+        result.proposal,
+      );
+      if (!preflight.ok) message = preflight.message;
+    } catch (error) {
+      message = `Preflight failed: ${errorMessage(error)}`;
+    }
+    if (!message) {
+      step("info", "fixer", "Import preflight passed.");
+      return result;
+    }
+    step("warning", "fixer", `Import preflight refused the proposal: ${message}`);
+    return {
+      ...result,
+      validation: {
+        ok: false,
+        issues: [...result.validation.issues, { severity: "error", message }],
+      },
+      status: "needs_review",
+    };
   }
 
   // ============ mutations (server-side dry-run gate) ============
@@ -838,18 +964,9 @@ export class FixerService {
     if (proposal.action === "remove_queue_item") {
       return this.applyRemovalProposal(row, proposal, analysisId, opts);
     }
-    const candidates = (row.candidates ?? []) as ManualImportCandidate[];
-    let effective = proposal;
-    if (candidateIds) {
-      const subset = new Set(candidateIds);
-      effective = {
-        ...proposal,
-        selectedCandidateIds: proposal.selectedCandidateIds.filter((id) => subset.has(id)),
-        selectedImports: proposal.selectedImports.filter((si) => subset.has(si.candidateId)),
-      };
-      if (effective.selectedCandidateIds.length === 0) {
-        return { ok: false, dryRun: false, message: "No proposed candidates selected." };
-      }
+    const effective = narrowProposal(proposal, candidateIds);
+    if (candidateIds && effective.selectedCandidateIds.length === 0) {
+      return { ok: false, dryRun: false, message: "No proposed candidates selected." };
     }
     if (effective.action !== "import_candidates") {
       return {
@@ -859,17 +976,14 @@ export class FixerService {
       };
     }
 
-    let client: FixerClientPort;
-    let queueItem: FixerQueueItem;
+    let target: { client: FixerClientPort; queueItem: FixerQueueItem };
     try {
-      client = this.requireClient(row.service);
-      const current = await this.currentQueueItem(row.service, row.queueItemId, row.downloadId);
-      if (!current) throw new Error("Download is no longer in the queue. Refresh before applying.");
-      if (this.autoApplyDisabled(opts)) throw new Error("Auto-apply was disabled; no change made.");
-      queueItem = current;
+      target = await this.resolveApplyTarget(row, opts);
     } catch (error) {
       return { ok: false, dryRun: false, message: errorMessage(error) };
     }
+    const { client, queueItem } = target;
+    const candidates = (row.candidates ?? []) as ManualImportCandidate[];
 
     // The resolver may use sonarr_find_episodes to map anime/scene-numbered files
     // to valid episode ids that are not present in Sonarr's initially parsed
@@ -894,50 +1008,87 @@ export class FixerService {
       };
     }
 
-    const sourceKind = opts.sourceKind ?? "ai_user";
     const base = {
       service: row.service,
       itemLabel: row.itemLabel,
       action: "import" as FixerHistoryAction,
-      sourceKind,
+      sourceKind: opts.sourceKind ?? "ai_user",
       confidence: opts.confidence ?? effective.confidence,
       analysisId,
     };
-    if (this.settings.get().dryRun) {
-      try {
-        const preflight = await client.preflightImportProposal(queueItem, candidates, effective);
-        if (!preflight.ok) {
-          return { ok: false, dryRun: true, message: preflight.message };
-        }
-      } catch (error) {
-        return {
-          ok: false,
-          dryRun: true,
-          message: `Dry-run preflight failed: ${errorMessage(error)}`,
-        };
+    return this.settings.get().dryRun
+      ? this.simulateImport(client, row, queueItem, candidates, effective, base)
+      : this.executeImport(client, row, queueItem, candidates, effective, base, opts);
+  }
+
+  /** Live queue lookup for an apply, using the target set the analysis reasoned about. */
+  private async resolveApplyTarget(
+    row: FixerAnalysisRow,
+    opts: FixerActionOpts,
+  ): Promise<{ client: FixerClientPort; queueItem: FixerQueueItem }> {
+    const client = this.requireClient(row.service);
+    const current = await this.currentQueueItem(row.service, row.queueItemId, row.downloadId);
+    if (!current) throw new Error("Download is no longer in the queue. Refresh before applying.");
+    if (this.autoApplyDisabled(opts)) throw new Error("Auto-apply was disabled; no change made.");
+    // Validate against the target set the analysis actually reasoned about,
+    // not whichever sibling row Sonarr happens to list first today.
+    const targetEpisodeIds = row.targetEpisodeIds ?? [];
+    const queueItem =
+      targetEpisodeIds.length > 0 ? { ...current, episodeIds: targetEpisodeIds } : current;
+    return { client, queueItem };
+  }
+
+  private async simulateImport(
+    client: FixerClientPort,
+    row: FixerAnalysisRow,
+    queueItem: FixerQueueItem,
+    candidates: ManualImportCandidate[],
+    effective: ResolutionProposal,
+    base: ImportHistoryBase,
+  ): Promise<FixerApplyOutcome> {
+    try {
+      const preflight = await client.preflightImportProposal(queueItem, candidates, effective);
+      if (!preflight.ok) {
+        return { ok: false, dryRun: true, message: preflight.message };
       }
-      const historyId = recordFixerHistory(this.db, {
-        ...base,
-        at: this.now(),
-        dryRun: true,
-        result: "simulated",
-        detail: {
-          wouldHave: {
-            action: "import_candidates",
-            queueItemId: row.queueItemId,
-            candidateIds: effective.selectedCandidateIds,
-            selectedImports: effective.selectedImports,
-          },
-        },
-      });
+    } catch (error) {
       return {
-        ok: true,
+        ok: false,
         dryRun: true,
-        historyId,
-        message: `Dry-run: would import ${effective.selectedCandidateIds.length} candidate(s) for ${row.itemLabel}.`,
+        message: `Dry-run preflight failed: ${errorMessage(error)}`,
       };
     }
+    const historyId = recordFixerHistory(this.db, {
+      ...base,
+      at: this.now(),
+      dryRun: true,
+      result: "simulated",
+      detail: {
+        wouldHave: {
+          action: "import_candidates",
+          queueItemId: row.queueItemId,
+          candidateIds: effective.selectedCandidateIds,
+          selectedImports: effective.selectedImports,
+        },
+      },
+    });
+    return {
+      ok: true,
+      dryRun: true,
+      historyId,
+      message: `Dry-run: would import ${effective.selectedCandidateIds.length} candidate(s) for ${row.itemLabel}.`,
+    };
+  }
 
+  private async executeImport(
+    client: FixerClientPort,
+    row: FixerAnalysisRow,
+    queueItem: FixerQueueItem,
+    candidates: ManualImportCandidate[],
+    effective: ResolutionProposal,
+    base: ImportHistoryBase,
+    opts: FixerActionOpts,
+  ): Promise<FixerApplyOutcome> {
     try {
       const started = await client.applyImportProposal(
         queueItem,
@@ -961,7 +1112,7 @@ export class FixerService {
         },
       });
       if (result.ok) {
-        this.dropFromQueueCache(row.service, row.queueItemId);
+        this.dropFromQueueCache(row.service, row.queueItemId, row.downloadId);
         if (client.verifyImportApplied) {
           await this.refreshQueue();
         }

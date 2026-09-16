@@ -47,6 +47,12 @@ export interface QueueItem {
   isInProgress?: boolean;
   size?: number;
   outputPath?: string;
+  /**
+   * Every Sonarr queue row that belongs to this download. Sonarr lists a
+   * season pack as one row per episode; the fixer merges them into one item
+   * whose episodeIds cover all queued targets.
+   */
+  queueItemIds?: number[];
   episodeIds: number[];
   absoluteEpisodeNumbers: number[];
   episodeLabels: string[];
@@ -157,10 +163,20 @@ export interface ApplyImportInput {
   proposal: ResolutionProposal;
 }
 
+/**
+ * What happens to files of the same download that were not selected:
+ * - none: every candidate was selected.
+ * - remove: every unselected file is a verified non-upgrade and the download
+ *   is removed from the client once the import command completes.
+ * - keep: some unselected files need a human decision; the queue rows stay.
+ */
+export type LeftoverDisposition = "none" | "remove" | "keep";
+
 export interface ApplyResult {
   ok: boolean;
   message: string;
   commandId?: number;
+  leftover?: LeftoverDisposition;
 }
 
 export interface QueueRemovalOptions {

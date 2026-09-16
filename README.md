@@ -24,8 +24,12 @@ applying them, even with auto-run off. Failed applications appear in the queue w
 and a reanalysis/retry action. Manual review remains required below the configured confidence
 thresholds or when no usable import candidates are available.
 
-Version 0.5.1 adds SQLite indexes for Fixer recovery lookups. Startup applies the migration;
-keep a pre-upgrade database backup.
+Season packs are handled as one download: the Fixer merges Sonarr's per-episode queue rows,
+decides file by file which episodes are missing or upgrades, imports those together, and removes
+verified non-upgrade leftovers and samples from the client without blocklisting.
+
+Version 0.5.2 stores the queued episode set on each Fixer analysis; 0.5.1 added SQLite indexes for
+recovery lookups. Startup applies the migrations; keep a pre-upgrade database backup.
 
 For an unconfigured local start, copy `.env.example`, run `pnpm build`, then
 `NODE_ENV=production pnpm start`. Optional integrations are omitted in the template.

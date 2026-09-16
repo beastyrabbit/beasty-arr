@@ -992,3 +992,127 @@ it("coalesces a large stream and flushes the final event and result", async () =
   expect(row?.events?.length).toBe(500);
   expect(JSON.stringify(row?.events)).toContain("analysis text");
 });
+
+describe("FixerService season packs", () => {
+  function packRows() {
+    return [1, 2, 3].map((id) =>
+      makeQueueItem(id, {
+        downloadId: "pack",
+        title: "Show.S01.1080p.WEB-DL",
+        statusMessages: ["Found matching series via grab history"],
+      }),
+    );
+  }
+
+  it("analyzes the whole download and applies against every queued episode, whatever row Sonarr lists first", async () => {
+    const harness = makeHarness();
+    harness.sonarr.queue = packRows();
+    harness.sonarr.candidatesByItem.set(3, [
+      makeCandidate("candidate_1", [101]),
+      makeCandidate("candidate_2", [102]),
+      makeCandidate("candidate_3", [103]),
+    ]);
+    harness.runnerCtl.setScript(() =>
+      importProposal("candidate_3", [103], {
+        selectedCandidateIds: ["candidate_2", "candidate_3"],
+        selectedImports: [
+          { candidateId: "candidate_2", episodeIds: [102] },
+          { candidateId: "candidate_3", episodeIds: [103] },
+        ],
+      }),
+    );
+
+    const outcome = await harness.svc.analyzeAndWait("sonarr", 3);
+    expect(outcome.result?.status).toBe("proposal");
+    expect(harness.runnerCtl.calls[0]?.prompt).toContain(
+      '"targetEpisodeIds": [\n    101,\n    102,\n    103\n  ]',
+    );
+    expect(harness.svc.getAnalysis(outcome.analysisId)?.targetEpisodeIds).toEqual([101, 102, 103]);
+    expect(harness.svc.getAnalysis(outcome.analysisId)?.itemLabel).toBe(
+      "Show S01E01, S01E02, S01E03",
+    );
+
+    // Sonarr now lists a sibling row first; the old lookup would have made
+    // S01E01 the only "queued target" and refused the import.
+    harness.sonarr.queue = packRows();
+    harness.settings.update({ dryRun: false });
+    const result = await harness.svc.apply(outcome.analysisId);
+
+    expect(result.ok).toBe(true);
+    expect(harness.sonarr.applyCalls[0]?.queueItem.episodeIds).toEqual([101, 102, 103]);
+    expect(harness.sonarr.applyCalls[0]?.queueItem.queueItemIds).toEqual([1, 2, 3]);
+    expect((await harness.svc.getQueue()).items).toHaveLength(0);
+  });
+
+  it("applies against the recorded target set even when Sonarr exposes new sibling rows later", async () => {
+    const harness = makeHarness();
+    harness.sonarr.queue = packRows();
+    harness.sonarr.candidatesByItem.set(1, [makeCandidate("candidate_1", [101])]);
+    harness.runnerCtl.setScript(() => importProposal("candidate_1", [101]));
+    const outcome = await harness.svc.analyzeAndWait("sonarr", 1);
+
+    harness.sonarr.queue = [
+      ...packRows(),
+      makeQueueItem(4, { downloadId: "pack", episodeIds: [104], seasonEpisode: "S01E04" }),
+    ];
+    harness.settings.update({ dryRun: false });
+    const result = await harness.svc.apply(outcome.analysisId);
+
+    expect(result.ok).toBe(true);
+    expect(harness.sonarr.applyCalls[0]?.queueItem.episodeIds).toEqual([101, 102, 103]);
+    expect(harness.sonarr.applyCalls[0]?.queueItem.queueItemIds).toEqual([1, 2, 3, 4]);
+  });
+
+  it("still refuses a pack whose selection covers none of the queued episodes", async () => {
+    const harness = makeHarness();
+    harness.sonarr.queue = packRows();
+    harness.sonarr.candidatesByItem.set(1, [makeCandidate("candidate_9", [999])]);
+    harness.runnerCtl.setScript(() => importProposal("candidate_9", [999]));
+
+    const outcome = await harness.svc.analyzeAndWait("sonarr", 1);
+
+    expect(outcome.result?.status).toBe("needs_review");
+    expect(outcome.result?.validation.issues.map((issue) => issue.message).join(" ")).toContain(
+      "queued target episode",
+    );
+  });
+
+  it("marks a proposal needs_review when the arr preflight refuses it during analysis", async () => {
+    const harness = makeHarness();
+    harness.sonarr.queue = [makeQueueItem(1)];
+    harness.sonarr.candidatesByItem.set(1, [makeCandidate("candidate_1", [101])]);
+    harness.sonarr.preflightResult = {
+      ok: false,
+      message: "Blocked non-upgrade: candidate_1 would not improve the library.",
+    };
+    harness.runnerCtl.setScript(() => importProposal("candidate_1", [101]));
+
+    const outcome = await harness.svc.analyzeAndWait("sonarr", 1);
+
+    expect(outcome.result?.status).toBe("needs_review");
+    expect(outcome.result?.validation.ok).toBe(false);
+    expect(outcome.result?.validation.issues.at(-1)?.message).toContain("Blocked non-upgrade");
+    expect(harness.svc.shouldProcess({ ...makeQueueItem(1), issueType: "quality" })).toBe(false);
+  });
+
+  it("locks one analysis per download and cancels it through any sibling row", async () => {
+    const { svc, sonarr, runnerCtl } = makeHarness();
+    sonarr.queue = packRows();
+    sonarr.candidatesByItem.set(3, [makeCandidate("candidate_3", [103])]);
+    sonarr.candidatesByItem.set(1, [makeCandidate("candidate_3", [103])]);
+    runnerCtl.setScript(
+      (req) =>
+        new Promise((_resolve, reject) => {
+          req.signal?.addEventListener("abort", () => reject(new Error("aborted")), {
+            once: true,
+          });
+        }),
+    );
+
+    const first = await svc.analyze("sonarr", 3);
+    const second = await svc.analyze("sonarr", 1);
+    expect((await svc.waitForAnalysis(first.analysisId)).status).toBe("cancelled");
+    expect(svc.cancel("sonarr", 2)).toBe(true);
+    expect((await svc.waitForAnalysis(second.analysisId)).status).toBe("cancelled");
+  });
+});
