@@ -190,7 +190,7 @@ describe("assessCandidateUpgrade", () => {
 });
 
 describe("assessImportMappings", () => {
-  it("aggregates per file: blocked wins, then import, skip only when every target is satisfied", () => {
+  it("aggregates per file: blocked, then unverified, then import; skip only when every target is satisfied", () => {
     const base: ManualImportCandidate = {
       id: "candidate_1",
       service: "sonarr",
