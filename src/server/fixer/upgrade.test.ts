@@ -229,5 +229,13 @@ describe("assessImportMappings", () => {
       profilesById,
     });
     expect(satisfied?.assessment.decision).toBe("skip");
+
+    const [partlyUnverified] = assessImportMappings({
+      imports: [{ candidateId: "candidate_1", episodeIds: [102, 103] }],
+      candidatesById: new Map([["candidate_1", base]]),
+      episodesById,
+      profilesById,
+    });
+    expect(partlyUnverified?.assessment.decision).toBe("unverified");
   });
 });

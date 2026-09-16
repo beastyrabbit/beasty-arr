@@ -774,6 +774,26 @@ describe("SonarrClient pack imports", () => {
     expect(result.message).toContain("quality profile is unavailable");
   });
 
+  it("refuses a multi-episode file when any of its targets cannot be verified", async () => {
+    const { fetchMock } = packFetch({
+      episodes: [packEpisode(101, null)],
+      queueRows: [1],
+    });
+
+    const result = await client(fetchMock).preflightImportProposal(
+      queueItem({ episodeIds: [101, 102], seriesId: 5, downloadId: "pack" }),
+      [{ ...packCandidate(1, 101), episodeIds: [101, 102] }],
+      {
+        ...packProposal([["candidate_1", 101]]),
+        selectedImports: [{ candidateId: "candidate_1", episodeIds: [101, 102] }],
+      },
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("Cannot verify");
+    expect(result.message).toContain("did not return the target episode");
+  });
+
   it("refuses a selected file that is not an upgrade for its target", async () => {
     const { fetchMock } = packFetch({
       episodes: [packEpisode(101, 125)],
