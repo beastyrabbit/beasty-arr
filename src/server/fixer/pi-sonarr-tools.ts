@@ -12,6 +12,7 @@ import type {
   SonarrQualityProfileRecord,
 } from "../arr/sonarr-client.js";
 import { compactCandidate, episodeLabel } from "../arr/sonarr-format.js";
+import { assessImportMappings } from "./upgrade.js";
 
 type SonarrToolEvent = {
   type: "info" | "warning" | "error" | "pi" | "sonarr";
@@ -327,13 +328,14 @@ export function createSonarrLookupTools({
     name: "sonarr_get_upgrade_context",
     label: "Get Upgrade Context",
     description:
-      "Required before every final resolution: read current episode files, explicit German-audio flags, quality profile scoring, and custom formats before deciding whether any candidate is safe to import or should be removed.",
+      "Required before every final resolution: read current episode files, explicit German-audio flags, quality profile scoring, and custom formats, plus a deterministic upgradeAssessment (import/skip/blocked/unverified) for every candidate file against the episodes Sonarr mapped it to.",
     promptSnippet:
       "Use sonarr_get_upgrade_context when Sonarr mentions custom formats, quality profiles, upgrade rejections, or existing files.",
     promptGuidelines: [
       "Call this for every queue analysis before proposing a resolution, even when the only warning mentions sample detection.",
       "A candidate explicitly lacking German must never replace a current file whose hasGermanAudio field is true.",
       "Compare the candidate languages/custom format score with the existing episode file and profile scoring.",
+      "The upgradeAssessment per candidate is the same check the import preflight enforces: select the files marked import, leave out the files marked skip or blocked, and use your own lookup only when Sonarr mapped a file to the wrong episode.",
     ],
     parameters: Type.Object({
       episodeIds: Type.Optional(
@@ -350,7 +352,13 @@ export function createSonarrLookupTools({
     }),
     executionMode: "parallel" as const,
     async execute(_toolCallId, params) {
-      const episodeIds = params.episodeIds?.length ? params.episodeIds : queueItem.episodeIds;
+      const candidatesNow = getCandidates();
+      const episodeIds = [
+        ...new Set([
+          ...(params.episodeIds?.length ? params.episodeIds : queueItem.episodeIds),
+          ...candidatesNow.flatMap((candidate) => candidate.episodeIds),
+        ]),
+      ];
       const [episodes, qualityProfiles, customFormats] = await Promise.all([
         episodeIds.length
           ? client.getEpisodes({ episodeIds, includeSeries: true, includeEpisodeFile: true })
@@ -384,6 +392,30 @@ export function createSonarrLookupTools({
         }
       }
 
+      const episodesById = new Map(
+        episodes.flatMap((episode) => (episode.id === undefined ? [] : [[episode.id, episode]])),
+      );
+      const profilesById = new Map(
+        qualityProfiles.flatMap((profile) =>
+          profile.id === undefined ? [] : [[profile.id, profile]],
+        ),
+      );
+      const upgradeAssessment = assessImportMappings({
+        imports: candidatesNow.map((candidate) => ({
+          candidateId: candidate.id,
+          episodeIds: candidate.episodeIds,
+        })),
+        candidatesById: new Map(candidatesNow.map((candidate) => [candidate.id, candidate])),
+        episodesById,
+        profilesById,
+      }).map(({ candidateId, episodeIds: mappedEpisodeIds, assessment }) => ({
+        candidateId,
+        relativePath: candidatesNow.find((candidate) => candidate.id === candidateId)?.relativePath,
+        episodeIds: mappedEpisodeIds,
+        decision: assessment.decision,
+        reason: assessment.reason,
+      }));
+
       const details = {
         queueItem: {
           id: queueItem.id,
@@ -391,6 +423,7 @@ export function createSonarrLookupTools({
           targetEpisodeIds: queueItem.episodeIds,
           statusMessages: queueItem.statusMessages,
         },
+        upgradeAssessment,
         targetEpisodes: episodes.map((episode) => ({
           ...compactEpisode(episode),
           series: episode.series

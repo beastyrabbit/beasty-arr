@@ -322,6 +322,8 @@ export const fixerAnalyses = sqliteTable(
     validation: text("validation", { mode: "json" }).$type<Record<string, unknown>>(),
     candidates: text("candidates", { mode: "json" }).$type<unknown[]>(),
     events: text("events", { mode: "json" }).$type<unknown[]>(),
+    /** Every queued episode id of the download at analysis time (season packs span many rows). */
+    targetEpisodeIds: text("target_episode_ids", { mode: "json" }).$type<number[]>(),
     error: text("error"),
     completedAt: integer("completed_at"),
   },

@@ -7,6 +7,13 @@ export interface ImportVerificationInput {
   downloadId?: string;
   getCommand: (id: number) => Promise<ArrCommandResource>;
   getQueueDownloadIds: () => Promise<Set<string>>;
+  /**
+   * Called once when the command completed but the download is still queued
+   * (a partial season-pack import). Return "removed" after removing the
+   * leftover download so polling continues until Sonarr drops it, or "kept" to
+   * accept the import and leave the remaining rows for a human.
+   */
+  onRemaining?: () => Promise<"removed" | "kept">;
   attempts?: number;
   intervalMs?: number;
 }
@@ -21,6 +28,7 @@ export async function verifyManualImport(input: ImportVerificationInput): Promis
   const attempts = input.attempts ?? 20;
   const intervalMs = input.intervalMs ?? 500;
 
+  let remainingHandled = false;
   try {
     for (let attempt = 0; attempt < attempts; attempt += 1) {
       const command =
@@ -45,8 +53,20 @@ export async function verifyManualImport(input: ImportVerificationInput): Promis
         return {
           ok: true,
           commandId: input.commandId,
-          message: `${input.serviceName} completed the ManualImport and removed the download from its queue.`,
+          message: remainingHandled
+            ? `${input.serviceName} completed the ManualImport; the remaining non-upgrade files were removed with the download.`
+            : `${input.serviceName} completed the ManualImport and removed the download from its queue.`,
         };
+      }
+      if (commandCompleted && input.onRemaining && !remainingHandled) {
+        remainingHandled = true;
+        if ((await input.onRemaining()) === "kept") {
+          return {
+            ok: true,
+            commandId: input.commandId,
+            message: `${input.serviceName} completed the ManualImport. Files that were not selected stay in the queue for review.`,
+          };
+        }
       }
 
       if (attempt + 1 < attempts && intervalMs > 0) {

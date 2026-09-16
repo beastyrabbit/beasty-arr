@@ -76,3 +76,41 @@ describe("verifyManualImport", () => {
     expect(result.message).toContain("did not complete and leave the queue");
   });
 });
+
+describe("verifyManualImport leftovers", () => {
+  it("removes leftover rows once the command completes and keeps polling until they clear", async () => {
+    const queues = [new Set(["download-3"]), new Set(["download-3"]), new Set<string>()];
+    const onRemaining = vi.fn(async () => "removed" as const);
+
+    const result = await verifyManualImport({
+      serviceName: "Sonarr",
+      commandId: 9,
+      downloadId: "download-3",
+      getCommand: async () => ({ status: "completed" }),
+      getQueueDownloadIds: async () => queues.shift() ?? new Set(),
+      onRemaining,
+      attempts: 3,
+      intervalMs: 0,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.message).toContain("non-upgrade files were removed");
+    expect(onRemaining).toHaveBeenCalledTimes(1);
+  });
+
+  it("accepts a completed partial import when the leftovers are kept for review", async () => {
+    const result = await verifyManualImport({
+      serviceName: "Sonarr",
+      commandId: 10,
+      downloadId: "download-4",
+      getCommand: async () => ({ status: "completed" }),
+      getQueueDownloadIds: async () => new Set(["download-4"]),
+      onRemaining: async () => "kept",
+      attempts: 1,
+      intervalMs: 0,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.message).toContain("stay in the queue for review");
+  });
+});

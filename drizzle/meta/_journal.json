@@ -85,6 +85,13 @@
       "when": 1788874969160,
       "tag": "0011_closed_chameleon",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1789558587689,
+      "tag": "0012_dizzy_sheva_callister",
+      "breakpoints": true
     }
   ]
 }

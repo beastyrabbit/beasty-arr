@@ -5,6 +5,9 @@ import type {
   ResolutionProposal,
 } from "../../shared/fixer-types.js";
 import {
+  realHouseDragonExistingEpisode,
+  realHouseDragonGermanUpgradeCandidate,
+  realHouseDragonGermanUpgradeQueueItem,
   realMentalistCandidate,
   realMentalistExistingEpisode,
   realMentalistQueueItem,
@@ -368,6 +371,9 @@ describe("SonarrClient", () => {
           },
         ]);
       }
+      if (String(url).endsWith("/api/v3/qualityprofile")) {
+        return jsonResponse([]);
+      }
       return new Response("not found", { status: 404, statusText: "Not Found" });
     });
 
@@ -388,6 +394,9 @@ describe("SonarrClient", () => {
     const fetchMock = vi.fn(async (url: string) => {
       if (String(url).includes("/api/v3/episode?")) {
         return jsonResponse([realMentalistExistingEpisode()]);
+      }
+      if (String(url).endsWith("/api/v3/qualityprofile")) {
+        return jsonResponse([]);
       }
       return new Response("not found", { status: 404, statusText: "Not Found" });
     });
@@ -439,6 +448,9 @@ describe("SonarrClient", () => {
           },
         ]);
       }
+      if (String(url).endsWith("/api/v3/qualityprofile")) {
+        return jsonResponse([]);
+      }
       if (String(url).endsWith("/api/v3/command")) {
         return jsonResponse({ id: 55 });
       }
@@ -454,8 +466,14 @@ describe("SonarrClient", () => {
     expect(result).toMatchObject({ ok: true, commandId: 55 });
   });
 
-  it("skips the existing-file lookup when the candidate includes German", async () => {
+  it("imports a German candidate for a target that has no file yet", async () => {
     const fetchMock = vi.fn(async (url: string) => {
+      if (String(url).includes("/api/v3/episode?")) {
+        return jsonResponse([{ id: 101, hasFile: false }]);
+      }
+      if (String(url).endsWith("/api/v3/qualityprofile")) {
+        return jsonResponse([]);
+      }
       if (String(url).endsWith("/api/v3/command")) {
         return jsonResponse({ id: 56 });
       }
@@ -473,10 +491,7 @@ describe("SonarrClient", () => {
       importProposal(),
     );
 
-    expect(result).toMatchObject({ ok: true, commandId: 56 });
-    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/api/v3/episode?"))).toBe(
-      false,
-    );
+    expect(result).toMatchObject({ ok: true, commandId: 56, leftover: "none" });
   });
 
   // ---- hunt-engine read methods ----
@@ -628,5 +643,240 @@ describe("SonarrClient", () => {
       "http://sonarr.local/api/v3/wanted/cutoff?page=1&pageSize=1",
       expect.any(Object),
     );
+  });
+});
+
+describe("SonarrClient pack imports", () => {
+  const profile = {
+    id: 6,
+    name: "HD-1080p",
+    upgradeAllowed: true,
+    cutoff: 3,
+    cutoffFormatScore: 10_000,
+    minUpgradeFormatScore: 1,
+    items: [
+      { quality: { id: 1, name: "HDTV-720p" }, allowed: true },
+      { quality: { id: 3, name: "WEBDL-1080p" }, allowed: true },
+    ],
+  };
+
+  function packCandidate(index: number, episodeId: number): ManualImportCandidate {
+    return {
+      id: `candidate_${index}`,
+      service: "sonarr",
+      path: `/downloads/pack/Show.S01E0${index}.mkv`,
+      relativePath: `Show.S01E0${index}.mkv`,
+      seriesId: 5,
+      episodeIds: [episodeId],
+      absoluteEpisodeNumbers: [],
+      episodeLabels: [`S01E0${index}`],
+      quality: { quality: { id: 3, name: "WEBDL-1080p" }, revision: { version: 1 } },
+      customFormatScore: 125,
+      languages: [{ id: 1, name: "English" }],
+      languageLabels: ["English"],
+      rejections: [],
+      isLikelySample: false,
+      downloadId: "pack",
+    };
+  }
+
+  function packEpisode(id: number, existingScore: number | null) {
+    return {
+      id,
+      seriesId: 5,
+      hasFile: existingScore !== null,
+      series: { id: 5, qualityProfileId: 6 },
+      ...(existingScore === null
+        ? {}
+        : {
+            episodeFile: {
+              relativePath: `Season 01/old-${id}.mkv`,
+              quality: { quality: { id: 3, name: "WEBDL-1080p" } },
+              customFormatScore: existingScore,
+              languages: [{ id: 1, name: "English" }],
+            },
+          }),
+    };
+  }
+
+  function packProposal(imports: Array<[string, number]>): ResolutionProposal {
+    return {
+      action: "import_candidates",
+      confidence: 0.95,
+      selectedCandidateIds: imports.map(([candidateId]) => candidateId),
+      selectedImports: imports.map(([candidateId, episodeId]) => ({
+        candidateId,
+        episodeIds: [episodeId],
+      })),
+      sampleCandidateIds: [],
+      reason: "Import the missing and upgraded episodes.",
+      issueSummary: "Series matched by id.",
+      evidence: [],
+      warnings: [],
+    };
+  }
+
+  function packFetch(options: { episodes: unknown[]; queueRows: number[] }) {
+    let queueRows = options.queueRows;
+    const deleted: string[] = [];
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      const target = String(url);
+      if (init?.method === "DELETE") {
+        deleted.push(target);
+        queueRows = [];
+        return new Response(null, { status: 200, statusText: "OK" });
+      }
+      if (target.includes("/api/v3/episode?")) return jsonResponse(options.episodes);
+      if (target.endsWith("/api/v3/qualityprofile")) return jsonResponse([profile]);
+      if (target.endsWith("/api/v3/command")) return jsonResponse({ id: 77 });
+      if (target.endsWith("/api/v3/command/77")) return jsonResponse({ status: "completed" });
+      if (target.includes("/api/v3/queue?")) {
+        return jsonResponse({
+          totalRecords: queueRows.length,
+          records: queueRows.map((id) => ({ id, downloadId: "pack", status: "completed" })),
+        });
+      }
+      return new Response("not found", { status: 404, statusText: "Not Found" });
+    });
+    return { fetchMock, deleted };
+  }
+
+  it("refuses a selected file that is not an upgrade for its target", async () => {
+    const { fetchMock } = packFetch({
+      episodes: [packEpisode(101, 125)],
+      queueRows: [1],
+    });
+
+    const result = await client(fetchMock).preflightImportProposal(
+      queueItem({ episodeIds: [101], seriesId: 5, downloadId: "pack" }),
+      [packCandidate(1, 101)],
+      packProposal([["candidate_1", 101]]),
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("Blocked non-upgrade");
+    expect(result.message).toContain("Show.S01E01.mkv");
+  });
+
+  it("imports the missing and upgraded files of a pack and removes the verified non-upgrade leftovers", async () => {
+    const { fetchMock, deleted } = packFetch({
+      episodes: [packEpisode(101, null), packEpisode(102, 50), packEpisode(103, 125)],
+      queueRows: [1, 2, 3],
+    });
+    const sonarr = client(fetchMock);
+    const target = queueItem({ episodeIds: [101, 102, 103], seriesId: 5, downloadId: "pack" });
+    const candidates = [packCandidate(1, 101), packCandidate(2, 102), packCandidate(3, 103)];
+
+    const started = await sonarr.applyImportProposal(
+      target,
+      candidates,
+      packProposal([
+        ["candidate_1", 101],
+        ["candidate_2", 102],
+      ]),
+    );
+    expect(started).toMatchObject({ ok: true, commandId: 77, leftover: "remove" });
+    const command = fetchMock.mock.calls.find(([url]) => String(url).endsWith("/api/v3/command"));
+    const body = JSON.parse(String(command?.[1]?.body)) as { files: Array<{ path: string }> };
+    expect(body.files.map((file) => file.path)).toEqual([
+      "/downloads/pack/Show.S01E01.mkv",
+      "/downloads/pack/Show.S01E02.mkv",
+    ]);
+
+    const verified = await sonarr.verifyImportApplied(target, started);
+
+    expect(verified.ok).toBe(true);
+    expect(verified.message).toContain("non-upgrade files were removed");
+    expect(deleted).toEqual([
+      "http://sonarr.local/api/v3/queue/1?removeFromClient=true&blocklist=false&skipRedownload=false&changeCategory=false",
+    ]);
+  });
+
+  it("fetches episodes and quality profiles once per preflight for selected and leftover files", async () => {
+    const { fetchMock } = packFetch({
+      episodes: [packEpisode(101, null), packEpisode(102, 125)],
+      queueRows: [1, 2],
+    });
+
+    const result = await client(fetchMock).preflightImportProposal(
+      queueItem({ episodeIds: [101, 102], seriesId: 5, downloadId: "pack" }),
+      [packCandidate(1, 101), packCandidate(2, 102)],
+      packProposal([["candidate_1", 101]]),
+    );
+
+    expect(result).toMatchObject({ ok: true, leftover: "remove" });
+    const urls = fetchMock.mock.calls.map(([url]) => String(url));
+    expect(urls.filter((url) => url.endsWith("/api/v3/qualityprofile"))).toHaveLength(1);
+    expect(urls.filter((url) => url.includes("includeEpisodeFile=true"))).toHaveLength(1);
+  });
+
+  it("discards an unselected sample with the download once the real files are imported", async () => {
+    const { fetchMock, deleted } = packFetch({
+      episodes: [packEpisode(101, null)],
+      queueRows: [1],
+    });
+    const sonarr = client(fetchMock);
+    const target = queueItem({ episodeIds: [101], seriesId: 5, downloadId: "pack" });
+    const sample: ManualImportCandidate = {
+      ...packCandidate(2, 101),
+      path: "/downloads/pack/Sample/Show.S01E01.sample.mkv",
+      relativePath: "Sample/Show.S01E01.sample.mkv",
+      isLikelySample: true,
+      sampleReason: "sample folder",
+    };
+
+    const started = await sonarr.applyImportProposal(
+      target,
+      [packCandidate(1, 101), sample],
+      packProposal([["candidate_1", 101]]),
+    );
+    expect(started).toMatchObject({ ok: true, leftover: "remove" });
+
+    const verified = await sonarr.verifyImportApplied(target, started);
+
+    expect(verified.ok).toBe(true);
+    expect(deleted).toHaveLength(1);
+  });
+
+  it("keeps leftovers for review when an unselected file is not a verified non-upgrade", async () => {
+    const { fetchMock, deleted } = packFetch({
+      episodes: [packEpisode(101, null), packEpisode(102, null)],
+      queueRows: [1, 2],
+    });
+    const sonarr = client(fetchMock);
+    const target = queueItem({ episodeIds: [101, 102], seriesId: 5, downloadId: "pack" });
+
+    const started = await sonarr.applyImportProposal(
+      target,
+      [packCandidate(1, 101), packCandidate(2, 102)],
+      packProposal([["candidate_1", 101]]),
+    );
+    expect(started).toMatchObject({ ok: true, leftover: "keep" });
+
+    const verified = await sonarr.verifyImportApplied(target, started);
+
+    expect(verified.ok).toBe(true);
+    expect(verified.message).toContain("stay in the queue for review");
+    expect(deleted).toEqual([]);
+  });
+
+  it("passes the captured House of the Dragon German upgrade through the deterministic check", async () => {
+    const { fetchMock } = packFetch({
+      episodes: [
+        {
+          ...realHouseDragonExistingEpisode(),
+          series: { ...realHouseDragonExistingEpisode().series, qualityProfileId: 6 },
+        },
+      ],
+      queueRows: [1],
+    });
+
+    const result = await client(fetchMock).preflightImportProposal(
+      realHouseDragonGermanUpgradeQueueItem(),
+      [realHouseDragonGermanUpgradeCandidate()],
+      packProposal([["candidate_1", 86_875]]),
+    );
+
+    expect(result).toMatchObject({ ok: true, leftover: "none" });
   });
 });
