@@ -38,7 +38,8 @@ episode id on the analysis, locks one analysis per download, and validates the
 apply against that recorded target set instead of whichever row Sonarr lists
 first. Each file gets a deterministic upgrade decision (missing target, quality,
 revision, custom format score, German audio added) that the AI sees in the
-upgrade context and that the Sonarr preflight enforces. Preflight now runs at
+upgrade context and that the Sonarr preflight enforces; a selected file whose
+upgrade cannot be verified from Sonarr's data is refused as well. Preflight now runs at
 the end of analysis, so a refused import shows as needs review rather than as an
 apply failure. After a partial pack import, leftovers that are verified
 non-upgrades or samples are removed from the client without blocklisting;

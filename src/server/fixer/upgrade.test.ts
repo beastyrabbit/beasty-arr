@@ -190,7 +190,7 @@ describe("assessCandidateUpgrade", () => {
 });
 
 describe("assessImportMappings", () => {
-  it("aggregates per file: blocked wins, then import, skip only when every target is satisfied", () => {
+  it("aggregates per file: blocked, then unverified, then import; skip only when every target is satisfied", () => {
     const base: ManualImportCandidate = {
       id: "candidate_1",
       service: "sonarr",
@@ -229,5 +229,13 @@ describe("assessImportMappings", () => {
       profilesById,
     });
     expect(satisfied?.assessment.decision).toBe("skip");
+
+    const [partlyUnverified] = assessImportMappings({
+      imports: [{ candidateId: "candidate_1", episodeIds: [102, 103] }],
+      candidatesById: new Map([["candidate_1", base]]),
+      episodesById,
+      profilesById,
+    });
+    expect(partlyUnverified?.assessment.decision).toBe("unverified");
   });
 });

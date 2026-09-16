@@ -289,8 +289,9 @@ export interface AssessedImport {
 
 /**
  * Aggregates per-episode assessments for one file. A file mapped to several
- * episodes is blocked if any target blocks it, imported if any target needs
- * it, skipped only when every target already has an equal or better file.
+ * episodes is blocked if any target blocks it, unverified if any target could
+ * not be checked, imported if any remaining target needs it, and skipped only
+ * when every target already has an equal or better file.
  */
 export function assessImportMappings(input: {
   imports: Array<{ candidateId: string; episodeIds: number[] }>;
@@ -318,16 +319,13 @@ export function assessImportMappings(input: {
     });
     const pick = (decision: UpgradeDecision) =>
       perEpisode.find((entry) => entry.decision === decision);
-    const assessment =
-      pick("blocked") ??
+    const assessment = pick("blocked") ??
+      pick("unverified") ??
       pick("import") ??
-      (perEpisode.length > 0 && perEpisode.every((item) => item.decision === "skip")
-        ? pick("skip")
-        : pick("unverified")) ??
-      ({
+      pick("skip") ?? {
         decision: "unverified",
         reason: "No episode ids to compare.",
-      } satisfies UpgradeAssessment);
+      };
     return { candidateId, episodeIds, assessment };
   });
 }

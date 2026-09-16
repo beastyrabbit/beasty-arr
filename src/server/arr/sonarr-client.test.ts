@@ -444,12 +444,28 @@ describe("SonarrClient", () => {
         return jsonResponse([
           {
             id: 101,
-            episodeFile: { relativePath: "Season 01/old.mkv", languages: [{ name: "English" }] },
+            series: { id: 5, qualityProfileId: 6 },
+            episodeFile: {
+              relativePath: "Season 01/old.mkv",
+              quality: { quality: { id: 1, name: "HDTV-720p" } },
+              languages: [{ name: "English" }],
+            },
           },
         ]);
       }
       if (String(url).endsWith("/api/v3/qualityprofile")) {
-        return jsonResponse([]);
+        return jsonResponse([
+          {
+            id: 6,
+            name: "HD-1080p",
+            upgradeAllowed: true,
+            cutoff: 3,
+            items: [
+              { quality: { id: 1, name: "HDTV-720p" }, allowed: true },
+              { quality: { id: 3, name: "WEBDL-1080p" }, allowed: true },
+            ],
+          },
+        ]);
       }
       if (String(url).endsWith("/api/v3/command")) {
         return jsonResponse({ id: 55 });
@@ -741,17 +757,46 @@ describe("SonarrClient pack imports", () => {
     return { fetchMock, deleted };
   }
 
-  it("refuses a selected file that is not an upgrade for its target", async () => {
-    const { fetchMock } = packFetch({
-      episodes: [packEpisode(101, 125)],
-      queueRows: [1],
-    });
-
-    const result = await client(fetchMock).preflightImportProposal(
+  /** Preflight of one selected file (candidate_1 → episode 101) against one target episode. */
+  function preflightSingleFile(episode: unknown) {
+    const { fetchMock } = packFetch({ episodes: [episode], queueRows: [1] });
+    return client(fetchMock).preflightImportProposal(
       queueItem({ episodeIds: [101], seriesId: 5, downloadId: "pack" }),
       [packCandidate(1, 101)],
       packProposal([["candidate_1", 101]]),
     );
+  }
+
+  it("refuses a selected file whose upgrade cannot be verified", async () => {
+    const result = await preflightSingleFile({ ...packEpisode(101, 125), series: { id: 5 } });
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("Cannot verify that Show.S01E01.mkv improves the library");
+    expect(result.message).toContain("quality profile is unavailable");
+  });
+
+  it("refuses a multi-episode file when any of its targets cannot be verified", async () => {
+    const { fetchMock } = packFetch({
+      episodes: [packEpisode(101, null)],
+      queueRows: [1],
+    });
+
+    const result = await client(fetchMock).preflightImportProposal(
+      queueItem({ episodeIds: [101, 102], seriesId: 5, downloadId: "pack" }),
+      [{ ...packCandidate(1, 101), episodeIds: [101, 102] }],
+      {
+        ...packProposal([["candidate_1", 101]]),
+        selectedImports: [{ candidateId: "candidate_1", episodeIds: [101, 102] }],
+      },
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("Cannot verify");
+    expect(result.message).toContain("did not return the target episode");
+  });
+
+  it("refuses a selected file that is not an upgrade for its target", async () => {
+    const result = await preflightSingleFile(packEpisode(101, 125));
 
     expect(result.ok).toBe(false);
     expect(result.message).toContain("Blocked non-upgrade");
