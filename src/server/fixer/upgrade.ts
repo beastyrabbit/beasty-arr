@@ -59,6 +59,26 @@ type QualityRanking = {
   cutoffRank?: number;
 };
 
+function registerQuality(
+  ranking: QualityRanking,
+  item: SonarrQualityProfileItem,
+  rank: number,
+  cutoff: number | undefined,
+): void {
+  const quality = item.quality;
+  if (!quality) return;
+  if (typeof quality.id === "number") {
+    ranking.byId.set(quality.id, rank);
+    if (item.allowed) ranking.allowedIds.add(quality.id);
+    if (cutoff === quality.id) ranking.cutoffRank = rank;
+  }
+  if (quality.name) {
+    const name = quality.name.toLowerCase();
+    ranking.byName.set(name, rank);
+    if (item.allowed) ranking.allowedNames.add(name);
+  }
+}
+
 function rankProfile(profile: SonarrQualityProfileRecord): QualityRanking {
   const ranking: QualityRanking = {
     byId: new Map(),
@@ -67,18 +87,7 @@ function rankProfile(profile: SonarrQualityProfileRecord): QualityRanking {
     allowedNames: new Set(),
   };
   const visit = (item: SonarrQualityProfileItem, rank: number) => {
-    if (item.quality) {
-      if (typeof item.quality.id === "number") {
-        ranking.byId.set(item.quality.id, rank);
-        if (item.allowed) ranking.allowedIds.add(item.quality.id);
-        if (profile.cutoff === item.quality.id) ranking.cutoffRank = rank;
-      }
-      if (item.quality.name) {
-        const name = item.quality.name.toLowerCase();
-        ranking.byName.set(name, rank);
-        if (item.allowed) ranking.allowedNames.add(name);
-      }
-    }
+    registerQuality(ranking, item, rank, profile.cutoff);
     if (typeof item.id === "number" && profile.cutoff === item.id) ranking.cutoffRank = rank;
     for (const child of item.items ?? []) visit({ ...child, allowed: item.allowed }, rank);
   };
@@ -116,29 +125,28 @@ export function assessCandidateUpgrade(input: AssessUpgradeInput): UpgradeAssess
   if (!episode) {
     return { decision: "unverified", reason: "Sonarr did not return the target episode." };
   }
-  const existing = episode.episodeFile;
-  const hasFile = episode.hasFile === true || existing !== undefined;
   const candidateQuality = parseQuality(candidate.quality);
   const ranking = profile ? rankProfile(profile) : undefined;
-
-  if (ranking && candidateQuality && qualityRank(ranking, candidateQuality) !== undefined) {
-    if (!qualityAllowed(ranking, candidateQuality)) {
-      return {
-        decision: "skip",
-        reason: `${describeQuality(candidateQuality)} is not allowed by quality profile ${profile?.name ?? profile?.id}.`,
-      };
-    }
+  if (
+    ranking &&
+    candidateQuality &&
+    qualityRank(ranking, candidateQuality) !== undefined &&
+    !qualityAllowed(ranking, candidateQuality)
+  ) {
+    return {
+      decision: "skip",
+      reason: `${describeQuality(candidateQuality)} is not allowed by quality profile ${profileLabel(profile)}.`,
+    };
   }
 
-  if (!hasFile) {
+  const existing = episode.episodeFile;
+  if (episode.hasFile !== true && existing === undefined) {
     return { decision: "import", reason: "The target episode has no file." };
   }
-
   const existingLanguages = existing?.languages ?? [];
-  const candidateHasGerman = hasGermanAudio(candidate.languages);
   if (
     hasKnownLanguageMetadata(candidate.languages) &&
-    !candidateHasGerman &&
+    !hasGermanAudio(candidate.languages) &&
     hasGermanAudio(existingLanguages)
   ) {
     return {
@@ -151,9 +159,9 @@ export function assessCandidateUpgrade(input: AssessUpgradeInput): UpgradeAssess
   if (!ranking || !candidateQuality || !existingQuality) {
     return {
       decision: "unverified",
-      reason: !ranking
-        ? "The series quality profile is unavailable."
-        : "Quality data is missing for the candidate or the existing file.",
+      reason: ranking
+        ? "Quality data is missing for the candidate or the existing file."
+        : "The series quality profile is unavailable.",
     };
   }
   const candidateRank = qualityRank(ranking, candidateQuality);
@@ -164,83 +172,112 @@ export function assessCandidateUpgrade(input: AssessUpgradeInput): UpgradeAssess
       reason: "The quality profile does not rank the candidate or the existing file.",
     };
   }
+  return compareWithExisting({
+    profile,
+    ranking,
+    candidate: {
+      quality: candidateQuality,
+      rank: candidateRank,
+      score: candidate.customFormatScore ?? 0,
+      hasGerman: hasGermanAudio(candidate.languages),
+    },
+    existing: {
+      quality: existingQuality,
+      rank: existingRank,
+      score: existing?.customFormatScore ?? 0,
+      hasGerman: hasGermanAudio(existingLanguages),
+    },
+  });
+}
 
-  const existingScore = existing?.customFormatScore ?? 0;
-  const candidateScore = candidate.customFormatScore ?? 0;
-  const addsGerman = candidateHasGerman && !hasGermanAudio(existingLanguages);
-  const upgradeAllowed = profile?.upgradeAllowed !== false;
-  const existingDescription = `${describeQuality(existingQuality)} (score ${existingScore})`;
-  const candidateDescription = `${describeQuality(candidateQuality)} (score ${candidateScore})`;
+function profileLabel(profile: SonarrQualityProfileRecord | undefined): string {
+  return String(profile?.name ?? profile?.id ?? "unknown");
+}
 
-  if (candidateRank < existingRank) {
+type RankedFile = { quality: ParsedQuality; rank: number; score: number; hasGerman: boolean };
+
+type Comparison = {
+  profile: SonarrQualityProfileRecord | undefined;
+  ranking: QualityRanking;
+  candidate: RankedFile;
+  existing: RankedFile;
+};
+
+function describeFile(file: RankedFile): string {
+  return `${describeQuality(file.quality)} (score ${file.score})`;
+}
+
+function compareWithExisting(input: Comparison): UpgradeAssessment {
+  const { profile, ranking, candidate, existing } = input;
+  if (candidate.rank < existing.rank) {
     return {
       decision: "skip",
-      reason: `${candidateDescription} is a quality downgrade from the existing ${existingDescription}.`,
+      reason: `${describeFile(candidate)} is a quality downgrade from the existing ${describeFile(existing)}.`,
     };
   }
-
-  if (!upgradeAllowed) {
+  if (profile?.upgradeAllowed === false) {
     return {
       decision: "skip",
-      reason: `Quality profile ${profile?.name ?? profile?.id} does not allow upgrades and the target already has ${existingDescription}.`,
+      reason: `Quality profile ${profileLabel(profile)} does not allow upgrades and the target already has ${describeFile(existing)}.`,
     };
   }
-
-  if (candidateRank > existingRank) {
+  if (candidate.rank > existing.rank) {
     const cutoffRank = ranking.cutoffRank;
     const cutoffScore = profile?.cutoffFormatScore ?? Number.POSITIVE_INFINITY;
-    if (cutoffRank !== undefined && existingRank >= cutoffRank && existingScore >= cutoffScore) {
+    if (cutoffRank !== undefined && existing.rank >= cutoffRank && existing.score >= cutoffScore) {
       return {
         decision: "skip",
-        reason: `The existing ${existingDescription} already meets the profile cutoff.`,
+        reason: `The existing ${describeFile(existing)} already meets the profile cutoff.`,
       };
     }
     return {
       decision: "import",
-      reason: `${candidateDescription} is a quality upgrade over the existing ${existingDescription}.`,
+      reason: `${describeFile(candidate)} is a quality upgrade over the existing ${describeFile(existing)}.`,
     };
   }
+  return compareSameQuality(input);
+}
 
+function compareSameQuality(input: Comparison): UpgradeAssessment {
+  const { profile, candidate, existing } = input;
   const revisionDelta =
-    candidateQuality.real - existingQuality.real ||
-    candidateQuality.version - existingQuality.version;
+    candidate.quality.real - existing.quality.real ||
+    candidate.quality.version - existing.quality.version;
   if (revisionDelta > 0) {
     return {
       decision: "import",
-      reason: `${candidateDescription} is a revision upgrade over the existing ${existingDescription}.`,
+      reason: `${describeFile(candidate)} is a revision upgrade over the existing ${describeFile(existing)}.`,
     };
   }
   if (revisionDelta < 0) {
     return {
       decision: "skip",
-      reason: `${candidateDescription} is an older revision than the existing ${existingDescription}.`,
+      reason: `${describeFile(candidate)} is an older revision than the existing ${describeFile(existing)}.`,
     };
   }
-
-  if (addsGerman) {
+  if (candidate.hasGerman && !existing.hasGerman) {
     return {
       decision: "import",
-      reason: `The candidate adds German audio to the existing ${existingDescription}.`,
+      reason: `The candidate adds German audio to the existing ${describeFile(existing)}.`,
     };
   }
-
-  const minUpgradeScore = Math.max(1, profile?.minUpgradeFormatScore ?? 1);
   const cutoffScore = profile?.cutoffFormatScore;
-  if (cutoffScore !== undefined && existingScore >= cutoffScore) {
+  if (cutoffScore !== undefined && existing.score >= cutoffScore) {
     return {
       decision: "skip",
-      reason: `The existing ${existingDescription} already meets the custom format cutoff score ${cutoffScore}.`,
+      reason: `The existing ${describeFile(existing)} already meets the custom format cutoff score ${cutoffScore}.`,
     };
   }
-  if (candidateScore - existingScore >= minUpgradeScore) {
+  const minUpgradeScore = Math.max(1, profile?.minUpgradeFormatScore ?? 1);
+  if (candidate.score - existing.score >= minUpgradeScore) {
     return {
       decision: "import",
-      reason: `${candidateDescription} improves the custom format score of the existing ${existingDescription}.`,
+      reason: `${describeFile(candidate)} improves the custom format score of the existing ${describeFile(existing)}.`,
     };
   }
   return {
     decision: "skip",
-    reason: `${candidateDescription} is not an upgrade over the existing ${existingDescription}.`,
+    reason: `${describeFile(candidate)} is not an upgrade over the existing ${describeFile(existing)}.`,
   };
 }
 

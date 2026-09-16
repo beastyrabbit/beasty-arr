@@ -916,12 +916,11 @@ export class SonarrClient {
     downloadId: string,
     options: QueueRemovalOptions,
   ): Promise<boolean> {
-    const rows = (await this.listQueue({ includeInProgress: true })).filter(
+    const row = (await this.listQueue({ includeInProgress: true })).find(
       (item) => item.downloadId === downloadId,
     );
-    const first = rows[0];
-    if (!first) return false;
-    await this.removeQueueItem(first.id, options);
+    if (!row) return false;
+    await this.removeQueueItem(row.id, options);
     return true;
   }
 

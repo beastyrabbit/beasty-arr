@@ -146,7 +146,7 @@ export function summarizeSeasonEpisodes(parts: string[]): string | undefined {
   const unique = uniqueStrings(parts);
   if (unique.length === 0) return undefined;
   if (unique.length <= 3) return unique.join(", ");
-  return `${unique[0]} … ${unique[unique.length - 1]} (${unique.length} episodes)`;
+  return `${unique[0]} … ${unique.at(-1)} (${unique.length} episodes)`;
 }
 
 /**
@@ -258,6 +258,29 @@ function candidateLoadFailure(queueItem: QueueItem, error: unknown): AnalysisRes
 
 function resultStatus(proposal: ResolutionProposal, validation: ValidationResult) {
   return proposal.action === "needs_review" || !validation.ok ? "needs_review" : "proposal";
+}
+
+type ImportHistoryBase = {
+  service: MediaService;
+  itemLabel: string;
+  action: FixerHistoryAction;
+  sourceKind: FixerHistorySourceKind;
+  confidence: number;
+  analysisId: string;
+};
+
+/** Restricts a proposal to a user-chosen subset of its candidates. */
+function narrowProposal(
+  proposal: ResolutionProposal,
+  candidateIds: string[] | undefined,
+): ResolutionProposal {
+  if (!candidateIds) return proposal;
+  const subset = new Set(candidateIds);
+  return {
+    ...proposal,
+    selectedCandidateIds: proposal.selectedCandidateIds.filter((id) => subset.has(id)),
+    selectedImports: proposal.selectedImports.filter((si) => subset.has(si.candidateId)),
+  };
 }
 
 export class FixerService {
@@ -941,18 +964,9 @@ export class FixerService {
     if (proposal.action === "remove_queue_item") {
       return this.applyRemovalProposal(row, proposal, analysisId, opts);
     }
-    const candidates = (row.candidates ?? []) as ManualImportCandidate[];
-    let effective = proposal;
-    if (candidateIds) {
-      const subset = new Set(candidateIds);
-      effective = {
-        ...proposal,
-        selectedCandidateIds: proposal.selectedCandidateIds.filter((id) => subset.has(id)),
-        selectedImports: proposal.selectedImports.filter((si) => subset.has(si.candidateId)),
-      };
-      if (effective.selectedCandidateIds.length === 0) {
-        return { ok: false, dryRun: false, message: "No proposed candidates selected." };
-      }
+    const effective = narrowProposal(proposal, candidateIds);
+    if (candidateIds && effective.selectedCandidateIds.length === 0) {
+      return { ok: false, dryRun: false, message: "No proposed candidates selected." };
     }
     if (effective.action !== "import_candidates") {
       return {
@@ -962,21 +976,14 @@ export class FixerService {
       };
     }
 
-    let client: FixerClientPort;
-    let queueItem: FixerQueueItem;
+    let target: { client: FixerClientPort; queueItem: FixerQueueItem };
     try {
-      client = this.requireClient(row.service);
-      const current = await this.currentQueueItem(row.service, row.queueItemId, row.downloadId);
-      if (!current) throw new Error("Download is no longer in the queue. Refresh before applying.");
-      if (this.autoApplyDisabled(opts)) throw new Error("Auto-apply was disabled; no change made.");
-      // Validate against the target set the analysis actually reasoned about,
-      // not whichever sibling row Sonarr happens to list first today.
-      const targetEpisodeIds = row.targetEpisodeIds ?? [];
-      queueItem =
-        targetEpisodeIds.length > 0 ? { ...current, episodeIds: targetEpisodeIds } : current;
+      target = await this.resolveApplyTarget(row, opts);
     } catch (error) {
       return { ok: false, dryRun: false, message: errorMessage(error) };
     }
+    const { client, queueItem } = target;
+    const candidates = (row.candidates ?? []) as ManualImportCandidate[];
 
     // The resolver may use sonarr_find_episodes to map anime/scene-numbered files
     // to valid episode ids that are not present in Sonarr's initially parsed
@@ -1001,50 +1008,87 @@ export class FixerService {
       };
     }
 
-    const sourceKind = opts.sourceKind ?? "ai_user";
     const base = {
       service: row.service,
       itemLabel: row.itemLabel,
       action: "import" as FixerHistoryAction,
-      sourceKind,
+      sourceKind: opts.sourceKind ?? "ai_user",
       confidence: opts.confidence ?? effective.confidence,
       analysisId,
     };
-    if (this.settings.get().dryRun) {
-      try {
-        const preflight = await client.preflightImportProposal(queueItem, candidates, effective);
-        if (!preflight.ok) {
-          return { ok: false, dryRun: true, message: preflight.message };
-        }
-      } catch (error) {
-        return {
-          ok: false,
-          dryRun: true,
-          message: `Dry-run preflight failed: ${errorMessage(error)}`,
-        };
+    return this.settings.get().dryRun
+      ? this.simulateImport(client, row, queueItem, candidates, effective, base)
+      : this.executeImport(client, row, queueItem, candidates, effective, base, opts);
+  }
+
+  /** Live queue lookup for an apply, using the target set the analysis reasoned about. */
+  private async resolveApplyTarget(
+    row: FixerAnalysisRow,
+    opts: FixerActionOpts,
+  ): Promise<{ client: FixerClientPort; queueItem: FixerQueueItem }> {
+    const client = this.requireClient(row.service);
+    const current = await this.currentQueueItem(row.service, row.queueItemId, row.downloadId);
+    if (!current) throw new Error("Download is no longer in the queue. Refresh before applying.");
+    if (this.autoApplyDisabled(opts)) throw new Error("Auto-apply was disabled; no change made.");
+    // Validate against the target set the analysis actually reasoned about,
+    // not whichever sibling row Sonarr happens to list first today.
+    const targetEpisodeIds = row.targetEpisodeIds ?? [];
+    const queueItem =
+      targetEpisodeIds.length > 0 ? { ...current, episodeIds: targetEpisodeIds } : current;
+    return { client, queueItem };
+  }
+
+  private async simulateImport(
+    client: FixerClientPort,
+    row: FixerAnalysisRow,
+    queueItem: FixerQueueItem,
+    candidates: ManualImportCandidate[],
+    effective: ResolutionProposal,
+    base: ImportHistoryBase,
+  ): Promise<FixerApplyOutcome> {
+    try {
+      const preflight = await client.preflightImportProposal(queueItem, candidates, effective);
+      if (!preflight.ok) {
+        return { ok: false, dryRun: true, message: preflight.message };
       }
-      const historyId = recordFixerHistory(this.db, {
-        ...base,
-        at: this.now(),
-        dryRun: true,
-        result: "simulated",
-        detail: {
-          wouldHave: {
-            action: "import_candidates",
-            queueItemId: row.queueItemId,
-            candidateIds: effective.selectedCandidateIds,
-            selectedImports: effective.selectedImports,
-          },
-        },
-      });
+    } catch (error) {
       return {
-        ok: true,
+        ok: false,
         dryRun: true,
-        historyId,
-        message: `Dry-run: would import ${effective.selectedCandidateIds.length} candidate(s) for ${row.itemLabel}.`,
+        message: `Dry-run preflight failed: ${errorMessage(error)}`,
       };
     }
+    const historyId = recordFixerHistory(this.db, {
+      ...base,
+      at: this.now(),
+      dryRun: true,
+      result: "simulated",
+      detail: {
+        wouldHave: {
+          action: "import_candidates",
+          queueItemId: row.queueItemId,
+          candidateIds: effective.selectedCandidateIds,
+          selectedImports: effective.selectedImports,
+        },
+      },
+    });
+    return {
+      ok: true,
+      dryRun: true,
+      historyId,
+      message: `Dry-run: would import ${effective.selectedCandidateIds.length} candidate(s) for ${row.itemLabel}.`,
+    };
+  }
 
+  private async executeImport(
+    client: FixerClientPort,
+    row: FixerAnalysisRow,
+    queueItem: FixerQueueItem,
+    candidates: ManualImportCandidate[],
+    effective: ResolutionProposal,
+    base: ImportHistoryBase,
+    opts: FixerActionOpts,
+  ): Promise<FixerApplyOutcome> {
     try {
       const started = await client.applyImportProposal(
         queueItem,
