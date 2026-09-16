@@ -506,9 +506,14 @@ function nonUpgradeMessages(
   candidatesById: Map<string, ManualImportCandidate>,
 ): string[] {
   return assessed.flatMap(({ candidateId, assessment }) => {
-    if (assessment.decision !== "skip" && assessment.decision !== "blocked") return [];
+    if (assessment.decision === "import") return [];
     const candidate = candidatesById.get(candidateId);
     const label = candidate?.relativePath ?? candidate?.path ?? candidateId;
+    if (assessment.decision === "unverified") {
+      return [
+        `Cannot verify that ${label} improves the library: ${assessment.reason} Import manually in Sonarr if intended.`,
+      ];
+    }
     return [
       `Blocked non-upgrade: ${label} would not improve the library. ${assessment.reason} Import manually in Sonarr if the replacement is intended.`,
     ];
