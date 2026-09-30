@@ -13,7 +13,8 @@ use AI in dry-run. Local development remains locked against Arr mutations.
 The exposed AI configuration is Codex-only. The internal aibox adapter is legacy
 support, not a promised Ollama setting in the GUI. The Codex model list merges
 Pi's built-in catalog with the pi.dev catalog cached in DATA_DIR/pi/models-store.json.
-Only the Settings model list fetches pi.dev, at most every four hours; inference
+Only the Settings model list fetches pi.dev: at most every four hours after pi.dev
+answers, but on every visit while it is unreachable (5 s timeout each). Inference
 reads the cache offline.
 
 Configured Prowlarr accounting must refresh successfully and have complete indexer

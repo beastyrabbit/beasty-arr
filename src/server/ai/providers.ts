@@ -128,9 +128,10 @@ export function getAuthStorage(dataDir: string): FileCredentialStore {
 /**
  * ModelRuntime over the built-in Pi catalog plus Pi's pi.dev catalog overlay,
  * cached in DATA_DIR/pi/models-store.json. Only `refreshCatalog` runtimes (the
- * Settings model list) fetch pi.dev, at most every 4h; all others read the
- * cached overlay offline, so newly released Codex models resolve with their
- * real metadata without a package bump.
+ * Settings model list) fetch pi.dev: at most every 4h after an HTTP answer, but
+ * again on each call after a network error or timeout (Pi records no check
+ * then). All others read the cached overlay offline, so newly released Codex
+ * models resolve with their real metadata without a package bump.
  */
 export async function createModelRuntime(
   dataDir: string,
