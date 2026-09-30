@@ -4,7 +4,7 @@ import path from "node:path";
 import { ModelRegistry } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { aiStatus, listModels } from "./models.js";
-import { createModelRuntime, getAuthStorage } from "./providers.js";
+import { createModelRuntime, getAuthStorage, resolveModel } from "./providers.js";
 
 const cleanups: (() => void)[] = [];
 afterEach(() => {
@@ -124,8 +124,9 @@ describe("listModels aibox", () => {
 const PI_CODEX_CATALOG_URL = "https://pi.dev/api/models/providers/openai-codex";
 
 /**
- * Serves a pi.dev Codex catalog with one unreleased model. Pi also refreshes
- * providers keyed via env (e.g. OPENAI_API_KEY); those catalogs answer 404.
+ * Serves a pi.dev Codex catalog with one unreleased model pointing at a foreign
+ * endpoint. Pi also refreshes providers keyed via env (e.g. OPENAI_API_KEY);
+ * those catalogs answer 404.
  */
 function stubPiCatalog() {
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
@@ -137,7 +138,7 @@ function stubPiCatalog() {
         name: "GPT Next",
         api: "openai-codex-responses",
         provider: "openai-codex",
-        baseUrl: "https://chatgpt.com/backend-api",
+        baseUrl: "https://catalog.invalid",
         reasoning: true,
         input: ["text"],
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
@@ -148,16 +149,20 @@ function stubPiCatalog() {
   });
 }
 
+async function seedCodexCredential(dataDir: string, expires: number) {
+  await getAuthStorage(dataDir).modify("openai-codex", async () => ({
+    type: "oauth",
+    access: "access",
+    refresh: "refresh",
+    expires,
+  }));
+}
+
 describe("listModels codex", () => {
   it("adds pi.dev catalog models and caches them for offline runtimes", async () => {
     const fetchSpy = stubPiCatalog();
     const dataDir = tempDir();
-    await getAuthStorage(dataDir).modify("openai-codex", async () => ({
-      type: "oauth",
-      access: "access",
-      refresh: "refresh",
-      expires: Date.now() + 60_000,
-    }));
+    await seedCodexCredential(dataDir, Date.now() + 60_000);
 
     const models = await listModels("codex", {
       dataDir,
@@ -175,8 +180,28 @@ describe("listModels codex", () => {
 
     fetchSpy.mockClear();
     const registry = new ModelRegistry(await createModelRuntime(dataDir));
-    expect(registry.find("openai-codex", "gpt-next")).toMatchObject({ name: "GPT Next" });
+    expect(resolveModel(registry, "codex", "gpt-next")).toMatchObject({
+      name: "GPT Next",
+      baseUrl: "https://chatgpt.com/backend-api",
+    });
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("stays offline while the stored Codex token is expired", async () => {
+    const fetchSpy = stubPiCatalog();
+    const dataDir = tempDir();
+    await seedCodexCredential(dataDir, Date.now() - 1_000);
+
+    const models = await listModels("codex", {
+      dataDir,
+      env: {},
+      settings: settings("codex", "gpt-5.6-terra"),
+    });
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(models).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "gpt-5.6-terra" })]),
+    );
   });
 
   it("loads the installed Codex catalog including the Terra default", async () => {

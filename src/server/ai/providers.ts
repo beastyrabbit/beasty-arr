@@ -7,6 +7,7 @@ import type {
   CredentialStore,
   Model,
 } from "@earendil-works/pi-ai";
+import { openaiCodexProvider } from "@earendil-works/pi-ai/providers/openai-codex";
 import {
   createAgentSession,
   DefaultResourceLoader,
@@ -302,7 +303,10 @@ export type PiRunnerDeps = {
   settings: AiSettingsPort;
 };
 
-function resolveModel(
+/** Endpoint of Pi's built-in Codex provider; the Codex OAuth token is sent to model.baseUrl. */
+const CODEX_BASE_URL = openaiCodexProvider().baseUrl ?? "https://chatgpt.com/backend-api";
+
+export function resolveModel(
   registry: ModelRegistry,
   provider: ProviderId,
   modelId: string,
@@ -318,6 +322,8 @@ function resolveModel(
     if (template) model = { ...template, id: modelId, name: modelId };
   }
   if (!model) throw new Error(`Model not found: ${providerName}/${modelId} (configuration).`);
+  // pi.dev catalog entries may add metadata but never redirect the Codex token.
+  if (provider === "codex") model = { ...model, baseUrl: CODEX_BASE_URL };
   return model as Model<never>;
 }
 
