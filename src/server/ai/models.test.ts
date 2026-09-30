@@ -162,7 +162,7 @@ describe("listModels codex", () => {
   it("adds pi.dev catalog models and caches them for offline runtimes", async () => {
     const fetchSpy = stubPiCatalog();
     const dataDir = tempDir();
-    await seedCodexCredential(dataDir, Date.now() + 60_000);
+    await seedCodexCredential(dataDir, Date.now() + 3_600_000);
 
     const models = await listModels("codex", {
       dataDir,
@@ -187,10 +187,10 @@ describe("listModels codex", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("stays offline while the stored Codex token is expired", async () => {
+  it("stays offline when the stored Codex token expires within a minute", async () => {
     const fetchSpy = stubPiCatalog();
     const dataDir = tempDir();
-    await seedCodexCredential(dataDir, Date.now() - 1_000);
+    await seedCodexCredential(dataDir, Date.now() + 30_000);
 
     const models = await listModels("codex", {
       dataDir,

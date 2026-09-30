@@ -70,10 +70,11 @@ export async function listModels(
     }
   }
 
-  // Pi would refresh an expired OAuth token first, outside the catalog timeout;
-  // until inference renews it, list the cached catalog offline.
+  // Pi would refresh an expired OAuth token first, outside the catalog timeout.
+  // Require a minute of validity so it cannot expire before Pi checks it; until
+  // inference renews it, list the cached catalog offline.
   const credential = readStoredCredential("openai-codex", authStoragePath(deps.dataDir));
-  const refreshCatalog = credential?.type === "oauth" && Date.now() < credential.expires;
+  const refreshCatalog = credential?.type === "oauth" && Date.now() + 60_000 < credential.expires;
   const runtime = await createModelRuntime(deps.dataDir, { refreshCatalog });
   const registry = new ModelRegistry(runtime);
   return registry
