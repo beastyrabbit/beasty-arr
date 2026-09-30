@@ -125,14 +125,22 @@ export function getAuthStorage(dataDir: string): FileCredentialStore {
 }
 
 /**
- * Offline ModelRuntime over the built-in Pi catalog: no models.json on disk,
- * no network catalog refresh (deterministic, container-safe).
+ * ModelRuntime over the built-in Pi catalog plus Pi's pi.dev catalog overlay,
+ * cached in DATA_DIR/pi/models-store.json. Only `refreshCatalog` runtimes (the
+ * Settings model list) fetch pi.dev, at most every 4h; all others read the
+ * cached overlay offline, so newly released Codex models resolve with their
+ * real metadata without a package bump.
  */
-export async function createModelRuntime(credentials: CredentialStore): Promise<ModelRuntime> {
+export async function createModelRuntime(
+  dataDir: string,
+  options: { refreshCatalog?: boolean } = {},
+): Promise<ModelRuntime> {
   return await ModelRuntime.create({
-    credentials,
-    modelsPath: null,
-    allowModelNetwork: false,
+    credentials: getAuthStorage(dataDir),
+    // Pi keeps the refreshed catalog in models-store.json beside this (absent) models.json.
+    modelsPath: path.join(path.dirname(authStoragePath(dataDir)), "models.json"),
+    allowModelNetwork: options.refreshCatalog ?? false,
+    modelRefreshTimeoutMs: 5_000,
   });
 }
 
@@ -320,8 +328,7 @@ async function runPiSessionAttempt(
   modelId: string,
 ): Promise<PiSessionResult> {
   request.signal?.throwIfAborted();
-  const authStorage = getAuthStorage(deps.dataDir);
-  const runtime = await createModelRuntime(authStorage);
+  const runtime = await createModelRuntime(deps.dataDir);
   if (provider === "aibox") {
     if (!deps.env.AIBOX_URL) throw new Error("AIBOX_URL is not set (configuration).");
     registerAiboxProvider(runtime, deps.env.AIBOX_URL, modelId);

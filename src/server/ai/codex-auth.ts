@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { AuthInteraction, CredentialStore } from "@earendil-works/pi-ai";
 import { nanoid } from "nanoid";
-import { createModelRuntime, getAuthStorage } from "./providers.js";
+import { createModelRuntime } from "./providers.js";
 
 // ============ dev-only seeding from ~/.codex/auth.json ============
 
@@ -210,5 +210,5 @@ export class CodexLoginService {
 }
 
 export function createCodexLoginService(dataDir: string): CodexLoginService {
-  return new CodexLoginService(async () => await createModelRuntime(getAuthStorage(dataDir)));
+  return new CodexLoginService(async () => await createModelRuntime(dataDir));
 }

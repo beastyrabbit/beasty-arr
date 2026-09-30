@@ -4,7 +4,6 @@ import {
   aiboxRootUrl,
   authStoragePath,
   createModelRuntime,
-  getAuthStorage,
   type ProviderId,
 } from "./providers.js";
 
@@ -33,8 +32,8 @@ export type ModelCatalogDeps = {
 };
 
 /**
- * Models per provider. Codex comes from the built-in Pi catalog (offline — no
- * codex app-server child process); aibox from the Ollama /api/tags endpoint.
+ * Models per provider. Codex comes from the Pi catalog refreshed from pi.dev
+ * (no codex app-server child process); aibox from the Ollama /api/tags endpoint.
  */
 export async function listModels(
   provider: ProviderId,
@@ -71,7 +70,7 @@ export async function listModels(
     }
   }
 
-  const runtime = await createModelRuntime(getAuthStorage(deps.dataDir));
+  const runtime = await createModelRuntime(deps.dataDir, { refreshCatalog: true });
   const registry = new ModelRegistry(runtime);
   return registry
     .getAll()

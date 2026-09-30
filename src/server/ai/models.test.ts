@@ -1,12 +1,14 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { ModelRegistry } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { aiStatus, listModels } from "./models.js";
-import { getAuthStorage } from "./providers.js";
+import { createModelRuntime, getAuthStorage } from "./providers.js";
 
 const cleanups: (() => void)[] = [];
 afterEach(() => {
+  vi.restoreAllMocks();
   while (cleanups.length) cleanups.pop()?.();
 });
 
@@ -119,8 +121,66 @@ describe("listModels aibox", () => {
   });
 });
 
+const PI_CODEX_CATALOG_URL = "https://pi.dev/api/models/providers/openai-codex";
+
+/**
+ * Serves a pi.dev Codex catalog with one unreleased model. Pi also refreshes
+ * providers keyed via env (e.g. OPENAI_API_KEY); those catalogs answer 404.
+ */
+function stubPiCatalog() {
+  return vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    const url = input instanceof Request ? input.url : String(input);
+    if (url !== PI_CODEX_CATALOG_URL) return new Response(null, { status: 404 });
+    return Response.json({
+      "gpt-next": {
+        id: "gpt-next",
+        name: "GPT Next",
+        api: "openai-codex-responses",
+        provider: "openai-codex",
+        baseUrl: "https://chatgpt.com/backend-api",
+        reasoning: true,
+        input: ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 272_000,
+        maxTokens: 128_000,
+      },
+    });
+  });
+}
+
 describe("listModels codex", () => {
+  it("adds pi.dev catalog models and caches them for offline runtimes", async () => {
+    const fetchSpy = stubPiCatalog();
+    const dataDir = tempDir();
+    await getAuthStorage(dataDir).modify("openai-codex", async () => ({
+      type: "oauth",
+      access: "access",
+      refresh: "refresh",
+      expires: Date.now() + 60_000,
+    }));
+
+    const models = await listModels("codex", {
+      dataDir,
+      env: {},
+      settings: settings("codex", "gpt-next"),
+    });
+
+    expect(fetchSpy.mock.calls.map(([input]) => String(input))).toContain(PI_CODEX_CATALOG_URL);
+    expect(models).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "gpt-next", name: "GPT Next", provider: "codex" }),
+        expect.objectContaining({ id: "gpt-5.6-terra", provider: "codex" }),
+      ]),
+    );
+
+    fetchSpy.mockClear();
+    const registry = new ModelRegistry(await createModelRuntime(dataDir));
+    expect(registry.find("openai-codex", "gpt-next")).toMatchObject({ name: "GPT Next" });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it("loads the installed Codex catalog including the Terra default", async () => {
+    stubPiCatalog();
     const models = await listModels("codex", {
       dataDir: tempDir(),
       env: {},
