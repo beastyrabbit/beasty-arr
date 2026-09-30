@@ -7,6 +7,7 @@ import type {
   CredentialStore,
   Model,
 } from "@earendil-works/pi-ai";
+import { openaiCodexProvider } from "@earendil-works/pi-ai/providers/openai-codex";
 import {
   createAgentSession,
   DefaultResourceLoader,
@@ -125,14 +126,22 @@ export function getAuthStorage(dataDir: string): FileCredentialStore {
 }
 
 /**
- * Offline ModelRuntime over the built-in Pi catalog: no models.json on disk,
- * no network catalog refresh (deterministic, container-safe).
+ * ModelRuntime over the built-in Pi catalog plus Pi's pi.dev catalog overlay,
+ * cached in DATA_DIR/pi/models-store.json. Only `refreshCatalog` runtimes (the
+ * Settings model list) fetch pi.dev, at most every 4h; all others read the
+ * cached overlay offline, so newly released Codex models resolve with their
+ * real metadata without a package bump.
  */
-export async function createModelRuntime(credentials: CredentialStore): Promise<ModelRuntime> {
+export async function createModelRuntime(
+  dataDir: string,
+  options: { refreshCatalog?: boolean } = {},
+): Promise<ModelRuntime> {
   return await ModelRuntime.create({
-    credentials,
-    modelsPath: null,
-    allowModelNetwork: false,
+    credentials: getAuthStorage(dataDir),
+    // Pi keeps the refreshed catalog in models-store.json beside this (absent) models.json.
+    modelsPath: path.join(path.dirname(authStoragePath(dataDir)), "models.json"),
+    allowModelNetwork: options.refreshCatalog ?? false,
+    modelRefreshTimeoutMs: 5_000,
   });
 }
 
@@ -294,7 +303,10 @@ export type PiRunnerDeps = {
   settings: AiSettingsPort;
 };
 
-function resolveModel(
+/** Endpoint of Pi's built-in Codex provider; the Codex OAuth token is sent to model.baseUrl. */
+const CODEX_BASE_URL = openaiCodexProvider().baseUrl ?? "https://chatgpt.com/backend-api";
+
+export function resolveModel(
   registry: ModelRegistry,
   provider: ProviderId,
   modelId: string,
@@ -310,6 +322,8 @@ function resolveModel(
     if (template) model = { ...template, id: modelId, name: modelId };
   }
   if (!model) throw new Error(`Model not found: ${providerName}/${modelId} (configuration).`);
+  // pi.dev catalog entries may add metadata but never redirect the Codex token.
+  if (provider === "codex") model = { ...model, baseUrl: CODEX_BASE_URL };
   return model as Model<never>;
 }
 
@@ -320,8 +334,7 @@ async function runPiSessionAttempt(
   modelId: string,
 ): Promise<PiSessionResult> {
   request.signal?.throwIfAborted();
-  const authStorage = getAuthStorage(deps.dataDir);
-  const runtime = await createModelRuntime(authStorage);
+  const runtime = await createModelRuntime(deps.dataDir);
   if (provider === "aibox") {
     if (!deps.env.AIBOX_URL) throw new Error("AIBOX_URL is not set (configuration).");
     registerAiboxProvider(runtime, deps.env.AIBOX_URL, modelId);

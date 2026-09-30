@@ -131,7 +131,7 @@ describe("CodexLoginService", () => {
       }
       throw new Error(`Unexpected request: ${url}`);
     });
-    const runtime = await createModelRuntime(makeStore());
+    const runtime = await createModelRuntime(tempDir());
     const service = new CodexLoginService(async () => runtime);
 
     const { loginId } = service.startCodexLogin();

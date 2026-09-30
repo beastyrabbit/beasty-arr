@@ -489,7 +489,7 @@ function AiTab({ settings }: { settings: AppSettingsDto }) {
       <Panel title="Dub oracle">
         <SettingRow
           label="Model"
-          description="Codex model used to research German dub availability and analyze Fixer items. The available models are loaded from the installed provider catalog."
+          description="Codex model used to research German dub availability and analyze Fixer items. The list comes from Pi's model catalog, refreshed from pi.dev at most every 4 hours."
         >
           <Field label="Model">
             <Select

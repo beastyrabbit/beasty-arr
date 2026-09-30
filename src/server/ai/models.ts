@@ -4,7 +4,6 @@ import {
   aiboxRootUrl,
   authStoragePath,
   createModelRuntime,
-  getAuthStorage,
   type ProviderId,
 } from "./providers.js";
 
@@ -33,8 +32,8 @@ export type ModelCatalogDeps = {
 };
 
 /**
- * Models per provider. Codex comes from the built-in Pi catalog (offline — no
- * codex app-server child process); aibox from the Ollama /api/tags endpoint.
+ * Models per provider. Codex comes from the Pi catalog refreshed from pi.dev
+ * (no codex app-server child process); aibox from the Ollama /api/tags endpoint.
  */
 export async function listModels(
   provider: ProviderId,
@@ -71,7 +70,12 @@ export async function listModels(
     }
   }
 
-  const runtime = await createModelRuntime(getAuthStorage(deps.dataDir));
+  // Pi would refresh an expired OAuth token first, outside the catalog timeout.
+  // Require a minute of validity so it cannot expire before Pi checks it; until
+  // inference renews it, list the cached catalog offline.
+  const credential = readStoredCredential("openai-codex", authStoragePath(deps.dataDir));
+  const refreshCatalog = credential?.type === "oauth" && Date.now() + 60_000 < credential.expires;
+  const runtime = await createModelRuntime(deps.dataDir, { refreshCatalog });
   const registry = new ModelRegistry(runtime);
   return registry
     .getAll()
