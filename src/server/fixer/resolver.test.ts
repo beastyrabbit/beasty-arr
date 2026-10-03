@@ -708,6 +708,89 @@ describe("deterministic guards on the real 2026-10-03 failures", () => {
     );
   });
 
+  it("checks the year of the file itself, not the grabbed release title", async () => {
+    const client = new FakeArrClient();
+    client.moviesById.set(1680, { id: 1680, title: "Sunset Boulevard", year: 1950 });
+    const { result } = await analyze(
+      {
+        queueItem: makeQueueItem({
+          service: "radarr",
+          title: "Sunset.Boulevard.1950.German.1080p.WEB.x264-GRP",
+          movieId: 1680,
+          movieYear: 1950,
+          episodeIds: [],
+        }),
+        candidates: [
+          makeCandidate("candidate_1", {
+            service: "radarr",
+            path: "/downloads/Sunset.1988/Sunset.1988.German.1080p.mkv",
+            folderName: "Sunset.1988",
+            relativePath: "Sunset.1988.German.1080p.mkv",
+            movieId: 1680,
+            episodeIds: [],
+          }),
+        ],
+        client,
+      },
+      importProposal("candidate_1", {
+        selectedImports: [{ candidateId: "candidate_1", episodeIds: [], movieId: 1680 }],
+      }),
+    );
+    expect(result.proposal.reviewReasons).toContain(
+      "Release year 1988 does not match Sunset Boulevard (1950).",
+    );
+  });
+
+  it("inspects every file of a removal, including ones beyond the upfront probe limit", async () => {
+    const client = new FakeArrClient();
+    client.episodes = [
+      { id: 101, hasFile: true, episodeFile: { path: "/lib/E01.mkv", languages: [] } },
+    ];
+    const candidates = Array.from({ length: 31 }, (_, index) =>
+      makeCandidate(`candidate_${index + 1}`),
+    );
+    const prober = fakeProber({
+      "/downloads/candidate_31.mkv": { audio: [germanAudio()], hasGermanAudio: true },
+      "/lib/E01.mkv": { audio: [englishAudio()] },
+    });
+    const { result } = await analyze(
+      { queueItem: makeQueueItem(), candidates, client, prober },
+      removeProposal({
+        removeFromClient: true,
+        blocklist: true,
+        skipRedownload: true,
+        changeCategory: false,
+      }),
+    );
+    expect(prober.calls).toContain("/downloads/candidate_31.mkv");
+    expect(result.proposal.reviewReasons?.[0]).toContain("candidate_31.mkv has German audio");
+  });
+
+  it("holds a removal whose file cannot be read while the library lacks German", async () => {
+    const client = new FakeArrClient();
+    client.episodes = [
+      { id: 101, hasFile: true, episodeFile: { path: "/lib/E01.mkv", languages: [] } },
+    ];
+    const { result } = await analyze(
+      {
+        queueItem: makeQueueItem(),
+        candidates: [makeCandidate("candidate_1", { languages: [], languageLabels: [] })],
+        client,
+        prober: fakeProber({
+          "/downloads/candidate_1.mkv": { ok: false, reason: "Truncated file." },
+          "/lib/E01.mkv": { audio: [englishAudio()] },
+        }),
+      },
+      removeProposal({
+        removeFromClient: true,
+        blocklist: true,
+        skipRedownload: false,
+        changeCategory: false,
+      }),
+    );
+    expect(result.status).toBe("needs_review");
+  });
+
   it("holds a pack removal when one episode would lose its only German source", async () => {
     const client = new FakeArrClient();
     client.episodes = [

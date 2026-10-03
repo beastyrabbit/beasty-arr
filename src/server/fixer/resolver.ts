@@ -7,6 +7,7 @@ import type {
   ResolutionProposal,
 } from "../../shared/fixer-types.js";
 import type { RadarrClient } from "../arr/radarr-client.js";
+import { isDiscStreamPath } from "../arr/sample.js";
 import type { SonarrClient } from "../arr/sonarr-client.js";
 import { compactCandidate } from "../arr/sonarr-format.js";
 import type { MediaProber } from "../media/types.js";
@@ -377,6 +378,17 @@ async function finishAnalysis(
 ): Promise<AnalysisResult> {
   const { queueItem } = input;
   const captured = state.proposal;
+  if (captured?.action === "remove_queue_item") {
+    // The removal guard must see every file it would discard, not only the
+    // ones inspected upfront.
+    await probePaths(
+      state.facts,
+      input.prober,
+      state.candidates
+        .filter((candidate) => !candidate.isLikelySample && !isDiscStreamPath(candidate.path))
+        .map((candidate) => candidate.path),
+    );
+  }
   if (captured?.action === "import_candidates") {
     // The guards compare against every file an import would replace, including
     // episodes the AI remapped to, so load and inspect those library files too.

@@ -1,8 +1,10 @@
+import { hasGermanAudio } from "../../shared/domain.js";
 import type {
   ManualImportCandidate,
   QueueItem,
   ResolutionProposal,
 } from "../../shared/fixer-types.js";
+import { isDiscStreamPath } from "../arr/sample.js";
 import type { MediaProbeOk, MediaProbeResult } from "../media/types.js";
 import type { InspectionFacts, TargetFacts } from "./inspection.js";
 
@@ -97,11 +99,10 @@ type SelectedFile = {
 function yearReason(queueItem: QueueItem, file: SelectedFile): string | undefined {
   if (queueItem.service !== "radarr") return undefined;
   const movieYear = file.targets[0]?.year ?? queueItem.movieYear;
-  const years = releaseYears([
-    queueItem.title,
-    file.candidate.folderName,
-    file.candidate.relativePath,
-  ]);
+  // The file's own names describe what was imported; the queue title is only
+  // the grabbed release name and must not mask a different year inside it.
+  const fileYears = releaseYears([file.candidate.folderName, file.candidate.relativePath]);
+  const years = fileYears.length > 0 ? fileYears : releaseYears([queueItem.title]);
   if (!movieYear || years.length === 0 || years.some((year) => Math.abs(year - movieYear) <= 1)) {
     return undefined;
   }
@@ -222,6 +223,17 @@ function targetsOfCandidate(
 }
 
 /**
+ * Whether a candidate may carry German audio. An inspected file answers it;
+ * a file that could not be read counts as possibly German; without media
+ * inspection the arr's labels are all there is.
+ */
+function mayHaveGerman(facts: InspectionFacts, candidate: ManualImportCandidate): boolean {
+  const probe = facts.probes.get(candidate.path);
+  if (probe?.ok) return probe.hasGermanAudio;
+  return facts.proberAvailable || hasGermanAudio(candidate.languages);
+}
+
+/**
  * A removal must not discard German audio that a queued target lacks in the
  * library. Checked per file, so a mixed season pack cannot hide one episode's
  * only German source behind episodes that already have German.
@@ -233,7 +245,8 @@ function germanLossReasons(
   facts: InspectionFacts,
 ): string[] {
   return candidates.flatMap((candidate) => {
-    if (candidate.isLikelySample || !probeOf(facts, candidate.path)?.hasGermanAudio) return [];
+    if (candidate.isLikelySample || isDiscStreamPath(candidate.path)) return [];
+    if (!mayHaveGerman(facts, candidate)) return [];
     const lacking = targetsOfCandidate(queueItem, candidate, targets).filter(
       (target) => currentHasGerman(facts, target) !== true,
     );
