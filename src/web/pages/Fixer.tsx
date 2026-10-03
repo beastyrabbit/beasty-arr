@@ -657,7 +657,10 @@ function useLiveAnalysisEvents(analysisId: string | null): ResolverEvent[] {
   return analysisId ? (liveEvents[analysisId] ?? []) : [];
 }
 
-function ReviewPanel({ item, dryRun }: { item: FixerQueueItemDto | null; dryRun: boolean }) {
+function ReviewPanel({
+  item,
+  dryRun,
+}: Readonly<{ item: FixerQueueItemDto | null; dryRun: boolean }>) {
   const analysis = useFixerAnalysis(item?.analysisId ?? null);
   const cancel = useFixerCancel();
   const retry = useFixerBulk();

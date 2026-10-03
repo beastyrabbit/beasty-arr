@@ -9,6 +9,7 @@ import type {
 } from "@earendil-works/pi-ai";
 import { openaiCodexProvider } from "@earendil-works/pi-ai/providers/openai-codex";
 import {
+  type AgentSession,
   type AgentSessionEvent,
   createAgentSession,
   DefaultResourceLoader,
@@ -450,12 +451,51 @@ function recordToolEnd(
   });
 }
 
-async function runPiSessionAttempt(
+function finalAssistantMessage(session: AgentSession): AssistantMessage | undefined {
+  return [...session.messages].reverse().find((entry) => entry.role === "assistant") as
+    | AssistantMessage
+    | undefined;
+}
+
+/**
+ * Sends the prompt and re-prompts once when the terminating tool was skipped
+ * (pi-resolver pattern). Returns the prompt error instead of throwing so the
+ * caller can classify timeouts and aborts first.
+ */
+async function promptUntilTerminated(
+  session: AgentSession,
+  request: PiSessionRequest,
+  tracker: { terminated: boolean },
+  signal: AbortSignal,
+): Promise<unknown> {
+  try {
+    await session.prompt(request.prompt, { expandPromptTemplates: false, source: "rpc" });
+    const response = finalAssistantMessage(session);
+    if (response?.stopReason === "error") {
+      throw new Error(response.errorMessage || "The provider aborted the inference.");
+    }
+    if (tracker.terminated || signal.aborted) return undefined;
+    request.onEvent?.({
+      type: "terminating_tool_retry",
+      message: `The model did not call ${request.terminatingTool}; re-prompting once.`,
+    });
+    await session.prompt(
+      `You did not call ${request.terminatingTool}. Call it now with your final answer.`,
+      { expandPromptTemplates: false, source: "rpc" },
+    );
+    return undefined;
+  } catch (error) {
+    return error;
+  }
+}
+
+/** One fresh, stateless Pi agent session with exactly the request's tools. */
+async function createPiSession(
   deps: PiRunnerDeps,
   request: PiSessionRequest,
   provider: ProviderId,
   modelId: string,
-): Promise<PiSessionResult> {
+): Promise<AgentSession> {
   request.signal?.throwIfAborted();
   const runtime = await createModelRuntime(deps.dataDir);
   if (provider === "aibox") {
@@ -498,7 +538,16 @@ async function runPiSessionAttempt(
     settingsManager,
     resourceLoader,
   });
+  return session;
+}
 
+async function runPiSessionAttempt(
+  deps: PiRunnerDeps,
+  request: PiSessionRequest,
+  provider: ProviderId,
+  modelId: string,
+): Promise<PiSessionResult> {
+  const session = await createPiSession(deps, request, provider, modelId);
   const tracker = createSessionTracker(request);
   const { toolCalls, usage } = tracker;
   const unsubscribe = session.subscribe(tracker.listener);
@@ -515,37 +564,14 @@ async function runPiSessionAttempt(
   else combinedSignal.addEventListener("abort", abortSession, { once: true });
 
   try {
-    let promptError: unknown;
-    try {
-      await session.prompt(request.prompt, { expandPromptTemplates: false, source: "rpc" });
-      const response = [...session.messages]
-        .reverse()
-        .find((entry) => entry.role === "assistant") as AssistantMessage | undefined;
-      if (response?.stopReason === "error")
-        throw new Error(response.errorMessage || "The provider aborted the inference.");
-      if (!tracker.terminated && !combinedSignal.aborted) {
-        // pi-resolver pattern: one re-prompt when the forced terminating tool was skipped.
-        request.onEvent?.({
-          type: "terminating_tool_retry",
-          message: `The model did not call ${request.terminatingTool}; re-prompting once.`,
-        });
-        await session.prompt(
-          `You did not call ${request.terminatingTool}. Call it now with your final answer.`,
-          { expandPromptTemplates: false, source: "rpc" },
-        );
-      }
-    } catch (error) {
-      promptError = error;
-    }
+    const promptError = await promptUntilTerminated(session, request, tracker, combinedSignal);
     if (timeoutSignal.aborted && !request.signal?.aborted) {
       throw new InferenceTimeoutError(timeoutMs);
     }
     request.signal?.throwIfAborted();
     if (promptError) throw promptError;
 
-    const message = [...session.messages].reverse().find((entry) => entry.role === "assistant") as
-      | AssistantMessage
-      | undefined;
+    const message = finalAssistantMessage(session);
     if (!message) throw new Error("The model returned no response.");
     if (message.stopReason === "error") {
       throw new Error(message.errorMessage || "The provider aborted the inference.");
@@ -555,21 +581,19 @@ async function runPiSessionAttempt(
       .map((item) => (item.type === "text" ? item.text : ""))
       .join("\n")
       .trim();
+    // Fall back to the final turn if no message_end was observed.
+    const turnUsage = {
+      input: message.usage.input,
+      output: message.usage.output,
+      cost: message.usage.cost.total,
+    };
     return {
       provider,
       model: modelId,
       text,
       toolCalls,
       terminated: tracker.terminated,
-      // Fall back to the final turn if no message_end was observed.
-      usage:
-        usage.input + usage.output > 0
-          ? usage
-          : {
-              input: message.usage.input,
-              output: message.usage.output,
-              cost: message.usage.cost.total,
-            },
+      usage: usage.input + usage.output > 0 ? usage : turnUsage,
     };
   } finally {
     combinedSignal.removeEventListener("abort", abortSession);
