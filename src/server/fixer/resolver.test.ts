@@ -704,8 +704,42 @@ describe("deterministic guards on the real 2026-10-03 failures", () => {
     );
     expect(result.status).toBe("needs_review");
     expect(result.proposal.reviewReasons?.[0]).toContain(
-      "has German audio that the library copy lacks",
+      "has German audio that the library copy of episode 101 lacks",
     );
+  });
+
+  it("holds a pack removal when one episode would lose its only German source", async () => {
+    const client = new FakeArrClient();
+    client.episodes = [
+      { id: 101, hasFile: true, episodeFile: { path: "/lib/E01.mkv", languages: [] } },
+      { id: 102, hasFile: true, episodeFile: { path: "/lib/E02.mkv", languages: [] } },
+    ];
+    const { result } = await analyze(
+      {
+        queueItem: makeQueueItem({ episodeIds: [101, 102] }),
+        candidates: [
+          makeCandidate("candidate_1", { episodeIds: [101] }),
+          makeCandidate("candidate_2", { episodeIds: [102] }),
+        ],
+        client,
+        prober: fakeProber({
+          "/downloads/candidate_1.mkv": { audio: [germanAudio()], hasGermanAudio: true },
+          "/downloads/candidate_2.mkv": { audio: [germanAudio()], hasGermanAudio: true },
+          "/lib/E01.mkv": { audio: [germanAudio()], hasGermanAudio: true },
+          "/lib/E02.mkv": { audio: [englishAudio()] },
+        }),
+      },
+      removeProposal({
+        removeFromClient: true,
+        blocklist: true,
+        skipRedownload: true,
+        changeCategory: false,
+      }),
+    );
+    expect(result.status).toBe("needs_review");
+    expect(result.proposal.reviewReasons).toEqual([
+      "candidate_2.mkv has German audio that the library copy of episode 102 lacks or could not be checked for; removing it would throw that away.",
+    ]);
   });
 
   it("holds the Sky Captain search for German when the library file already has an untagged German track", async () => {

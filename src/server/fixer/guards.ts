@@ -210,6 +210,41 @@ function importReviewReasons(
   return reasons.filter((reason): reason is string => Boolean(reason));
 }
 
+/** The queued targets a candidate file is for; all of them when Sonarr mapped it elsewhere. */
+function targetsOfCandidate(
+  queueItem: QueueItem,
+  candidate: ManualImportCandidate,
+  targets: TargetFacts[],
+): TargetFacts[] {
+  if (queueItem.service === "radarr") return targets;
+  const mapped = targets.filter((target) => candidate.episodeIds.includes(target.id));
+  return mapped.length > 0 ? mapped : targets;
+}
+
+/**
+ * A removal must not discard German audio that a queued target lacks in the
+ * library. Checked per file, so a mixed season pack cannot hide one episode's
+ * only German source behind episodes that already have German.
+ */
+function germanLossReasons(
+  queueItem: QueueItem,
+  candidates: ManualImportCandidate[],
+  targets: TargetFacts[],
+  facts: InspectionFacts,
+): string[] {
+  return candidates.flatMap((candidate) => {
+    if (candidate.isLikelySample || !probeOf(facts, candidate.path)?.hasGermanAudio) return [];
+    const lacking = targetsOfCandidate(queueItem, candidate, targets).filter(
+      (target) => currentHasGerman(facts, target) !== true,
+    );
+    if (lacking.length === 0) return [];
+    const labels = lacking.map((target) => target.label).join(", ");
+    return [
+      `${fileName(candidate.path)} has German audio that the library copy of ${labels} lacks or could not be checked for; removing it would throw that away.`,
+    ];
+  });
+}
+
 function removalReviewReasons(
   queueItem: QueueItem,
   candidates: ManualImportCandidate[],
@@ -222,21 +257,11 @@ function removalReviewReasons(
     const target = id === undefined ? undefined : facts.targets.get(id);
     return target ? [target] : [];
   });
-  const libraryGerman = targets.map((target) => currentHasGerman(facts, target));
-  const libraryLacksGerman =
-    targets.length > 0 && libraryGerman.every((hasGerman) => hasGerman === false);
   const libraryHasGerman =
-    targets.length > 0 && libraryGerman.every((hasGerman) => hasGerman === true);
+    targets.length > 0 && targets.every((target) => currentHasGerman(facts, target) === true);
 
-  if (libraryLacksGerman && proposal.identity?.verdict !== "contradicted") {
-    for (const candidate of candidates) {
-      if (candidate.isLikelySample) continue;
-      if (probeOf(facts, candidate.path)?.hasGermanAudio) {
-        reasons.push(
-          `${fileName(candidate.path)} has German audio that the library copy lacks; removing it would throw that away.`,
-        );
-      }
-    }
+  if (proposal.identity?.verdict !== "contradicted") {
+    reasons.push(...germanLossReasons(queueItem, candidates, targets, facts));
   }
   if (
     libraryHasGerman &&
