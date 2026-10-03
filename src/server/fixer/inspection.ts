@@ -83,41 +83,62 @@ function qualityName(quality: unknown): string | undefined {
   return valueName(inner) || undefined;
 }
 
-async function mapLimit<T>(items: T[], limit: number, task: (item: T) => Promise<void>) {
+async function mapLimit<T>(
+  items: T[],
+  limit: number,
+  task: (item: T) => Promise<void>,
+  signal?: AbortSignal,
+) {
   const queue = [...items];
   const workers = Array.from({ length: Math.min(limit, queue.length) }, async () => {
-    for (let item = queue.shift(); item !== undefined; item = queue.shift()) {
+    for (let item = queue.shift(); item !== undefined && !signal?.aborted; item = queue.shift()) {
       await task(item);
     }
   });
   await Promise.all(workers);
 }
 
-/** Probes each path once per analysis; later calls reuse the stored result. */
+/**
+ * Probes each path once per analysis; later calls reuse the stored result.
+ * Stops starting new probes once `signal` aborts.
+ */
 export async function probePaths(
   facts: InspectionFacts,
   prober: MediaProber | undefined,
   paths: string[],
-  options: { subtitleExcerpt?: boolean; folder?: boolean } = {},
+  options: { subtitleExcerpt?: boolean; folder?: boolean; signal?: AbortSignal } = {},
 ): Promise<MediaProbeResult[]> {
   const unique = [...new Set(paths.filter(Boolean))];
-  await mapLimit(unique, PROBE_CONCURRENCY, async (path) => {
-    const existing = facts.probes.get(path);
-    const needsMore =
-      existing?.ok &&
-      ((options.subtitleExcerpt && !existing.subtitleExcerpt) ||
-        (options.folder && !existing.folder));
-    if (existing && !needsMore) return;
-    const result: MediaProbeResult = prober
-      ? await prober.probe(path, options).catch((error: unknown) => ({
-          ok: false as const,
-          path,
-          reason: error instanceof Error ? error.message : String(error),
-        }))
-      : { ok: false, path, reason: "Media probing is not configured." };
-    facts.probes.set(path, result);
-  });
+  const { signal, ...probeOptions } = options;
+  await mapLimit(
+    unique,
+    PROBE_CONCURRENCY,
+    (path) => probeOnce(facts, prober, path, probeOptions),
+    signal,
+  );
   return unique.map((path) => facts.probes.get(path) ?? { ok: false, path, reason: "Not probed." });
+}
+
+async function probeOnce(
+  facts: InspectionFacts,
+  prober: MediaProber | undefined,
+  path: string,
+  options: { subtitleExcerpt?: boolean; folder?: boolean },
+): Promise<void> {
+  const existing = facts.probes.get(path);
+  const needsMore =
+    existing?.ok &&
+    ((options.subtitleExcerpt && !existing.subtitleExcerpt) ||
+      (options.folder && !existing.folder));
+  if (existing && !needsMore) return;
+  const result: MediaProbeResult = prober
+    ? await prober.probe(path, options).catch((error: unknown) => ({
+        ok: false as const,
+        path,
+        reason: error instanceof Error ? error.message : String(error),
+      }))
+    : { ok: false, path, reason: "Media probing is not configured." };
+  facts.probes.set(path, result);
 }
 
 function movieTarget(movie: RadarrMovieRecord): TargetFacts | undefined {

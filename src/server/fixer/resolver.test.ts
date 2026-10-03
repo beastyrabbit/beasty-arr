@@ -766,6 +766,61 @@ describe("deterministic guards on the real 2026-10-03 failures", () => {
     expect(result.proposal.reviewReasons?.[0]).toContain("candidate_31.mkv has German audio");
   });
 
+  it("holds a Radarr import into a different movie than the queued one", async () => {
+    const client = new FakeArrClient();
+    client.moviesById.set(1680, { id: 1680, title: "Sunset Boulevard", year: 1950 });
+    client.moviesById.set(999, { id: 999, title: "Other", year: 1950 });
+    const { result } = await analyze(
+      {
+        queueItem: makeQueueItem({ service: "radarr", movieId: 1680, episodeIds: [] }),
+        candidates: [
+          makeCandidate("candidate_1", { service: "radarr", movieId: 999, episodeIds: [] }),
+        ],
+        client,
+      },
+      importProposal("candidate_1", {
+        selectedImports: [{ candidateId: "candidate_1", episodeIds: [], movieId: 999 }],
+      }),
+    );
+    expect(result.proposal.reviewReasons).toContain(
+      "The file would be imported as movie 999, not the queued movie 1680.",
+    );
+  });
+
+  it("stops inspecting removed files once cancelled and still holds the uninspected ones", async () => {
+    const client = new FakeArrClient();
+    client.episodes = [
+      { id: 101, hasFile: true, episodeFile: { path: "/lib/E01.mkv", languages: [] } },
+    ];
+    const prober = fakeProber({ "/lib/E01.mkv": { audio: [englishAudio()] } });
+    const controller = new AbortController();
+    const runner: FixerPiRunner = async (req) => {
+      await invokeProposalTool(
+        req,
+        removeProposal({
+          removeFromClient: true,
+          blocklist: true,
+          skipRedownload: true,
+          changeCategory: false,
+        }),
+      );
+      controller.abort();
+      return { log: [] };
+    };
+    const result = await resolveQueueItem({
+      queueItem: makeQueueItem(),
+      candidates: Array.from({ length: 31 }, (_, index) =>
+        makeCandidate(`candidate_${index + 1}`, { languages: [], languageLabels: [] }),
+      ),
+      client,
+      runner,
+      prober,
+      signal: controller.signal,
+    });
+    expect(prober.calls).not.toContain("/downloads/candidate_31.mkv");
+    expect(result.proposal.reviewReasons?.join(" ")).toContain("candidate_31.mkv");
+  });
+
   it("holds a removal whose file cannot be read while the library lacks German", async () => {
     const client = new FakeArrClient();
     client.episodes = [

@@ -183,6 +183,16 @@ function selectedFiles(
   });
 }
 
+/** A Radarr import into a different movie than the queued one is never automatic. */
+function otherMovieReason(queueItem: QueueItem, proposal: ResolutionProposal): string | undefined {
+  if (queueItem.service !== "radarr" || queueItem.movieId === undefined) return undefined;
+  const other = proposal.selectedImports.find(
+    (selected) => selected.movieId !== undefined && selected.movieId !== queueItem.movieId,
+  );
+  if (!other) return undefined;
+  return `The file would be imported as movie ${other.movieId}, not the queued movie ${queueItem.movieId}.`;
+}
+
 function importReviewReasons(
   queueItem: QueueItem,
   candidates: ManualImportCandidate[],
@@ -195,6 +205,7 @@ function importReviewReasons(
       ? undefined
       : "Media inspection is not configured, so the real file could not be checked.",
     parseReason(queueItem, facts),
+    otherMovieReason(queueItem, proposal),
   ];
   for (const file of selectedFiles(queueItem, candidates, proposal, facts)) {
     if (facts.proberAvailable && !file.probe) {
