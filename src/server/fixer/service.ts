@@ -1054,6 +1054,14 @@ export class FixerService {
         message: `Proposal action ${effective.action} is not an import.`,
       };
     }
+    if (!effective.identity) {
+      // Saved before 0.6.0: no file inspection or identity guards ran on it.
+      return {
+        ok: false,
+        dryRun: false,
+        message: "This analysis predates file inspection. Reanalyze before importing.",
+      };
+    }
 
     let target: { client: FixerClientPort; queueItem: FixerQueueItem };
     try {

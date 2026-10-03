@@ -755,6 +755,26 @@ describe("FixerService apply", () => {
     });
   });
 
+  it("refuses to import from an analysis saved before file inspection existed", async () => {
+    const { db, svc, sonarr, settings, analysisId } = await analyzedHarness();
+    const row = db.select().from(fixerAnalyses).where(eq(fixerAnalyses.id, analysisId)).get();
+    if (!row?.proposal) throw new Error("analysis row missing");
+    const { identity: _identity, ...legacy } = row.proposal as unknown as ResolutionProposal;
+    db.update(fixerAnalyses)
+      .set({ proposal: legacy as unknown as Record<string, unknown> })
+      .where(eq(fixerAnalyses.id, analysisId))
+      .run();
+    settings.update({ dryRun: false });
+
+    const result = await svc.apply(analysisId);
+
+    expect(result).toMatchObject({
+      ok: false,
+      message: "This analysis predates file inspection. Reanalyze before importing.",
+    });
+    expect(sonarr.applyCalls).toHaveLength(0);
+  });
+
   it("rejects a candidate subset that selects nothing from the proposal", async () => {
     const { svc, sonarr, analysisId } = await analyzedHarness();
     const result = await svc.apply(analysisId, ["candidate_9"]);

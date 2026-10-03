@@ -127,6 +127,13 @@ function replacementReasons(facts: InspectionFacts, file: SelectedFile): string[
   const { name, probe } = file;
   return file.targets.flatMap((target) => {
     const reasons: string[] = [];
+    const currentPath = target.currentFile?.path;
+    if (facts.proberAvailable && currentPath && !probeOf(facts, currentPath)) {
+      // Without the library file's real streams, a German-audio loss cannot be ruled out.
+      reasons.push(
+        `The library file of ${target.label} could not be inspected (${probeFailure(facts, currentPath)}).`,
+      );
+    }
     const germanNow = currentHasGerman(facts, target);
     if (probe && germanNow && !probe.hasGermanAudio) {
       reasons.push(
