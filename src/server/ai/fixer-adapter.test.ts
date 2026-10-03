@@ -41,12 +41,19 @@ describe("createFixerRunner", () => {
       signal: controller.signal,
       tools,
     });
-    expect(result.log).toEqual([" final reasoning "]);
+    expect(result).toMatchObject({
+      log: [" final reasoning "],
+      provider: "codex",
+      model: "test",
+      text: " final reasoning ",
+      usage: { input: 1, output: 1, cost: 0 },
+    });
   });
 
   it("maps provider text and tool events into persisted fixer events", async () => {
     const events: FixerAnalysisEvent[] = [];
     const piRunner: PiRunner = async (req) => {
+      req.onEvent?.({ type: "thinking_delta", message: "pondering" });
       req.onEvent?.({ type: "text_delta", message: "reasoning" });
       req.onEvent?.({
         type: "tool_start",
@@ -56,22 +63,28 @@ describe("createFixerRunner", () => {
       req.onEvent?.({
         type: "tool_end",
         message: "end",
-        data: { name: "radarr_get_upgrade_context", isError: false },
+        data: {
+          name: "radarr_get_upgrade_context",
+          args: { movieId: 5 },
+          result: '{"movie":"Heat"}',
+          isError: false,
+        },
       });
       req.onEvent?.({ type: "provider_retry", message: "retrying" });
       return {
         provider: "codex",
-        model: "test",
+        model: "gpt-x",
         text: "",
-        toolCalls: [],
+        toolCalls: [{ name: "radarr_get_upgrade_context", callId: "c1", args: {}, isError: false }],
         terminated: true,
-        usage: { input: 1, output: 1, cost: 0 },
+        usage: { input: 12_345, output: 1_234, cost: 0.04 },
       };
     };
 
     await createFixerRunner(piRunner)(request({ onEvent: (event) => events.push(event) }));
 
     expect(events).toEqual([
+      expect.objectContaining({ kind: "thinking", delta: "pondering", itemId: 42 }),
       expect.objectContaining({ kind: "text", delta: "reasoning", itemId: 42 }),
       expect.objectContaining({
         kind: "tool-call",
@@ -85,9 +98,25 @@ describe("createFixerRunner", () => {
         phase: "end",
         toolName: "radarr_get_upgrade_context",
         isError: false,
+        args: { movieId: 5 },
+        result: '{"movie":"Heat"}',
         itemId: 42,
       }),
       expect.objectContaining({ kind: "step", source: "pi", message: "retrying", itemId: 42 }),
+      expect.objectContaining({
+        kind: "step",
+        level: "info",
+        source: "pi",
+        message:
+          "Pi run finished: model gpt-x (codex), 12.3k in / 1.2k out tokens, $0.04, 1 tool calls.",
+        itemId: 42,
+        details: {
+          provider: "codex",
+          model: "gpt-x",
+          usage: { input: 12_345, output: 1_234, cost: 0.04 },
+          toolCalls: 1,
+        },
+      }),
     ]);
   });
 

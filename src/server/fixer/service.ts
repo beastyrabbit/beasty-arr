@@ -18,6 +18,7 @@ import type { Db } from "../db/index.js";
 import { aiVerdicts, fixerAnalyses, fixerHistory } from "../db/schema.js";
 import type { EventBus } from "../events/bus.js";
 import { isAiVerdictValue } from "../hunt/state.js";
+import type { MediaProber } from "../media/types.js";
 import type { FixerAnalysisEvent, FixerPiRunner } from "./ai-port.js";
 import { toResolverEvent } from "./events-map.js";
 import {
@@ -52,6 +53,81 @@ export const ignoreRemovalOptions: QueueRemovalOptions = {
 };
 
 const MAX_PERSISTED_EVENTS = 500;
+/** Cap for one coalesced text/thinking block in the persisted events. */
+const MAX_MERGED_DELTA_CHARS = 20_000;
+const MERGED_DELTA_TRUNCATED = " …[truncated]";
+/** Overall budget for the persisted events JSON; the largest tool results shrink first. */
+const MAX_PERSISTED_EVENTS_JSON_CHARS = 400_000;
+const SHRUNK_TOOL_RESULT_CHARS = 1_000;
+
+/**
+ * Appends an analysis event to the persisted list. Consecutive text/thinking
+ * deltas of the same item merge into one block (capped at
+ * MAX_MERGED_DELTA_CHARS), so a streamed answer cannot evict tool events.
+ */
+function appendPersistedEvent(events: FixerAnalysisEvent[], event: FixerAnalysisEvent): void {
+  if (event.kind === "text" || event.kind === "thinking") {
+    const last = events.at(-1);
+    let block: typeof event;
+    if (last?.kind === event.kind && last.itemId === event.itemId) {
+      block = last as typeof event;
+    } else {
+      // A copy: the block is extended in place by later deltas.
+      block = { ...event, delta: "" };
+      pushPersistedEvent(events, block);
+    }
+    if (block.delta.endsWith(MERGED_DELTA_TRUNCATED)) return;
+    const room = MAX_MERGED_DELTA_CHARS - block.delta.length;
+    block.delta +=
+      event.delta.length <= room
+        ? event.delta
+        : event.delta.slice(0, room) + MERGED_DELTA_TRUNCATED;
+    return;
+  }
+  pushPersistedEvent(events, event);
+}
+
+function pushPersistedEvent(events: FixerAnalysisEvent[], event: FixerAnalysisEvent): void {
+  events.push(event);
+  if (events.length > MAX_PERSISTED_EVENTS) {
+    events.shift();
+  }
+}
+
+function toolResultChars(event: FixerAnalysisEvent): number {
+  if (event.kind !== "tool-call" || event.result === undefined) return 0;
+  return typeof event.result === "string"
+    ? event.result.length
+    : (JSON.stringify(event.result)?.length ?? 0);
+}
+
+/**
+ * Keeps the persisted events JSON under MAX_PERSISTED_EVENTS_JSON_CHARS:
+ * shrinks the largest tool results first, then drops the oldest events.
+ * Mutates `events` (replacing shrunk entries with copies).
+ */
+function enforcePersistedEventsBudget(events: FixerAnalysisEvent[]): void {
+  let size = JSON.stringify(events).length;
+  if (size <= MAX_PERSISTED_EVENTS_JSON_CHARS) return;
+  const bySize = events
+    .map((event, index) => ({ index, chars: toolResultChars(event) }))
+    .filter((entry) => entry.chars > SHRUNK_TOOL_RESULT_CHARS)
+    .sort((a, b) => b.chars - a.chars);
+  for (const { index, chars } of bySize) {
+    if (size <= MAX_PERSISTED_EVENTS_JSON_CHARS) break;
+    const event = events[index];
+    if (event?.kind !== "tool-call") continue;
+    const text = typeof event.result === "string" ? event.result : JSON.stringify(event.result);
+    const shrunk = `${text.slice(0, SHRUNK_TOOL_RESULT_CHARS)}…[truncated ${text.length - SHRUNK_TOOL_RESULT_CHARS} chars to fit the analysis log]`;
+    events[index] = { ...event, result: shrunk };
+    size -= chars - shrunk.length;
+  }
+  size = JSON.stringify(events).length;
+  while (size > MAX_PERSISTED_EVENTS_JSON_CHARS && events.length > 1) {
+    const dropped = events.shift();
+    size -= JSON.stringify(dropped).length + 1;
+  }
+}
 const SEASON_EPISODE_PATTERN = /\bS(\d{1,4})E/i;
 
 function targetSeasonNumber(
@@ -292,6 +368,7 @@ export class FixerService {
   private readonly running = new Map<string, Promise<FixerRunOutcome>>();
   private readonly now: () => number;
   private readonly makeId: () => string;
+  private readonly prober: MediaProber | undefined;
 
   constructor(
     private readonly db: Db,
@@ -300,10 +377,11 @@ export class FixerService {
     private readonly runner: FixerPiRunner,
     private readonly bus: EventBus,
     private readonly log: FastifyBaseLogger,
-    opts: { now?: () => number; makeId?: () => string } = {},
+    opts: { now?: () => number; makeId?: () => string; prober?: MediaProber } = {},
   ) {
     this.now = opts.now ?? Date.now;
     this.makeId = opts.makeId ?? (() => nanoid());
+    this.prober = opts.prober;
     // A process restart cannot preserve the in-memory runner/controller that
     // owns a running row. Fail those orphaned rows immediately so the UI does
     // not display an analysis as "running" forever after a reload or crash.
@@ -731,6 +809,7 @@ export class FixerService {
     let persistTimer: ReturnType<typeof setTimeout> | undefined;
     const persist = () => {
       persistTimer = undefined;
+      enforcePersistedEventsBudget(events);
       this.db
         .update(fixerAnalyses)
         .set({ events: [...events] })
@@ -738,13 +817,11 @@ export class FixerService {
         .run();
     };
     const record = (event: FixerAnalysisEvent) => {
-      events.push(event);
-      if (events.length > MAX_PERSISTED_EVENTS) {
-        events.shift();
-      }
+      appendPersistedEvent(events, event);
       persistTimer ??= setTimeout(persist, 250);
-      // SSE payload uses the GUI-facing ResolverEvent shape (api-types contract);
-      // the persisted rows keep the richer internal FixerAnalysisEvent.
+      // SSE payload uses the GUI-facing ResolverEvent shape (api-types contract)
+      // and stays per-delta for the live view; the persisted rows keep the
+      // richer internal FixerAnalysisEvent with deltas coalesced.
       this.bus.emit("fixer.analysis.progress", {
         analysisId,
         service,
@@ -763,6 +840,7 @@ export class FixerService {
       error?: string,
     ): FixerRunOutcome => {
       clearTimeout(persistTimer);
+      enforcePersistedEventsBudget(events);
       this.db
         .update(fixerAnalyses)
         .set({
@@ -828,6 +906,7 @@ export class FixerService {
         dubVerdict: this.activeDubVerdict(queueItem, candidates),
         client,
         runner: this.runner,
+        prober: this.prober,
         signal: controller.signal,
         onEvent: record,
       });
@@ -973,6 +1052,14 @@ export class FixerService {
         ok: false,
         dryRun: false,
         message: `Proposal action ${effective.action} is not an import.`,
+      };
+    }
+    if (!effective.identity) {
+      // Saved before 0.6.0: no file inspection or identity guards ran on it.
+      return {
+        ok: false,
+        dryRun: false,
+        message: "This analysis predates file inspection. Reanalyze before importing.",
       };
     }
 

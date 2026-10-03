@@ -10,6 +10,7 @@ import type {
   SonarrEpisodeRecord,
   SonarrQualityProfileItem,
   SonarrQualityProfileRecord,
+  SonarrSeriesRecord,
 } from "../arr/sonarr-client.js";
 import { compactCandidate, episodeLabel } from "../arr/sonarr-format.js";
 import { assessImportMappings } from "./upgrade.js";
@@ -43,10 +44,27 @@ function compactEpisode(episode: SonarrEpisodeRecord) {
     sceneEpisodeNumber: episode.sceneEpisodeNumber,
     sceneAbsoluteEpisodeNumber: episode.sceneAbsoluteEpisodeNumber,
     title: episode.title,
+    runtimeMinutes: episode.runtime || undefined,
+    airDate: episode.airDate,
     hasFile: episode.hasFile,
     episodeFileId: episode.episodeFileId,
     monitored: episode.monitored,
     label: episodeLabel(episode),
+  };
+}
+
+function compactSeries(series: SonarrSeriesRecord) {
+  return {
+    id: series.id,
+    title: series.title,
+    year: series.year,
+    runtimeMinutes: series.runtime || undefined,
+    tvdbId: series.tvdbId,
+    seriesType: series.seriesType,
+    alternateTitles: (series.alternateTitles ?? []).slice(0, 20).map((alt) => ({
+      title: alt.title,
+      seasonNumber: alt.seasonNumber ?? alt.sceneSeasonNumber,
+    })),
   };
 }
 
@@ -78,9 +96,17 @@ function compactEpisodeFile(file?: SonarrEpisodeFileRecord) {
     quality: valueName(
       (file.quality as { quality?: unknown } | undefined)?.quality ?? file.quality,
     ),
-    languages: languages.map(valueName).filter(Boolean),
-    languageMetadataPresent: hasKnownLanguageMetadata(languages),
-    hasGermanAudio: hasGermanAudio(languages),
+    arrLanguageLabels: languages.map(valueName).filter(Boolean),
+    arrLabelsKnown: hasKnownLanguageMetadata(languages),
+    arrLabelsSayGerman: hasGermanAudio(languages),
+    arrMediaInfo: file.mediaInfo
+      ? {
+          audioLanguages: file.mediaInfo.audioLanguages,
+          subtitles: file.mediaInfo.subtitles,
+          resolution: file.mediaInfo.resolution,
+          runTime: file.mediaInfo.runTime,
+        }
+      : undefined,
     releaseGroup: file.releaseGroup,
     releaseType: file.releaseType,
     customFormats: (file.customFormats ?? []).map(compactFormat),
@@ -172,7 +198,7 @@ export function createSonarrLookupTools({
     name: "sonarr_get_queue_context",
     label: "Get Sonarr Queue Context",
     description:
-      "Read the current Sonarr queue target, warning messages, target episode ids, and current manual import candidates.",
+      "Read the queued series (year, runtime, alternate titles with the season they belong to), the target episodes (titles, runtimes), Sonarr's warning messages, and the manual import candidates.",
     promptSnippet: "Use sonarr_get_queue_context to reread the queue target and Sonarr warning.",
     promptGuidelines: [
       "Use sonarr_get_queue_context when you need to re-check the target episode ids or Sonarr warning.",
@@ -180,9 +206,15 @@ export function createSonarrLookupTools({
     parameters: Type.Object({}),
     executionMode: "parallel" as const,
     async execute() {
-      const targetEpisodes = await safeGetTargetEpisodes(client, queueItem);
+      const [targetEpisodes, series] = await Promise.all([
+        safeGetTargetEpisodes(client, queueItem),
+        queueItem.seriesId
+          ? client.getSeriesById(queueItem.seriesId).catch(() => undefined)
+          : undefined,
+      ]);
       rememberEpisodeIds?.(targetEpisodes.flatMap((episode) => (episode.id ? [episode.id] : [])));
       const details = {
+        series: series ? compactSeries(series) : undefined,
         queueItem: {
           id: queueItem.id,
           title: queueItem.title,
@@ -213,11 +245,12 @@ export function createSonarrLookupTools({
     name: "sonarr_find_episodes",
     label: "Find Sonarr Episodes",
     description:
-      "Read-only Sonarr episode lookup for the queue series. Use this to verify season/episode, absolute anime episode numbers, scene numbers, and titles before proposing an import.",
+      "Read-only Sonarr episode lookup. With only a seriesId it lists every episode of the series across all seasons (titles, runtimes, air dates, absolute and scene numbers); filter by seasonNumber, titleContains, or absoluteEpisodeNumber. Use it to find which episode a file really is when its own title or content disagrees with Sonarr's mapping.",
     promptSnippet:
-      "Use sonarr_find_episodes to verify Sonarr episode ids, absolute episode numbers, and titles.",
+      "Use sonarr_find_episodes to search the whole series for the episode a file really is.",
     promptGuidelines: [
-      "Use sonarr_find_episodes before resolving unexpected-episode warnings.",
+      "Search by the episode title found in the file name, embedded title, or subtitles (titleContains) across all seasons, not only the episode Sonarr mapped.",
+      "Anthology series keep each story in its own Sonarr season; a release numbered S01 of a later story usually belongs to a later Sonarr season.",
       "Do not guess an episode id when Sonarr can be queried for the series episode mapping.",
     ],
     parameters: Type.Object({
@@ -288,6 +321,67 @@ export function createSonarrLookupTools({
     },
   });
 
+  const parseReleaseTool = defineTool({
+    name: "sonarr_parse_release",
+    label: "Parse Release Name",
+    description:
+      "Ask Sonarr to parse a release or file name on its own, without grab history: parsed series title and year, season/episode numbers, and which library series and episodes (if any) the name really matches. A download whose name matches no series or another series is suspect.",
+    promptSnippet: "Use sonarr_parse_release to see what a release name really refers to.",
+    parameters: Type.Object({
+      title: Type.Optional(
+        Type.String({ description: "Release or file name. Defaults to the queue release title." }),
+      ),
+    }),
+    executionMode: "parallel" as const,
+    async execute(_toolCallId, params) {
+      const title = params.title?.trim() || queueItem.title;
+      const result = await client.parseRelease(title);
+      const info = result.parsedEpisodeInfo;
+      const details = {
+        title,
+        parsedSeriesTitle: info?.seriesTitle,
+        parsedYear: info?.seriesTitleInfo?.year || undefined,
+        seasonNumber: info?.seasonNumber,
+        episodeNumbers: info?.episodeNumbers,
+        absoluteEpisodeNumbers: info?.absoluteEpisodeNumbers,
+        fullSeason: info?.fullSeason,
+        matchedLibrarySeries: result.series ? compactSeries(result.series) : null,
+        matchedEpisodes: (result.episodes ?? []).map(compactEpisode),
+      };
+      return {
+        content: [{ type: "text", text: JSON.stringify(details, null, 2) }],
+        details,
+      };
+    },
+  });
+
+  const lookupSeriesTool = defineTool({
+    name: "sonarr_lookup_series",
+    label: "Look Up Series (TVDB)",
+    description:
+      "Search TVDB through Sonarr by title or 'tvdb:<id>'. Returns title, year, runtime, ids, and whether the series is in the library. Use it to find out which show a release actually belongs to.",
+    promptSnippet: "Use sonarr_lookup_series to identify which show a release belongs to.",
+    parameters: Type.Object({
+      term: Type.String({ minLength: 1, description: "Search term, e.g. 'Lizzie Borden Story'." }),
+    }),
+    executionMode: "parallel" as const,
+    async execute(_toolCallId, params) {
+      const results = await client.lookupSeries(params.term);
+      const details = {
+        term: params.term,
+        results: results.slice(0, 8).map((series) => ({
+          ...compactSeries(series),
+          alternateTitles: undefined,
+          inLibrary: Boolean(series.id),
+        })),
+      };
+      return {
+        content: [{ type: "text", text: JSON.stringify(details, null, 2) }],
+        details,
+      };
+    },
+  });
+
   const getCandidatesTool = defineTool({
     name: "sonarr_get_manual_import_candidates",
     label: "Get Manual Import Candidates",
@@ -328,14 +422,13 @@ export function createSonarrLookupTools({
     name: "sonarr_get_upgrade_context",
     label: "Get Upgrade Context",
     description:
-      "Required before every final resolution: read current episode files, explicit German-audio flags, quality profile scoring, and custom formats, plus a deterministic upgradeAssessment (import/skip/blocked/unverified) for every candidate file against the episodes Sonarr mapped it to.",
+      "Read the current episode files (Sonarr's labels and media info), quality profile scoring, custom formats, and an upgradeAssessment (import/skip/blocked/unverified) per candidate against the episodes Sonarr mapped it to. Pass episodeIds to compare against the episodes a file really is.",
     promptSnippet:
-      "Use sonarr_get_upgrade_context when Sonarr mentions custom formats, quality profiles, upgrade rejections, or existing files.",
+      "Use sonarr_get_upgrade_context to compare candidates with the current episode files and the quality profile.",
     promptGuidelines: [
-      "Call this for every queue analysis before proposing a resolution, even when the only warning mentions sample detection.",
-      "A candidate explicitly lacking German must never replace a current file whose hasGermanAudio field is true.",
-      "Compare the candidate languages/custom format score with the existing episode file and profile scoring.",
-      "The upgradeAssessment per candidate is the same check the import preflight enforces: select the files marked import, leave out the files marked skip or blocked, and use your own lookup only when Sonarr mapped a file to the wrong episode.",
+      "Call this before proposing a resolution; pass episodeIds when you remapped a file.",
+      "upgradeAssessment compares Sonarr's quality and score labels only. The import preflight refuses files it marks skip or blocked, but it cannot see real resolution or untagged German tracks — check those with inspect_media_files.",
+      "Custom-format scores express the user's quality preferences; German audio the library lacks outweighs them.",
     ],
     parameters: Type.Object({
       episodeIds: Type.Optional(
@@ -461,5 +554,12 @@ export function createSonarrLookupTools({
     },
   });
 
-  return [getQueueContextTool, findEpisodesTool, getCandidatesTool, getUpgradeContextTool];
+  return [
+    getQueueContextTool,
+    parseReleaseTool,
+    lookupSeriesTool,
+    findEpisodesTool,
+    getCandidatesTool,
+    getUpgradeContextTool,
+  ];
 }

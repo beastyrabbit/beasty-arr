@@ -135,6 +135,26 @@ export interface ResolutionProposal {
   evidence: string[];
   warnings: string[];
   queueRemovalOptions?: QueueRemovalOptions;
+  /** What the AI established the download actually is, from its own observations. */
+  identity?: ProposalIdentity;
+  /** The AI's written explanation of the decision. */
+  rationale?: string;
+  /**
+   * Set by the fixer's deterministic checks, not by the AI: why this proposal
+   * was turned into needs_review although the AI wanted to act.
+   */
+  reviewReasons?: string[];
+}
+
+export type IdentityVerdict = "confirmed" | "contradicted" | "uncertain";
+
+export interface ProposalIdentity {
+  /** confirmed: the file is the target; contradicted: it is something else; uncertain: not provable. */
+  verdict: IdentityVerdict;
+  /** What the file really is, e.g. "Sunset (1988, Blake Edwards)" or "Monster S04E07 The Trial of the Century". */
+  actualWork: string;
+  /** Independent observations (probe, parse, lookup), not the arr's grab mapping. */
+  evidence: string[];
 }
 
 export interface ValidationIssue {
@@ -191,6 +211,11 @@ export interface ResolverEvent {
   message: string;
   timestamp: string;
   itemId?: number;
+  /**
+   * Pi tool calls: `{toolName, phase, args?, result?, isError?}` (result on
+   * phase "end"); assistant output blocks: `{kind: "text" | "thinking"}`;
+   * steps: free-form, e.g. the Pi run summary `{provider, model, usage, toolCalls}`.
+   */
   details?: unknown;
 }
 

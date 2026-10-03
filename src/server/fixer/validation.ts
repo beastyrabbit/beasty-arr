@@ -1,6 +1,8 @@
 import type {
+  IdentityVerdict,
   ManualImportCandidate,
   ProposalAction,
+  ProposalIdentity,
   QueueItem,
   QueueRemovalOptions,
   ResolutionProposal,
@@ -91,8 +93,33 @@ function normalizeQueueRemovalOptions(value: unknown): QueueRemovalOptions | und
   };
 }
 
+function normalizeStrings(values: unknown): string[] {
+  if (!Array.isArray(values)) return [];
+  return values.flatMap((value) => {
+    const normalized = String(value ?? "").trim();
+    return normalized ? [normalized] : [];
+  });
+}
+
+const identityVerdicts = new Set<IdentityVerdict>(["confirmed", "contradicted", "uncertain"]);
+
+function normalizeIdentity(value: unknown): ProposalIdentity | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const record = value as Partial<ProposalIdentity>;
+  return {
+    verdict: identityVerdicts.has(record.verdict as IdentityVerdict)
+      ? (record.verdict as IdentityVerdict)
+      : "uncertain",
+    actualWork: String(record.actualWork ?? "").trim(),
+    evidence: normalizeStrings(record.evidence),
+  };
+}
+
 export function normalizeProposal(input: ResolutionProposal): ResolutionProposal {
   const selectedImports = normalizeSelectedImports(input.selectedImports);
+  const identity = normalizeIdentity(input.identity);
+  const rationale = String(input.rationale ?? "").trim();
+  const reviewReasons = normalizeStrings(input.reviewReasons);
   const selectedCandidateIds = normalizeIdList([
     ...(input.selectedCandidateIds ?? []),
     ...selectedImports.map((selectedImport) => selectedImport.candidateId),
@@ -114,6 +141,9 @@ export function normalizeProposal(input: ResolutionProposal): ResolutionProposal
       return normalized ? [normalized] : [];
     }),
     queueRemovalOptions: normalizeQueueRemovalOptions(input.queueRemovalOptions),
+    ...(identity ? { identity } : {}),
+    ...(rationale ? { rationale } : {}),
+    ...(reviewReasons.length ? { reviewReasons } : {}),
   };
 }
 

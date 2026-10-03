@@ -9,6 +9,8 @@ import type {
 } from "@earendil-works/pi-ai";
 import { openaiCodexProvider } from "@earendil-works/pi-ai/providers/openai-codex";
 import {
+  type AgentSession,
+  type AgentSessionEvent,
   createAgentSession,
   DefaultResourceLoader,
   ModelRegistry,
@@ -257,6 +259,43 @@ export async function withProviderRetries<T>(
 
 export type PiSessionEvent = { type: string; message: string; data?: unknown };
 
+/** Upper bound for a tool result forwarded in a `tool_end` event (audit trail, not the model's view). */
+export const TOOL_RESULT_MAX_CHARS = 6_000;
+
+export function truncateText(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text;
+  return `${text.slice(0, maxChars)}…[truncated ${text.length - maxChars} chars]`;
+}
+
+function safeJson(value: unknown): string {
+  try {
+    return JSON.stringify(value) ?? String(value);
+  } catch {
+    return String(value);
+  }
+}
+
+/**
+ * Pi's tool_execution_end `result` is an AgentToolResult ({content, details}).
+ * Returns the joined text content parts, else JSON of `details` (or of the
+ * whole value), truncated to TOOL_RESULT_MAX_CHARS.
+ */
+export function formatToolResult(result: unknown): string | undefined {
+  if (result === undefined || result === null) return undefined;
+  if (typeof result === "string") return truncateText(result, TOOL_RESULT_MAX_CHARS);
+  const { content, details } = result as { content?: unknown; details?: unknown };
+  const texts = Array.isArray(content)
+    ? content.flatMap((part) =>
+        part && typeof part === "object" && part.type === "text" && typeof part.text === "string"
+          ? [part.text as string]
+          : [],
+      )
+    : [];
+  if (texts.length > 0) return truncateText(texts.join("\n"), TOOL_RESULT_MAX_CHARS);
+  const payload = details === undefined ? result : details;
+  return truncateText(safeJson(payload), TOOL_RESULT_MAX_CHARS);
+}
+
 export type PiToolCall = { name: string; callId: string; args: unknown; isError: boolean };
 
 export type PiSessionRequest = {
@@ -328,12 +367,135 @@ export function resolveModel(
   return model as Model<never>;
 }
 
-async function runPiSessionAttempt(
+function addAssistantUsage(total: PiSessionResult["usage"], message: { role?: unknown }): void {
+  if (message.role !== "assistant") return;
+  const turn = (message as AssistantMessage).usage;
+  total.input += turn?.input ?? 0;
+  total.output += turn?.output ?? 0;
+  total.cost += turn?.cost?.total ?? 0;
+}
+
+/**
+ * Collects tool calls, usage and the terminating-tool signal from one session
+ * and forwards step events (tool calls, results, text and thinking deltas).
+ */
+function createSessionTracker(request: PiSessionRequest) {
+  const tracker = {
+    toolCalls: [] as PiToolCall[],
+    terminated: false,
+    // Summed over every assistant turn of this attempt (tool loops bill each turn).
+    usage: { input: 0, output: 0, cost: 0 },
+    listener: (event: AgentSessionEvent) => {
+      switch (event.type) {
+        case "message_end":
+          addAssistantUsage(tracker.usage, event.message);
+          return;
+        case "message_update":
+          forwardDelta(request, event.assistantMessageEvent);
+          return;
+        case "tool_execution_start":
+          tracker.toolCalls.push({
+            name: event.toolName,
+            callId: event.toolCallId,
+            args: event.args,
+            isError: false,
+          });
+          request.onEvent?.({
+            type: "tool_start",
+            message: `AI tool: ${event.toolName}`,
+            data: { name: event.toolName, callId: event.toolCallId, args: event.args },
+          });
+          return;
+        case "tool_execution_end":
+          recordToolEnd(request, tracker, event);
+          return;
+        case "compaction_start":
+        case "compaction_end":
+          request.onEvent?.({ type: event.type, message: `Pi: ${event.type}` });
+          return;
+        default:
+          return;
+      }
+    },
+  };
+  return tracker;
+}
+
+function forwardDelta(
+  request: PiSessionRequest,
+  update: Extract<AgentSessionEvent, { type: "message_update" }>["assistantMessageEvent"],
+): void {
+  if (update.type === "text_delta" || update.type === "thinking_delta") {
+    request.onEvent?.({ type: update.type, message: update.delta });
+  }
+}
+
+function recordToolEnd(
+  request: PiSessionRequest,
+  tracker: { toolCalls: PiToolCall[]; terminated: boolean },
+  event: Extract<AgentSessionEvent, { type: "tool_execution_end" }>,
+): void {
+  const call = tracker.toolCalls.find((entry) => entry.callId === event.toolCallId);
+  if (call) call.isError = event.isError;
+  if (event.toolName === request.terminatingTool && !event.isError) tracker.terminated = true;
+  request.onEvent?.({
+    type: "tool_end",
+    message: `AI tool ${event.toolName} ${event.isError ? "failed" : "completed"}`,
+    data: {
+      name: event.toolName,
+      callId: event.toolCallId,
+      args: call?.args,
+      result: formatToolResult(event.result),
+      isError: event.isError,
+    },
+  });
+}
+
+function finalAssistantMessage(session: AgentSession): AssistantMessage | undefined {
+  return [...session.messages].reverse().find((entry) => entry.role === "assistant") as
+    | AssistantMessage
+    | undefined;
+}
+
+/**
+ * Sends the prompt and re-prompts once when the terminating tool was skipped
+ * (pi-resolver pattern). Returns the prompt error instead of throwing so the
+ * caller can classify timeouts and aborts first.
+ */
+async function promptUntilTerminated(
+  session: AgentSession,
+  request: PiSessionRequest,
+  tracker: { terminated: boolean },
+  signal: AbortSignal,
+): Promise<unknown> {
+  try {
+    await session.prompt(request.prompt, { expandPromptTemplates: false, source: "rpc" });
+    const response = finalAssistantMessage(session);
+    if (response?.stopReason === "error") {
+      throw new Error(response.errorMessage || "The provider aborted the inference.");
+    }
+    if (tracker.terminated || signal.aborted) return undefined;
+    request.onEvent?.({
+      type: "terminating_tool_retry",
+      message: `The model did not call ${request.terminatingTool}; re-prompting once.`,
+    });
+    await session.prompt(
+      `You did not call ${request.terminatingTool}. Call it now with your final answer.`,
+      { expandPromptTemplates: false, source: "rpc" },
+    );
+    return undefined;
+  } catch (error) {
+    return error;
+  }
+}
+
+/** One fresh, stateless Pi agent session with exactly the request's tools. */
+async function createPiSession(
   deps: PiRunnerDeps,
   request: PiSessionRequest,
   provider: ProviderId,
   modelId: string,
-): Promise<PiSessionResult> {
+): Promise<AgentSession> {
   request.signal?.throwIfAborted();
   const runtime = await createModelRuntime(deps.dataDir);
   if (provider === "aibox") {
@@ -376,45 +538,19 @@ async function runPiSessionAttempt(
     settingsManager,
     resourceLoader,
   });
+  return session;
+}
 
-  const toolCalls: PiToolCall[] = [];
-  let terminated = false;
-  const unsubscribe = session.subscribe((event) => {
-    if (event.type === "message_update") {
-      if (event.assistantMessageEvent.type === "text_delta") {
-        request.onEvent?.({ type: "text_delta", message: event.assistantMessageEvent.delta });
-      }
-      return;
-    }
-    if (event.type === "tool_execution_start") {
-      toolCalls.push({
-        name: event.toolName,
-        callId: event.toolCallId,
-        args: event.args,
-        isError: false,
-      });
-      request.onEvent?.({
-        type: "tool_start",
-        message: `AI tool: ${event.toolName}`,
-        data: { name: event.toolName, callId: event.toolCallId, args: event.args },
-      });
-      return;
-    }
-    if (event.type === "tool_execution_end") {
-      const call = toolCalls.find((entry) => entry.callId === event.toolCallId);
-      if (call) call.isError = event.isError;
-      if (event.toolName === request.terminatingTool && !event.isError) terminated = true;
-      request.onEvent?.({
-        type: "tool_end",
-        message: `AI tool ${event.toolName} ${event.isError ? "failed" : "completed"}`,
-        data: { name: event.toolName, callId: event.toolCallId, isError: event.isError },
-      });
-      return;
-    }
-    if (event.type === "compaction_start" || event.type === "compaction_end") {
-      request.onEvent?.({ type: event.type, message: `Pi: ${event.type}` });
-    }
-  });
+async function runPiSessionAttempt(
+  deps: PiRunnerDeps,
+  request: PiSessionRequest,
+  provider: ProviderId,
+  modelId: string,
+): Promise<PiSessionResult> {
+  const session = await createPiSession(deps, request, provider, modelId);
+  const tracker = createSessionTracker(request);
+  const { toolCalls, usage } = tracker;
+  const unsubscribe = session.subscribe(tracker.listener);
 
   const timeoutMs = request.timeoutMs ?? deps.env.PI_INFERENCE_TIMEOUT_MS;
   const timeoutSignal = AbortSignal.timeout(timeoutMs);
@@ -428,37 +564,14 @@ async function runPiSessionAttempt(
   else combinedSignal.addEventListener("abort", abortSession, { once: true });
 
   try {
-    let promptError: unknown;
-    try {
-      await session.prompt(request.prompt, { expandPromptTemplates: false, source: "rpc" });
-      const response = [...session.messages]
-        .reverse()
-        .find((entry) => entry.role === "assistant") as AssistantMessage | undefined;
-      if (response?.stopReason === "error")
-        throw new Error(response.errorMessage || "The provider aborted the inference.");
-      if (!terminated && !combinedSignal.aborted) {
-        // pi-resolver pattern: one re-prompt when the forced terminating tool was skipped.
-        request.onEvent?.({
-          type: "terminating_tool_retry",
-          message: `The model did not call ${request.terminatingTool}; re-prompting once.`,
-        });
-        await session.prompt(
-          `You did not call ${request.terminatingTool}. Call it now with your final answer.`,
-          { expandPromptTemplates: false, source: "rpc" },
-        );
-      }
-    } catch (error) {
-      promptError = error;
-    }
+    const promptError = await promptUntilTerminated(session, request, tracker, combinedSignal);
     if (timeoutSignal.aborted && !request.signal?.aborted) {
       throw new InferenceTimeoutError(timeoutMs);
     }
     request.signal?.throwIfAborted();
     if (promptError) throw promptError;
 
-    const message = [...session.messages].reverse().find((entry) => entry.role === "assistant") as
-      | AssistantMessage
-      | undefined;
+    const message = finalAssistantMessage(session);
     if (!message) throw new Error("The model returned no response.");
     if (message.stopReason === "error") {
       throw new Error(message.errorMessage || "The provider aborted the inference.");
@@ -468,17 +581,19 @@ async function runPiSessionAttempt(
       .map((item) => (item.type === "text" ? item.text : ""))
       .join("\n")
       .trim();
+    // Fall back to the final turn if no message_end was observed.
+    const turnUsage = {
+      input: message.usage.input,
+      output: message.usage.output,
+      cost: message.usage.cost.total,
+    };
     return {
       provider,
       model: modelId,
       text,
       toolCalls,
-      terminated,
-      usage: {
-        input: message.usage.input,
-        output: message.usage.output,
-        cost: message.usage.cost.total,
-      },
+      terminated: tracker.terminated,
+      usage: usage.input + usage.output > 0 ? usage : turnUsage,
     };
   } finally {
     combinedSignal.removeEventListener("abort", abortSession);

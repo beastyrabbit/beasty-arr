@@ -12,7 +12,7 @@ import {
   resolveImportMovieId,
   validateProposalForImport,
 } from "../fixer/validation.js";
-import { type ArrClientOptions, arrFetch } from "./http-util.js";
+import { type ArrClientOptions, type ArrMediaInfo, arrFetch } from "./http-util.js";
 import { verifyManualImport } from "./import-verification.js";
 import { detectLikelySample } from "./sample.js";
 import {
@@ -60,6 +60,22 @@ export type RadarrMovieFileRecord = {
   customFormatScore?: number;
   indexerFlags?: number;
   qualityCutoffNotMet?: boolean;
+  mediaInfo?: ArrMediaInfo;
+};
+
+/** GET /api/v3/parse?title= — Radarr's parse of a release name on its own, without grab history. */
+export type RadarrParseResult = {
+  title?: string;
+  parsedMovieInfo?: {
+    movieTitles?: string[];
+    originalTitle?: string;
+    year?: number;
+    edition?: string;
+    quality?: unknown;
+    languages?: unknown[];
+    releaseGroup?: string;
+  };
+  movie?: RadarrMovieRecord;
 };
 
 export type RadarrMovieRecord = {
@@ -76,6 +92,10 @@ export type RadarrMovieRecord = {
   movieFileId?: number;
   monitored?: boolean;
   movieFile?: RadarrMovieFileRecord;
+  /** TMDb runtime in minutes. */
+  runtime?: number;
+  alternateTitles?: Array<{ title?: string }>;
+  overview?: string;
   // Mirror-sync fields (GET /api/v3/movie):
   status?: string; // announced|inCinemas|released
   isAvailable?: boolean;
@@ -357,6 +377,15 @@ export class RadarrClient {
 
   async getMovie(movieId: number): Promise<RadarrMovieRecord> {
     return this.request<RadarrMovieRecord>(`/api/v3/movie/${movieId}`);
+  }
+
+  async parseRelease(title: string): Promise<RadarrParseResult> {
+    return this.request<RadarrParseResult>(appendQuery("/api/v3/parse", { title }));
+  }
+
+  /** TMDb search through Radarr's metadata proxy; `term` may be a title or "tmdb:<id>". */
+  async lookupMovies(term: string): Promise<RadarrMovieRecord[]> {
+    return this.request<RadarrMovieRecord[]>(appendQuery("/api/v3/movie/lookup", { term }));
   }
 
   async getQualityProfiles(): Promise<RadarrQualityProfileRecord[]> {

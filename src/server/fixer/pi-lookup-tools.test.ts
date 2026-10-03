@@ -50,12 +50,12 @@ describe("fixer upgrade-context tools", () => {
     const candidate = (details.candidates as Array<Record<string, unknown>>)[0];
 
     expect(currentFile).toMatchObject({
-      languageMetadataPresent: true,
-      hasGermanAudio: true,
+      arrLabelsKnown: true,
+      arrLabelsSayGerman: true,
     });
     expect(candidate).toMatchObject({
-      languageMetadataPresent: true,
-      hasGermanAudio: false,
+      arrLabelsKnown: true,
+      arrLabelsSayGerman: false,
     });
   });
 
@@ -78,12 +78,12 @@ describe("fixer upgrade-context tools", () => {
     const candidate = (details.candidates as Array<Record<string, unknown>>)[0];
 
     expect(currentFile).toMatchObject({
-      languageMetadataPresent: true,
-      hasGermanAudio: true,
+      arrLabelsKnown: true,
+      arrLabelsSayGerman: true,
     });
     expect(candidate).toMatchObject({
-      languageMetadataPresent: true,
-      hasGermanAudio: false,
+      arrLabelsKnown: true,
+      arrLabelsSayGerman: false,
     });
   });
 });

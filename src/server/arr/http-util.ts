@@ -27,6 +27,19 @@ export type ArrClientOptions = ArrFetchOptions & {
   apiKey: string;
 };
 
+/** Sonarr/Radarr's own ffprobe summary of a library file (`mediaInfo` on file resources). */
+export type ArrMediaInfo = {
+  audioLanguages?: string;
+  audioCodec?: string;
+  audioChannels?: number;
+  audioStreamCount?: number;
+  subtitles?: string;
+  resolution?: string;
+  runTime?: string;
+  videoCodec?: string;
+  videoDynamicRangeType?: string;
+};
+
 export function isRetryableStatus(status: number): boolean {
   return status === 408 || status === 429 || status >= 500;
 }

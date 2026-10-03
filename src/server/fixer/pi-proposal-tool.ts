@@ -28,6 +28,7 @@ export function createProposalTool(
   const candidateId = literalUnion(candidateIds, Type.String({ minLength: 1 }));
   const serviceName = service === "radarr" ? "Radarr" : "Sonarr";
   const toolName = service === "radarr" ? "propose_radarr_resolution" : "propose_sonarr_resolution";
+  const target = service === "radarr" ? "movie" : "episode";
   const selectedImport =
     service === "radarr"
       ? Type.Object({
@@ -37,7 +38,7 @@ export function createProposalTool(
             description: "Exact Radarr movie id this file should be imported as.",
           }),
           reason: Type.Optional(
-            Type.String({ description: "Why this file matches the selected Radarr movie." }),
+            Type.String({ description: "Why this file is this Radarr movie." }),
           ),
         })
       : Type.Object({
@@ -45,12 +46,12 @@ export function createProposalTool(
           episodeIds: Type.Array(Type.Integer({ minimum: 1 }), {
             minItems: 1,
             description:
-              "Exact Sonarr episode ids this file should be imported as. Choose these ids from the queue/episode lookup context.",
+              "Exact Sonarr episode ids this file really is, established from your own inspection, not from Sonarr's guess.",
           }),
           reason: Type.Optional(
             Type.String({
               description:
-                "Why this file should be imported using these episode ids, especially when Sonarr parsed it differently.",
+                "Why this file is these episodes, especially when Sonarr guessed otherwise.",
             }),
           ),
         });
@@ -58,27 +59,19 @@ export function createProposalTool(
   return defineTool({
     name: toolName,
     label: `Propose ${serviceName} Resolution`,
-    description: `Return the final typed ${serviceName} queue resolution proposal. This is the only tool that decides what the app will import.`,
+    description: `Return the final typed ${serviceName} queue resolution proposal. This is the only tool that decides what the app will do.`,
     promptSnippet: `Return the final typed ${serviceName} queue resolution proposal.`,
     promptGuidelines: [
-      `Always finish ${serviceName} queue analysis by calling ${toolName}.`,
-      `Before calling ${toolName}, always call ${service === "radarr" ? "radarr_get_upgrade_context" : "sonarr_get_upgrade_context"}; the initial candidate list does not prove whether a library file already exists.`,
-      service === "radarr"
-        ? "Use selectedImports to explicitly map each chosen file candidate to its exact Radarr movie id."
-        : "Use selectedImports to explicitly map each chosen file candidate to the Sonarr episode ids it should be imported as.",
-      service === "radarr"
-        ? "The selectedImports mapping is authoritative; do not guess a movie id outside the queue or candidate context."
-        : "The selectedImports mapping is authoritative; do not rely on Sonarr's parsed candidate episode ids when you decide they are wrong.",
-      service === "radarr"
-        ? "The selected movie must be the queued movie."
-        : "Every import proposal must include the queued target episode. Do not import unrelated episodes while leaving the target unresolved.",
-      "Never select candidates marked as likely samples.",
-      "When active Dub Oracle context says exists with confidence greater than 0.6, a candidate with known language metadata but no German audio must use remove_queue_item with removeFromClient=true, blocklist=true, skipRedownload=false, changeCategory=false, even when it is a quality upgrade or the current file is non-German or missing. For Sonarr, apply the exact perSeason verdict when available.",
-      "If a current library file has German audio and the incoming candidate has known language metadata but no German audio, use remove_queue_item with removeFromClient=true, blocklist=true, skipRedownload=true, changeCategory=false. The exact bad release must be blocked, but no replacement search is needed because the library target is already satisfied. This is not needs_review and not an ordinary non-upgrade removal.",
-      service === "sonarr"
-        ? "A 'Not a quality revision upgrade' rejection may be overridden with import_candidates when the mapping is exact, the candidate adds German audio to a non-German current file, the quality profile allows it, and the custom-format score is materially higher."
-        : "Use the current movie, quality profile, and custom-format evidence to distinguish a real upgrade from a blocking rejection.",
-      "Use needs_review when the candidate data is ambiguous or incomplete.",
+      `Always finish by calling ${toolName} exactly once.`,
+      `Before calling ${toolName}, inspect the real files with inspect_media_files and read the upgrade context; ${serviceName}'s labels are claims, not facts.`,
+      `identity is mandatory: say what the download actually is and how you know. verdict confirmed only when your own observations (embedded title, subtitle dialogue, runtime against the looked-up runtime, NFO ids, ${serviceName}'s independent parse) show it is the queued ${target}. Matching ids from ${serviceName}'s grab history are never evidence.`,
+      "An import with identity verdict other than confirmed is never applied automatically; it waits for the user.",
+      "Never select candidates that are samples, extras, or Blu-ray disc structure chunks.",
+      "Judge languages from the inspected audio streams (including untagged tracks titled German/Deutsch), not from the arr's language labels.",
+      "When active Dub Oracle context says exists with confidence greater than 0.6 and the inspected candidate has no German audio, use remove_queue_item with removeFromClient=true, blocklist=true, skipRedownload=false, changeCategory=false so a German release is searched, unless the current library file already has German audio.",
+      "If the current library file has German audio (per inspection) and the candidate does not, use remove_queue_item with removeFromClient=true, blocklist=true, skipRedownload=true, changeCategory=false: block the exact release, no replacement search is needed because the library target is already satisfied.",
+      "Never remove a candidate that has German audio while the current library file has none; import it or use needs_review.",
+      "Use needs_review when the identity or the right action cannot be established. That is the correct answer for genuine doubt, not a failure.",
     ],
     parameters: Type.Object({
       action: Type.Union([
@@ -90,8 +83,32 @@ export function createProposalTool(
       confidence: Type.Number({
         minimum: 0,
         maximum: 1,
-        description: "Confidence from 0 to 1.",
+        description:
+          "Probability that the action is right. Below 0.9 whenever any identity, language, or quality fact rests on labels you could not verify.",
       }),
+      identity: Type.Object(
+        {
+          verdict: Type.Union(
+            [Type.Literal("confirmed"), Type.Literal("contradicted"), Type.Literal("uncertain")],
+            {
+              description: `confirmed: the file is the queued ${target}; contradicted: it is something else; uncertain: you could not prove either.`,
+            },
+          ),
+          actualWork: Type.String({
+            minLength: 1,
+            description:
+              service === "radarr"
+                ? "What the file really is, e.g. 'Sunset (1988, Blake Edwards)'."
+                : "What the file really is, e.g. 'Monster: The Lizzie Borden Story, S04E07 The Trial of the Century'.",
+          }),
+          evidence: Type.Array(Type.String(), {
+            minItems: 1,
+            description:
+              "Your own observations that establish the identity: embedded title, subtitle lines, measured runtime vs looked-up runtime, NFO ids, independent parse/lookup results.",
+          }),
+        },
+        { description: "What the download actually is, established independently of the arr." },
+      ),
       selectedCandidateIds: Type.Array(candidateId, {
         description:
           "Candidates to import. Empty unless action is import_candidates. Must match the candidateId values in selectedImports.",
@@ -115,30 +132,35 @@ export function createProposalTool(
               description: "Delete/remove this release from the download client.",
             }),
             blocklist: Type.Boolean({
-              description: `Blocklist this exact release so ${serviceName} cannot select it again.`,
+              description: `Blocklist this exact release so ${serviceName} does not grab it again.`,
             }),
             skipRedownload: Type.Boolean({
-              description: `When true, do not trigger an immediate replacement search; when false, ${serviceName} may search/redownload a replacement.`,
+              description: `When true, do not trigger a replacement search; when false, ${serviceName} searches for a replacement.`,
             }),
             changeCategory: Type.Boolean({
               description: `Ask ${serviceName} to change the download category instead of deleting it.`,
             }),
           },
           {
-            description:
-              "Only for remove_queue_item. For ordinary non-upgrades where the existing library file is better, use removeFromClient=true, blocklist=false, skipRedownload=false, changeCategory=false. When a candidate explicitly lacks German and would replace a German-audio library file, use removeFromClient=true, blocklist=true, skipRedownload=true, changeCategory=false because the target is already satisfied. For unsuitable releases such as wrong episodes, wrong series/movie, or unusable folders, use removeFromClient=true, blocklist=true, skipRedownload=false, changeCategory=false so the missing or unresolved target can be searched again.",
+            description: `Only for remove_queue_item. Wrong ${target} or unusable release: removeFromClient=true, blocklist=true, skipRedownload=false, changeCategory=false (search again). Duplicate of the library file or not an upgrade over it: removeFromClient=true, blocklist=true, skipRedownload=true, changeCategory=false (the target is satisfied; blocklisting stops the same release from being grabbed again).`,
           },
         ),
       ),
       reason: Type.String({
         minLength: 1,
-        description: "Short reason for the proposal.",
+        description: "One-sentence summary of the decision.",
+      }),
+      rationale: Type.String({
+        minLength: 1,
+        description:
+          "Your written reasoning, as a human operator would note it: what the file is, what the library has, how languages and quality compare, why this action. Mention anything you could not verify.",
       }),
       issueSummary: Type.String({
-        description: `Explain what ${serviceName} complained about and how that warning affected the decision.`,
+        description: `What ${serviceName} complained about and whether the complaint was right.`,
       }),
       evidence: Type.Array(Type.String(), {
-        description: `Concrete evidence used for the decision, such as parsed target, path, quality, language, size, or ${serviceName} warnings.`,
+        description:
+          "Concrete facts used for the decision (identity, languages from inspected streams, resolution, runtime, scores).",
       }),
       warnings: Type.Array(Type.String(), {
         description: "Risks or ambiguity the user should review.",

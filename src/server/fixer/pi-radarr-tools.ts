@@ -43,9 +43,17 @@ function compactMovieFile(file?: RadarrMovieFileRecord) {
     quality: valueName(
       (file.quality as { quality?: unknown } | undefined)?.quality ?? file.quality,
     ),
-    languages: languages.map(valueName).filter(Boolean),
-    languageMetadataPresent: hasKnownLanguageMetadata(languages),
-    hasGermanAudio: hasGermanAudio(languages),
+    arrLanguageLabels: languages.map(valueName).filter(Boolean),
+    arrLabelsKnown: hasKnownLanguageMetadata(languages),
+    arrLabelsSayGerman: hasGermanAudio(languages),
+    arrMediaInfo: file.mediaInfo
+      ? {
+          audioLanguages: file.mediaInfo.audioLanguages,
+          subtitles: file.mediaInfo.subtitles,
+          resolution: file.mediaInfo.resolution,
+          runTime: file.mediaInfo.runTime,
+        }
+      : undefined,
     releaseGroup: file.releaseGroup,
     edition: file.edition,
     customFormats: (file.customFormats ?? []).map((format) => ({
@@ -57,12 +65,29 @@ function compactMovieFile(file?: RadarrMovieFileRecord) {
   };
 }
 
+function compactLookupMovie(movie: RadarrMovieRecord) {
+  return {
+    title: movie.title,
+    originalTitle: movie.originalTitle,
+    year: movie.year,
+    runtimeMinutes: movie.runtime,
+    tmdbId: movie.tmdbId,
+    imdbId: movie.imdbId,
+    inLibraryAsMovieId: movie.id || undefined,
+    overview: movie.overview?.slice(0, 300),
+  };
+}
+
 function compactMovie(movie: RadarrMovieRecord) {
   return {
     id: movie.id,
     title: movie.title,
     originalTitle: movie.originalTitle,
     year: movie.year,
+    runtimeMinutes: movie.runtime,
+    alternateTitles: [
+      ...new Set((movie.alternateTitles ?? []).flatMap((alt) => (alt.title ? [alt.title] : []))),
+    ].slice(0, 15),
     tmdbId: movie.tmdbId,
     imdbId: movie.imdbId,
     path: movie.path,
@@ -163,22 +188,48 @@ export function createRadarrLookupTools({
     },
   });
 
-  const getMovieTool = defineTool({
-    name: "radarr_get_movie",
-    label: "Get Radarr Movie",
+  const parseReleaseTool = defineTool({
+    name: "radarr_parse_release",
+    label: "Parse Release Name",
     description:
-      "Read the Radarr movie record for the queue target, including title identifiers and the current movie file.",
-    promptSnippet: "Use radarr_get_movie to verify the exact target movie and current file.",
+      "Ask Radarr to parse a release or file name on its own, without grab history: parsed title, year, and which library movie (if any) the name really matches. A queued download whose name matches no movie or a different movie is suspect.",
+    promptSnippet: "Use radarr_parse_release to see what a release name really refers to.",
     parameters: Type.Object({
-      movieId: Type.Optional(
-        Type.Integer({ minimum: 1, description: "Movie id. Defaults to the queue movie id." }),
+      title: Type.Optional(
+        Type.String({ description: "Release or file name. Defaults to the queue release title." }),
       ),
     }),
     executionMode: "parallel" as const,
     async execute(_toolCallId, params) {
-      const movieId = params.movieId ?? queueItem.movieId;
-      const movie = movieId ? await client.getMovie(movieId) : undefined;
-      const details = movie ? compactMovie(movie) : { movieId, found: false };
+      const title = params.title?.trim() || queueItem.title;
+      const result = await client.parseRelease(title);
+      const details = {
+        title,
+        parsedTitles: result.parsedMovieInfo?.movieTitles,
+        parsedYear: result.parsedMovieInfo?.year || undefined,
+        parsedEdition: result.parsedMovieInfo?.edition || undefined,
+        matchedLibraryMovie: result.movie ? compactLookupMovie(result.movie) : null,
+      };
+      return {
+        content: [{ type: "text", text: JSON.stringify(details, null, 2) }],
+        details,
+      };
+    },
+  });
+
+  const lookupMoviesTool = defineTool({
+    name: "radarr_lookup_movies",
+    label: "Look Up Movies (TMDb)",
+    description:
+      "Search TMDb through Radarr by title (optionally with year) or by 'tmdb:<id>' / 'imdb:<tt id>'. Returns title, original title, year, runtime, ids, and whether the movie is in the library. Use it to find out what a release actually is and the real runtime of candidate works.",
+    promptSnippet: "Use radarr_lookup_movies to identify a work and its runtime on TMDb.",
+    parameters: Type.Object({
+      term: Type.String({ minLength: 1, description: "Search term, e.g. 'Sunset 1988'." }),
+    }),
+    executionMode: "parallel" as const,
+    async execute(_toolCallId, params) {
+      const results = await client.lookupMovies(params.term);
+      const details = { term: params.term, results: results.slice(0, 8).map(compactLookupMovie) };
       return {
         content: [{ type: "text", text: JSON.stringify(details, null, 2) }],
         details,
@@ -222,13 +273,12 @@ export function createRadarrLookupTools({
     name: "radarr_get_upgrade_context",
     label: "Get Radarr Upgrade Context",
     description:
-      "Required before every final resolution: read the current movie file, explicit German-audio flags, quality profile scoring, and custom formats before deciding whether a candidate is safe to import or should be removed.",
+      "Read the target movie record (runtime, alternate titles, ids), the current movie file with Radarr's labels and media info, the quality profile scoring, and custom formats. Radarr's language labels can be wrong; the inspected audio streams decide.",
     promptSnippet:
-      "Always use radarr_get_upgrade_context before proposing a final resolution, including sample-only warnings.",
+      "Use radarr_get_upgrade_context to compare the candidate with the current movie file and the quality profile.",
     promptGuidelines: [
-      "Call this for every queue analysis before proposing a resolution, even when the only warning mentions sample detection.",
-      "A candidate explicitly lacking German must never replace a current file whose hasGermanAudio field is true.",
-      "Compare candidate and current-file language, quality, and custom-format score before deciding.",
+      "Call this before proposing a resolution.",
+      "Custom-format scores express the user's quality preferences; German audio the library lacks outweighs them.",
     ],
     parameters: Type.Object({
       includeCustomFormatDefinitions: Type.Optional(
@@ -294,5 +344,11 @@ export function createRadarrLookupTools({
     },
   });
 
-  return [getQueueContextTool, getMovieTool, getCandidatesTool, getUpgradeContextTool];
+  return [
+    getQueueContextTool,
+    parseReleaseTool,
+    lookupMoviesTool,
+    getCandidatesTool,
+    getUpgradeContextTool,
+  ];
 }

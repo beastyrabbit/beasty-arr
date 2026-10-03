@@ -49,6 +49,23 @@ apply failure. After a partial pack import, leftovers that are verified
 non-upgrades or samples are removed from the client without blocklisting;
 anything else stays in the queue for review.
 
+A revision (PROPER/REPACK) only outranks the exact same quality. Before 0.6.0 it
+also outranked grouped siblings, so a 720p PROPER replaced 1080p files.
+
+Since 0.6.0 the Fixer investigates instead of re-reading arr data
+(src/server/fixer/inspection.ts, guards.ts, pi-media-tools.ts). It probes every
+candidate and current library file (src/server/media/probe.ts), runs the arr's
+independent parse of the release name, and shows both to the AI. The proposal
+schema requires an identity verdict, the actual work, independent evidence, and
+a written rationale. Deterministic guards turn an import or removal into
+needs_review when those observations contradict it; the AI's confidence is not
+used for that. Duplicates and non-upgrades are removed with blocklist and no
+replacement search, which ends the regrab loops seen on 2026-10-03.
+
+Operator steps for 0.6.0: mount the media PVC read-only in the beasty-arr pod and
+set FIXER_MEDIA_PATH_MAP (kub-homelab). Sonarr and Radarr keep replaced files in
+/data/recycle/{sonarr,radarr} for 30 days (set 2026-10-03).
+
 The test suite denies unexpected network calls, constructs apps without ambient
 connections, skips development auth seeding, and typechecks backend fixtures.
 No automated test calls a live AI provider.
