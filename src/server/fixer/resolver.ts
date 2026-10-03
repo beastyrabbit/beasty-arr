@@ -84,6 +84,9 @@ const RADARR_TOOL_NAMES = [
   "propose_radarr_resolution",
 ];
 
+/** Files inspected before a removal is checked; more than this waits for review. */
+const MAX_REMOVAL_PROBES = 100;
+
 // ============ fixer decision contract ============
 
 function buildCoreSystemPrompt(service: MediaService): string {
@@ -379,14 +382,17 @@ async function finishAnalysis(
   const { queueItem } = input;
   const captured = state.proposal;
   if (captured?.action === "remove_queue_item") {
-    // The removal guard must see every file it would discard, not only the
-    // ones inspected upfront.
+    // The removal guard must see the files it would discard, not only the ones
+    // inspected upfront. Bounded and cancellable; a file left uninspected counts
+    // as possibly German, which holds the removal for review.
     await probePaths(
       state.facts,
       input.prober,
       state.candidates
         .filter((candidate) => !candidate.isLikelySample && !isDiscStreamPath(candidate.path))
+        .slice(0, MAX_REMOVAL_PROBES)
         .map((candidate) => candidate.path),
+      { signal: input.signal },
     );
   }
   if (captured?.action === "import_candidates") {
@@ -402,6 +408,7 @@ async function finishAnalysis(
       state.facts,
       input.prober,
       targets.flatMap((target) => (target.currentFile?.path ? [target.currentFile.path] : [])),
+      { signal: input.signal },
     );
   }
   const guarded = applyGuards({
