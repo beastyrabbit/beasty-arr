@@ -24,6 +24,19 @@ applying them, even with auto-run off. Failed applications appear in the queue w
 and a reanalysis/retry action. Manual review remains required below the configured confidence
 thresholds or when no usable import candidates are available.
 
+The Fixer does the check a person would do by hand. Before the AI runs, it inspects the real files
+with ffprobe (duration, embedded title, every audio and subtitle stream including untagged German
+tracks) and asks the arr to parse the release name without grab history. The AI can read subtitle
+dialogue, folder listings, and NFO ids, and look up TMDb/TVDB titles and runtimes. Every proposal
+states what the file actually is and why. Imports wait for review when the AI cannot confirm the
+identity, when the release year, runtime, or independent parse contradicts the target, when the
+file could not be inspected, or when it would lower the resolution without adding German audio.
+Removals wait when they would throw away German audio the library lacks or search for German the
+library already has. Each analysis keeps its tool results and the model's reasoning in the AI trace.
+
+File inspection needs `FIXER_MEDIA_PATH_MAP` (for example `/data=/arr-data`) and the media share
+mounted read-only at the mapped path. Without it, every import waits for review.
+
 Season packs are handled as one download: the Fixer merges Sonarr's per-episode queue rows,
 decides file by file which episodes are missing or upgrades, imports those together, and removes
 verified non-upgrade leftovers and samples from the client without blocklisting.

@@ -50,9 +50,9 @@ describe("compactCandidate", () => {
     expect(compact.customFormats).toEqual(["Anime Dual Audio"]);
     expect(compact.seriesId).toBe(12);
     expect(compact.quality).toBe("WEBRip-720p");
-    expect(compact.languages).toEqual(["German"]);
-    expect(compact.languageMetadataPresent).toBe(true);
-    expect(compact.hasGermanAudio).toBe(true);
+    expect(compact.arrLanguageLabels).toEqual(["German"]);
+    expect(compact.arrLabelsKnown).toBe(true);
+    expect(compact.arrLabelsSayGerman).toBe(true);
   });
 
   it("distinguishes explicit non-German metadata from missing metadata", () => {
@@ -63,8 +63,8 @@ describe("compactCandidate", () => {
     });
     const unknown = compactCandidate({ ...candidate, languages: [], languageLabels: [] });
 
-    expect(english).toMatchObject({ languageMetadataPresent: true, hasGermanAudio: false });
-    expect(unknown).toMatchObject({ languageMetadataPresent: false, hasGermanAudio: false });
+    expect(english).toMatchObject({ arrLabelsKnown: true, arrLabelsSayGerman: false });
+    expect(unknown).toMatchObject({ arrLabelsKnown: false, arrLabelsSayGerman: false });
   });
 
   it("treats ARR's id=0 Unknown sentinel as missing metadata", () => {
@@ -74,6 +74,6 @@ describe("compactCandidate", () => {
       languageLabels: ["Unknown"],
     });
 
-    expect(unknown).toMatchObject({ languageMetadataPresent: false, hasGermanAudio: false });
+    expect(unknown).toMatchObject({ arrLabelsKnown: false, arrLabelsSayGerman: false });
   });
 });

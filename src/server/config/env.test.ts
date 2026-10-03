@@ -33,4 +33,11 @@ it("starts from the distributed template without integrations", () => {
   expect(env.RADARR_URL).toBeUndefined();
   expect(env.PROWLARR_URL).toBeUndefined();
   expect(env.SEARXNG_URL).toBeUndefined();
+  expect(env.FIXER_MEDIA_PATH_MAP).toBeUndefined();
+});
+
+it("passes the fixer media path map through as a raw string", () => {
+  expect(
+    loadEnv({ NODE_ENV: "test", FIXER_MEDIA_PATH_MAP: "/data=/arr-data" }).FIXER_MEDIA_PATH_MAP,
+  ).toBe("/data=/arr-data");
 });

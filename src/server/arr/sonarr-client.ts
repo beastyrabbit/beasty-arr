@@ -16,7 +16,7 @@ import {
   validateProposalForImport,
 } from "../fixer/validation.js";
 import { animeTitleConflict } from "./anime-title-match.js";
-import { type ArrClientOptions, arrFetch } from "./http-util.js";
+import { type ArrClientOptions, type ArrMediaInfo, arrFetch } from "./http-util.js";
 import { verifyManualImport } from "./import-verification.js";
 import { detectLikelySample, isDiscStreamPath } from "./sample.js";
 import { episodeLabel } from "./sonarr-format.js";
@@ -110,6 +110,9 @@ export type SonarrEpisodeRecord = {
   seriesId?: number;
   title?: string;
   airDateUtc?: string;
+  airDate?: string;
+  /** Episode runtime in minutes (TVDB). */
+  runtime?: number;
   episodeFileId?: number;
   seasonNumber?: number;
   episodeNumber?: number;
@@ -126,6 +129,10 @@ export type SonarrEpisodeRecord = {
 export type SonarrSeriesRecord = {
   id?: number;
   title?: string;
+  year?: number;
+  runtime?: number;
+  tvdbId?: number;
+  alternateTitles?: Array<{ title?: string; seasonNumber?: number; sceneSeasonNumber?: number }>;
   qualityProfileId?: number;
   languageProfileId?: number;
   seriesType?: string;
@@ -170,6 +177,25 @@ export type SonarrEpisodeFileRecord = {
   releaseType?: string;
   qualityCutoffNotMet?: boolean;
   languageCutoffNotMet?: boolean;
+  mediaInfo?: ArrMediaInfo;
+};
+
+/** GET /api/v3/parse?title= — Sonarr's parse of a release name on its own, without grab history. */
+export type SonarrParseResult = {
+  title?: string;
+  parsedEpisodeInfo?: {
+    seriesTitle?: string;
+    seriesTitleInfo?: { title?: string; year?: number };
+    seasonNumber?: number;
+    episodeNumbers?: number[];
+    absoluteEpisodeNumbers?: number[];
+    fullSeason?: boolean;
+    quality?: unknown;
+    languages?: unknown[];
+    releaseGroup?: string;
+  };
+  series?: SonarrSeriesRecord;
+  episodes?: SonarrEpisodeRecord[];
 };
 
 export type SonarrCustomFormatSummary = {
@@ -626,6 +652,19 @@ export class SonarrClient {
 
   async getSeries(): Promise<SonarrSeriesResource[]> {
     return this.request<SonarrSeriesResource[]>("/api/v3/series");
+  }
+
+  async getSeriesById(seriesId: number): Promise<SonarrSeriesRecord> {
+    return this.request<SonarrSeriesRecord>(`/api/v3/series/${seriesId}`);
+  }
+
+  async parseRelease(title: string): Promise<SonarrParseResult> {
+    return this.request<SonarrParseResult>(appendQuery("/api/v3/parse", { title }));
+  }
+
+  /** TVDB search through Sonarr's metadata proxy; `term` may be a title or "tvdb:<id>". */
+  async lookupSeries(term: string): Promise<SonarrSeriesRecord[]> {
+    return this.request<SonarrSeriesRecord[]>(appendQuery("/api/v3/series/lookup", { term }));
   }
 
   async getEpisodeFiles(seriesId: number): Promise<SonarrEpisodeFileRecord[]> {

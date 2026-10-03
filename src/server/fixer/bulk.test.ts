@@ -16,6 +16,7 @@ import { EventBus } from "../events/bus.js";
 import type { FixerPiRunner, FixerPiRunRequest } from "./ai-port.js";
 import { autoRemovalOptionsForResult, FixerBulk, uniqueQueueItemsByDownload } from "./bulk.js";
 import { FixerService } from "./service.js";
+import { fakeProber } from "./test-prober.js";
 
 const noopLog = {
   info: () => {},
@@ -126,6 +127,11 @@ function importProposal(
     issueSummary: "quality warning",
     evidence: [],
     warnings: [],
+    identity: {
+      verdict: "confirmed",
+      actualWork: "the queued episode",
+      evidence: ["Subtitle dialogue matches the episode."],
+    },
   };
 }
 
@@ -211,7 +217,10 @@ function makeHarness(script: RunnerScript, now = Date.now) {
     }
     return { log: [] };
   };
-  const svc = new FixerService(db, settings, { sonarr, radarr }, runner, bus, noopLog, { now });
+  const svc = new FixerService(db, settings, { sonarr, radarr }, runner, bus, noopLog, {
+    now,
+    prober: fakeProber(),
+  });
   const bulk = new FixerBulk(svc, settings, noopLog, { now });
   return { db, settings, bus, sonarr, radarr, svc, bulk, calls };
 }

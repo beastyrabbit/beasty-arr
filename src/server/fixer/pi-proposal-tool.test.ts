@@ -36,11 +36,18 @@ describe("createProposalTool", () => {
       selectedImports: [{ candidateId: "candidate_1", episodeIds: [101] }],
       sampleCandidateIds: ["candidate_2"],
       reason: "candidate_1 is the episode; candidate_2 is sample",
+      rationale: "Dialogue names the pilot's characters; candidate_2 runs 40 seconds.",
       issueSummary: "Sonarr warning was caused by the sample file.",
       evidence: ["candidate_1 has the target episode id."],
       warnings: [],
+      identity: {
+        verdict: "confirmed",
+        actualWork: "Show S01E01 Pilot",
+        evidence: ["Subtitle dialogue matches the pilot."],
+      },
     };
     const invalid = { ...valid, selectedCandidateIds: ["candidate_3"] };
+    const { identity: _identity, ...withoutIdentity } = valid;
     const invalidMapping = {
       ...valid,
       selectedImports: [{ candidateId: "candidate_3", episodeIds: [101] }],
@@ -49,6 +56,7 @@ describe("createProposalTool", () => {
     expect(Value.Check(tool.parameters, valid)).toBe(true);
     expect(Value.Check(tool.parameters, invalid)).toBe(false);
     expect(Value.Check(tool.parameters, invalidMapping)).toBe(false);
+    expect(Value.Check(tool.parameters, withoutIdentity)).toBe(false);
   });
 
   it("captures a normalized terminating proposal", async () => {
@@ -164,9 +172,15 @@ describe("createProposalTool", () => {
       selectedImports: [{ candidateId: "candidate_1", movieId: 42 }],
       sampleCandidateIds: [],
       reason: "The file matches the queued movie.",
+      rationale: "Embedded title and runtime match the queued movie.",
       issueSummary: "Radarr could not import it automatically.",
       evidence: ["Movie id 42 matches."],
       warnings: [],
+      identity: {
+        verdict: "confirmed",
+        actualWork: "Feature (2001)",
+        evidence: ["Embedded title 'Feature (2001)'; 112 min vs TMDb 113 min."],
+      },
     };
 
     expect(tool.name).toBe("propose_radarr_resolution");

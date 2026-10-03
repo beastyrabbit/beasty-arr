@@ -24,7 +24,20 @@ export function toResolverEvent(ev: FixerAnalysisEvent): ResolverEvent {
       message: `${ev.phase === "start" ? "→" : "←"} ${ev.toolName}${ev.isError ? " (error)" : ""}`,
       timestamp,
       itemId: ev.itemId,
+      details: {
+        toolName: ev.toolName,
+        phase: ev.phase,
+        args: ev.args,
+        result: ev.result,
+        isError: ev.isError,
+      },
     };
   }
-  return { type: "pi", message: ev.delta, timestamp, itemId: ev.itemId };
+  return {
+    type: "pi",
+    message: ev.delta,
+    timestamp,
+    itemId: ev.itemId,
+    details: { kind: ev.kind },
+  };
 }

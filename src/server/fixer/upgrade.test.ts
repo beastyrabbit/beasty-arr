@@ -133,6 +133,34 @@ describe("assessCandidateUpgrade", () => {
     expect(result.reason).toContain("revision");
   });
 
+  it("lets a proper outrank only the exact same quality, not a grouped sibling", () => {
+    // Real 24 S09E12 case: a WEBDL-720p PROPER replaced a 1080p file because
+    // the profile groups 720p with 1080p and the revision won the comparison.
+    const groupedProfile: SonarrQualityProfileRecord = {
+      ...profile,
+      items: [
+        {
+          id: 1001,
+          name: "HD",
+          allowed: true,
+          items: [
+            { quality: { id: 5, name: "WEBDL-720p" } },
+            { quality: { id: 3, name: "WEBDL-1080p" } },
+          ],
+        },
+      ],
+    };
+    const result = assessCandidateUpgrade({
+      candidate: candidate({ quality: quality(5, "WEBDL-720p", 2), customFormatScore: 12 }),
+      episode: episode({
+        episodeFile: { quality: quality(3, "WEBDL-1080p"), customFormatScore: 50 },
+      }),
+      profile: groupedProfile,
+    });
+    expect(result).toMatchObject({ decision: "skip" });
+    expect(result.reason).not.toContain("revision");
+  });
+
   it("imports when German audio is added, regardless of custom format score", () => {
     const result = assessCandidateUpgrade({
       candidate: candidate({ languages: [{ id: 4, name: "German" }], customFormatScore: 0 }),

@@ -7,6 +7,7 @@ import {
   authStoragePath,
   createPiRunner,
   FileCredentialStore,
+  formatToolResult,
   getAuthStorage,
   InferenceTimeoutError,
   isRetryableProviderError,
@@ -166,5 +167,32 @@ describe("aiboxRootUrl", () => {
     expect(aiboxRootUrl("http://192.168.10.120:11434/")).toBe("http://192.168.10.120:11434");
     expect(aiboxRootUrl("http://192.168.10.120:11434/v1")).toBe("http://192.168.10.120:11434");
     expect(aiboxRootUrl("http://aibox.lan:11434/v1/")).toBe("http://aibox.lan:11434");
+  });
+});
+
+describe("formatToolResult", () => {
+  it("joins the text content parts of a Pi tool result", () => {
+    expect(
+      formatToolResult({
+        content: [
+          { type: "text", text: "line one" },
+          { type: "image", data: "…", mimeType: "image/png" },
+          { type: "text", text: "line two" },
+        ],
+        details: { ignored: true },
+      }),
+    ).toBe("line one\nline two");
+  });
+
+  it("falls back to JSON of details when there is no text content", () => {
+    expect(formatToolResult({ content: [], details: { ok: true, id: 7 } })).toBe(
+      '{"ok":true,"id":7}',
+    );
+    expect(formatToolResult(undefined)).toBeUndefined();
+  });
+
+  it("truncates long results with a marker naming the dropped length", () => {
+    const text = formatToolResult({ content: [{ type: "text", text: "x".repeat(6_100) }] });
+    expect(text).toBe(`${"x".repeat(6_000)}…[truncated 100 chars]`);
   });
 });

@@ -257,6 +257,43 @@ export async function withProviderRetries<T>(
 
 export type PiSessionEvent = { type: string; message: string; data?: unknown };
 
+/** Upper bound for a tool result forwarded in a `tool_end` event (audit trail, not the model's view). */
+export const TOOL_RESULT_MAX_CHARS = 6_000;
+
+export function truncateText(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text;
+  return `${text.slice(0, maxChars)}…[truncated ${text.length - maxChars} chars]`;
+}
+
+function safeJson(value: unknown): string {
+  try {
+    return JSON.stringify(value) ?? String(value);
+  } catch {
+    return String(value);
+  }
+}
+
+/**
+ * Pi's tool_execution_end `result` is an AgentToolResult ({content, details}).
+ * Returns the joined text content parts, else JSON of `details` (or of the
+ * whole value), truncated to TOOL_RESULT_MAX_CHARS.
+ */
+export function formatToolResult(result: unknown): string | undefined {
+  if (result === undefined || result === null) return undefined;
+  if (typeof result === "string") return truncateText(result, TOOL_RESULT_MAX_CHARS);
+  const { content, details } = result as { content?: unknown; details?: unknown };
+  const texts = Array.isArray(content)
+    ? content.flatMap((part) =>
+        part && typeof part === "object" && part.type === "text" && typeof part.text === "string"
+          ? [part.text as string]
+          : [],
+      )
+    : [];
+  const text =
+    texts.length > 0 ? texts.join("\n") : safeJson(details === undefined ? result : details);
+  return truncateText(text, TOOL_RESULT_MAX_CHARS);
+}
+
 export type PiToolCall = { name: string; callId: string; args: unknown; isError: boolean };
 
 export type PiSessionRequest = {
@@ -328,6 +365,14 @@ export function resolveModel(
   return model as Model<never>;
 }
 
+function addAssistantUsage(total: PiSessionResult["usage"], message: { role?: unknown }): void {
+  if (message.role !== "assistant") return;
+  const turn = (message as AssistantMessage).usage;
+  total.input += turn?.input ?? 0;
+  total.output += turn?.output ?? 0;
+  total.cost += turn?.cost?.total ?? 0;
+}
+
 async function runPiSessionAttempt(
   deps: PiRunnerDeps,
   request: PiSessionRequest,
@@ -379,10 +424,17 @@ async function runPiSessionAttempt(
 
   const toolCalls: PiToolCall[] = [];
   let terminated = false;
+  // Summed over every assistant turn of this attempt (tool loops bill each turn).
+  const usage = { input: 0, output: 0, cost: 0 };
   const unsubscribe = session.subscribe((event) => {
+    if (event.type === "message_end") {
+      addAssistantUsage(usage, event.message);
+      return;
+    }
     if (event.type === "message_update") {
-      if (event.assistantMessageEvent.type === "text_delta") {
-        request.onEvent?.({ type: "text_delta", message: event.assistantMessageEvent.delta });
+      const update = event.assistantMessageEvent;
+      if (update.type === "text_delta" || update.type === "thinking_delta") {
+        request.onEvent?.({ type: update.type, message: update.delta });
       }
       return;
     }
@@ -407,7 +459,13 @@ async function runPiSessionAttempt(
       request.onEvent?.({
         type: "tool_end",
         message: `AI tool ${event.toolName} ${event.isError ? "failed" : "completed"}`,
-        data: { name: event.toolName, callId: event.toolCallId, isError: event.isError },
+        data: {
+          name: event.toolName,
+          callId: event.toolCallId,
+          args: call?.args,
+          result: formatToolResult(event.result),
+          isError: event.isError,
+        },
       });
       return;
     }
@@ -474,11 +532,15 @@ async function runPiSessionAttempt(
       text,
       toolCalls,
       terminated,
-      usage: {
-        input: message.usage.input,
-        output: message.usage.output,
-        cost: message.usage.cost.total,
-      },
+      // Fall back to the final turn if no message_end was observed.
+      usage:
+        usage.input + usage.output > 0
+          ? usage
+          : {
+              input: message.usage.input,
+              output: message.usage.output,
+              cost: message.usage.cost.total,
+            },
     };
   } finally {
     combinedSignal.removeEventListener("abort", abortSession);

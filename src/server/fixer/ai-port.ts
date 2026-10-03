@@ -2,8 +2,10 @@ import type { MediaService } from "../../shared/fixer-types.js";
 
 /**
  * Progress event streamed during a fixer analysis. Emitted by the resolver
- * (`step`) and by the Pi session runner (`tool-call`, `text`), persisted into
- * the analysis row and forwarded over the bus as `fixer.analysis.progress`.
+ * (`step`) and by the Pi session runner (`tool-call`, `text`, `thinking`),
+ * persisted into the analysis row and forwarded over the bus as
+ * `fixer.analysis.progress`. Consecutive `text`/`thinking` deltas are merged
+ * into one block when persisted.
  */
 export type FixerAnalysisEvent =
   | {
@@ -23,10 +25,11 @@ export type FixerAnalysisEvent =
       itemId?: number;
       isError?: boolean;
       args?: unknown;
+      /** Tool result text (phase "end"), already truncated by the runner. */
       result?: unknown;
     }
   | {
-      kind: "text";
+      kind: "text" | "thinking";
       delta: string;
       ts: number;
       itemId?: number;
@@ -43,8 +46,9 @@ export type FixerAnalysisEvent =
  *   proposal re-prompt retry). `when()` must be called at most once.
  * - `signal` aborts the session (session.abort()); the runner may then either
  *   resolve or reject — the caller checks `signal.aborted` afterwards.
- * - Emit `tool-call` events on tool execution start/end and `text` events for
- *   assistant text deltas via `onEvent`.
+ * - Emit `tool-call` events on tool execution start/end (with `args`, and the
+ *   tool `result` on "end"), `text` events for assistant text deltas and
+ *   `thinking` events for reasoning deltas via `onEvent`.
  * - Return every non-empty trimmed assistant text delta, in order, as `log`.
  */
 export interface FixerPiRunRequest {
@@ -64,6 +68,12 @@ export interface FixerPiRunRequest {
 export interface FixerPiRunResult {
   /** Trimmed assistant text deltas, in order. */
   log: string[];
+  provider?: string;
+  model?: string;
+  /** Token usage and cost summed over the run's assistant turns. */
+  usage?: { input: number; output: number; cost: number };
+  /** Final assistant text. */
+  text?: string;
 }
 
 export type FixerPiRunner = (request: FixerPiRunRequest) => Promise<FixerPiRunResult>;

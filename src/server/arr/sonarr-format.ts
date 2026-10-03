@@ -39,9 +39,10 @@ export function compactCandidate(candidate: ManualImportCandidate) {
     absoluteEpisodeNumbers: candidate.absoluteEpisodeNumbers,
     episodeLabels: candidate.episodeLabels,
     quality: candidate.qualityLabel,
-    languages: candidate.languageLabels,
-    languageMetadataPresent: hasKnownLanguageMetadata(candidate.languages),
-    hasGermanAudio: hasGermanAudio(candidate.languages),
+    // Parsed from the release name by the arr; the inspected streams are authoritative.
+    arrLanguageLabels: candidate.languageLabels,
+    arrLabelsKnown: hasKnownLanguageMetadata(candidate.languages),
+    arrLabelsSayGerman: hasGermanAudio(candidate.languages),
     releaseGroup: candidate.releaseGroup,
     customFormats: candidate.customFormatLabels ?? [],
     customFormatScore: candidate.customFormatScore,

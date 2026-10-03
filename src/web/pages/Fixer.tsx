@@ -15,8 +15,10 @@ import type {
   FixerQueueItemDto,
 } from "../../shared/api-types.js";
 import type {
+  IdentityVerdict,
   ProposalAction,
   QueueRemovalOptions,
+  ResolutionProposal,
   ResolverEvent,
 } from "../../shared/fixer-types.js";
 import { ConfirmDialog } from "../components/ConfirmDialog.js";
@@ -463,6 +465,161 @@ function AnalysisStateBadge({ item }: { item: FixerQueueItemDto }) {
   );
 }
 
+type ToolCallDetails = {
+  toolName: string;
+  phase: "start" | "end";
+  args?: unknown;
+  result?: unknown;
+  isError?: boolean;
+};
+
+function outputBlockKind(ev: ResolverEvent): "text" | "thinking" | undefined {
+  const kind = (ev.details as { kind?: unknown } | undefined)?.kind;
+  return kind === "text" || kind === "thinking" ? kind : undefined;
+}
+
+function toolCallDetails(ev: ResolverEvent): ToolCallDetails | undefined {
+  const details = ev.details as Partial<ToolCallDetails> | undefined;
+  return typeof details?.toolName === "string" &&
+    (details.phase === "start" || details.phase === "end")
+    ? (details as ToolCallDetails)
+    : undefined;
+}
+
+/** Live SSE text/thinking arrives one event per delta; show consecutive deltas as one block. */
+function mergeOutputBlocks(events: ResolverEvent[]): ResolverEvent[] {
+  const rows: ResolverEvent[] = [];
+  for (const ev of events) {
+    const kind = outputBlockKind(ev);
+    const last = rows.at(-1);
+    if (kind && last && outputBlockKind(last) === kind && last.itemId === ev.itemId) {
+      rows[rows.length - 1] = { ...last, message: last.message + ev.message };
+    } else {
+      rows.push(ev);
+    }
+  }
+  return rows;
+}
+
+const JSON_TEXT_START = /^\s*[[{]/;
+
+function traceText(value: unknown): string {
+  if (typeof value !== "string") return JSON.stringify(value, null, 2);
+  if (!JSON_TEXT_START.test(value)) return value;
+  try {
+    return JSON.stringify(JSON.parse(value), null, 2);
+  } catch {
+    return value;
+  }
+}
+
+function TraceValue({ label, value }: { label: string; value: unknown }) {
+  if (value === undefined) return null;
+  return (
+    <div>
+      <div className="microlabel mb-0.5">{label}</div>
+      <pre className="max-h-[240px] overflow-auto whitespace-pre-wrap break-all rounded-[6px] border border-line bg-surface p-2 text-[10px] text-muted">
+        {traceText(value)}
+      </pre>
+    </div>
+  );
+}
+
+function AnalysisEventRow({ ev }: { ev: ResolverEvent }) {
+  const [open, setOpen] = useState(false);
+  const block = outputBlockKind(ev);
+  const tool = toolCallDetails(ev);
+  const expandable = tool?.phase === "end";
+  return (
+    <div>
+      <div className="flex gap-2">
+        <span className="shrink-0 text-faint">{fmtTime(Date.parse(ev.timestamp))}</span>
+        <span
+          className={cn(
+            "shrink-0 uppercase",
+            ev.type === "error" || tool?.isError
+              ? "text-missing"
+              : ev.type === "warning"
+                ? "text-nongerman"
+                : "text-faint",
+          )}
+        >
+          {block ?? ev.type}
+        </span>
+        {block ? (
+          <blockquote
+            className={cn(
+              "min-w-0 whitespace-pre-wrap border-l-2 border-line pl-2 text-muted",
+              block === "thinking" && "italic",
+            )}
+          >
+            {ev.message}
+          </blockquote>
+        ) : expandable ? (
+          <button
+            type="button"
+            aria-expanded={open}
+            className="flex cursor-pointer items-center gap-1 text-left text-muted hover:text-ink"
+            onClick={() => setOpen((o) => !o)}
+          >
+            {open ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+            {ev.message}
+          </button>
+        ) : (
+          <span className="text-muted">{ev.message}</span>
+        )}
+      </div>
+      {expandable && open ? (
+        <div className="my-1 ml-4 space-y-1">
+          <TraceValue label="args" value={tool.args} />
+          <TraceValue label="result" value={tool.result} />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function AnalysisEventLog({ events, className }: { events: ResolverEvent[]; className?: string }) {
+  const rows = mergeOutputBlocks(events);
+  return (
+    <div
+      className={cn(
+        "max-h-[420px] overflow-y-auto rounded-[6px] border border-line bg-bg p-2 font-mono text-[11px]",
+        className,
+      )}
+    >
+      {rows.length === 0 ? (
+        <span className="text-faint">Waiting for resolver output…</span>
+      ) : (
+        rows.map((ev, i) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: append-only stream, entries never reorder
+          <AnalysisEventRow key={`${ev.timestamp}-${i}`} ev={ev} />
+        ))
+      )}
+    </div>
+  );
+}
+
+/** Collapsed-by-default audit trail of a finished analysis: steps, tool calls, model output. */
+function AiTrace({ events }: { events: ResolverEvent[] }) {
+  const [open, setOpen] = useState(false);
+  if (events.length === 0) return null;
+  return (
+    <div>
+      <button
+        type="button"
+        aria-expanded={open}
+        className="flex cursor-pointer items-center gap-1 text-[11px] text-faint hover:text-muted"
+        onClick={() => setOpen((o) => !o)}
+      >
+        {open ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+        AI trace ({events.length} events)
+      </button>
+      {open ? <AnalysisEventLog events={events} className="mt-1" /> : null}
+    </div>
+  );
+}
+
 function ReviewPanel({ item, dryRun }: { item: FixerQueueItemDto | null; dryRun: boolean }) {
   const analysis = useFixerAnalysis(item?.analysisId ?? null);
   const cancel = useFixerCancel();
@@ -515,31 +672,7 @@ function ReviewPanel({ item, dryRun }: { item: FixerQueueItemDto | null; dryRun:
               Cancel
             </Button>
           </div>
-          <div className="mt-2 max-h-[420px] overflow-y-auto rounded-[6px] border border-line bg-bg p-2 font-mono text-[11px]">
-            {events.length === 0 ? (
-              <span className="text-faint">Waiting for resolver output…</span>
-            ) : (
-              events.map((ev, i) => (
-                // biome-ignore lint/suspicious/noArrayIndexKey: append-only stream, entries never reorder
-                <div key={`${ev.timestamp}-${i}`} className="flex gap-2">
-                  <span className="shrink-0 text-faint">{fmtTime(Date.parse(ev.timestamp))}</span>
-                  <span
-                    className={cn(
-                      "shrink-0 uppercase",
-                      ev.type === "error"
-                        ? "text-missing"
-                        : ev.type === "warning"
-                          ? "text-nongerman"
-                          : "text-faint",
-                    )}
-                  >
-                    {ev.type}
-                  </span>
-                  <span className="text-muted">{ev.message}</span>
-                </div>
-              ))
-            )}
-          </div>
+          <AnalysisEventLog events={events} className="mt-2" />
         </div>
       </Panel>
     );
@@ -570,6 +703,11 @@ function ReviewPanel({ item, dryRun }: { item: FixerQueueItemDto | null; dryRun:
           >
             Retry analysis
           </Button>
+        ) : null}
+        {a && events.length > 0 ? (
+          <div className="px-3 pb-3">
+            <AiTrace events={events} />
+          </div>
         ) : null}
       </Panel>
     );
@@ -618,6 +756,76 @@ function ProposalRecovery({ item }: { item: FixerQueueItemDto }) {
   );
 }
 
+function proposalVerdict(
+  proposal: ResolutionProposal,
+  validationOk: boolean,
+  threshold: number,
+  dryRun: boolean,
+): { label: string; color: string } {
+  if (proposal.action === "remove_queue_item") {
+    return { label: "Would remove from queue", color: STATE_META.missing.color };
+  }
+  if (!validationOk) return { label: "Blocked by validation", color: STATE_META.missing.color };
+  if (proposal.action === "import_candidates" && proposal.confidence >= threshold) {
+    return {
+      label: dryRun ? "Would auto-import (dry-run)" : "Would auto-import",
+      color: STATE_META.german.color,
+    };
+  }
+  if (proposal.reviewReasons?.length) {
+    return { label: "Held by the fixer's checks — review", color: STATE_META.missing.color };
+  }
+  if (proposal.action === "needs_review") {
+    return { label: "The AI asks for your review", color: STATE_META.non_german.color };
+  }
+  return { label: "Below auto threshold — review", color: STATE_META.non_german.color };
+}
+
+const IDENTITY_COLOR: Record<IdentityVerdict, string> = {
+  confirmed: "text-german",
+  contradicted: "text-missing",
+  uncertain: "text-nongerman",
+};
+
+/** The AI's "receipt": guard holds, what the file is, and its written reasoning. */
+function ProposalReceipt({ proposal }: { proposal: ResolutionProposal }) {
+  const identity = proposal.identity;
+  return (
+    <>
+      {proposal.reviewReasons?.length ? (
+        <div className="rounded-[6px] border border-missing/40 bg-missing/8 p-2">
+          <div className="microlabel mb-1 text-missing">Held for review by the fixer's checks</div>
+          <ul className="list-disc space-y-0.5 pl-4 text-[12px] text-missing">
+            {proposal.reviewReasons.map((r) => (
+              <li key={r}>{r}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {identity ? (
+        <div>
+          <div className="microlabel mb-1">
+            What the file is ·{" "}
+            <span className={IDENTITY_COLOR[identity.verdict]}>{identity.verdict}</span>
+          </div>
+          <p className="text-[12px] text-ink">{identity.actualWork}</p>
+          <ul className="mt-0.5 list-disc space-y-0.5 pl-4 text-[12px] text-muted">
+            {identity.evidence.map((e) => (
+              <li key={e}>{e}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {proposal.rationale ? (
+        <div>
+          <div className="microlabel mb-1">AI reasoning</div>
+          <p className="whitespace-pre-line text-[12px] text-muted">{proposal.rationale}</p>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
 function ProposalCard({
   item,
   analysis,
@@ -652,17 +860,7 @@ function ProposalCard({
   );
   const applyDialog = proposalApplyDialog(proposal.action, removalOptions, selectedIds, item.title);
 
-  const verdict =
-    proposal.action === "remove_queue_item"
-      ? { label: "Would remove from queue", color: STATE_META.missing.color }
-      : !validationOk
-        ? { label: "Blocked by validation", color: STATE_META.missing.color }
-        : proposal.action === "import_candidates" && proposal.confidence >= threshold
-          ? {
-              label: dryRun ? "Would auto-import (dry-run)" : "Would auto-import",
-              color: STATE_META.german.color,
-            }
-          : { label: "Below auto threshold — review", color: STATE_META.non_german.color };
+  const verdict = proposalVerdict(proposal, validationOk, threshold, dryRun);
 
   const toggleInclude = (id: string, checked: boolean) => {
     setIncludes(() => {
@@ -723,6 +921,8 @@ function ProposalCard({
         </div>
 
         <p className="text-[12px] text-muted">{proposal.reason}</p>
+
+        <ProposalReceipt proposal={proposal} />
 
         <RemovalOptionsSummary action={proposal.action} options={removalOptions} />
 
@@ -824,6 +1024,8 @@ function ProposalCard({
             {JSON.stringify(candidates, null, 2)}
           </pre>
         ) : null}
+
+        <AiTrace events={analysis.events} />
 
         {/* actions */}
         <div className="flex flex-wrap items-center gap-2 border-t border-line pt-3">

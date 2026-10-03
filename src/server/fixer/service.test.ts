@@ -28,6 +28,7 @@ import {
   manualRemovalOptions,
   queueIssueType,
 } from "./service.js";
+import { fakeProber } from "./test-prober.js";
 
 const noopLog = {
   info: () => {},
@@ -150,6 +151,11 @@ function importProposal(
     issueSummary: "quality warning",
     evidence: [],
     warnings: [],
+    identity: {
+      verdict: "confirmed",
+      actualWork: "the queued episode",
+      evidence: ["Subtitle dialogue matches the episode."],
+    },
     ...over,
   };
 }
@@ -222,7 +228,9 @@ function makeHarness() {
   const sonarr = new FakeArrClient();
   const radarr = new FakeArrClient();
   const runnerCtl = makeRunner();
-  const svc = new FixerService(db, settings, { sonarr, radarr }, runnerCtl.runner, bus, noopLog);
+  const svc = new FixerService(db, settings, { sonarr, radarr }, runnerCtl.runner, bus, noopLog, {
+    prober: fakeProber(),
+  });
   return { db, settings, bus, busEvents, sonarr, radarr, runnerCtl, svc };
 }
 
@@ -413,6 +421,8 @@ describe("FixerService analyze lifecycle", () => {
       return importProposal("candidate_1", [101]);
     });
     const first = await svc.analyze("sonarr", 1);
+    // File inspection runs before the AI; abort only once the first run reached the AI.
+    await vi.waitFor(() => expect(runnerCtl.calls).toHaveLength(1));
     const second = await svc.analyze("sonarr", 1);
     expect(second.analysisId).not.toBe(first.analysisId);
     const [firstOutcome, secondOutcome] = await Promise.all([
@@ -989,8 +999,118 @@ it("coalesces a large stream and flushes the final event and result", async () =
   expect(updates.mock.calls.length).toBeLessThan(10);
   const row = db.select().from(fixerAnalyses).get();
   expect(row?.status).toBe("completed");
-  expect(row?.events?.length).toBe(500);
+  // The 1000 deltas (plus the runner's trailing text) merge into one text block.
+  const textBlocks = ((row?.events ?? []) as FixerAnalysisEvent[]).filter((e) => e.kind === "text");
+  expect(textBlocks).toHaveLength(1);
   expect(JSON.stringify(row?.events)).toContain("analysis text");
+});
+
+describe("FixerService persisted analysis trace", () => {
+  type DeltaEvent = Extract<FixerAnalysisEvent, { kind: "text" | "thinking" }>;
+  const persistedEvents = (harness: ReturnType<typeof makeHarness>) =>
+    (harness.db.select().from(fixerAnalyses).get()?.events ?? []) as FixerAnalysisEvent[];
+
+  it("coalesces text and thinking deltas per block but streams every delta over SSE", async () => {
+    const harness = makeHarness();
+    harness.sonarr.queue = [makeQueueItem(1)];
+    harness.sonarr.candidatesByItem.set(1, [makeCandidate("candidate_1", [101])]);
+    harness.runnerCtl.setScript((req) => {
+      const emit = (event: FixerAnalysisEvent) => req.onEvent?.(event);
+      emit({ kind: "thinking", delta: "check ", ts: 1, itemId: 1 });
+      emit({ kind: "thinking", delta: "episodes", ts: 2, itemId: 1 });
+      emit({ kind: "text", delta: "Looking ", ts: 3, itemId: 1 });
+      emit({ kind: "text", delta: "up.", ts: 4, itemId: 1 });
+      emit({ kind: "tool-call", phase: "start", toolName: "t", ts: 5, itemId: 1, args: { a: 1 } });
+      emit({
+        kind: "tool-call",
+        phase: "end",
+        toolName: "t",
+        ts: 6,
+        itemId: 1,
+        args: { a: 1 },
+        result: "found",
+      });
+      emit({ kind: "text", delta: "Done", ts: 7, itemId: 1 });
+      return importProposal("candidate_1", [101]);
+    });
+
+    await harness.svc.analyzeAndWait("sonarr", 1);
+
+    const piEvents = persistedEvents(harness).filter((e) => e.kind !== "step");
+    expect(piEvents).toEqual([
+      { kind: "thinking", delta: "check episodes", ts: 1, itemId: 1 },
+      { kind: "text", delta: "Looking up.", ts: 3, itemId: 1 },
+      expect.objectContaining({ kind: "tool-call", phase: "start", args: { a: 1 } }),
+      expect.objectContaining({ kind: "tool-call", phase: "end", result: "found" }),
+      // The fake runner's trailing "analysis text" (no itemId) is a separate block.
+      { kind: "text", delta: "Done", ts: 7, itemId: 1 },
+      expect.objectContaining({ kind: "text", delta: "analysis text" }),
+    ]);
+    const streamedDeltas = harness.busEvents.filter(
+      (e) =>
+        e.type === "fixer.analysis.progress" &&
+        ["text", "thinking"].includes(
+          ((e.payload as { event: { details?: { kind?: string } } }).event.details?.kind ??
+            "") as string,
+        ),
+    );
+    expect(streamedDeltas).toHaveLength(6);
+  });
+
+  it("caps a merged block at 20000 chars with a single truncation marker", async () => {
+    const harness = makeHarness();
+    harness.sonarr.queue = [makeQueueItem(1)];
+    harness.sonarr.candidatesByItem.set(1, [makeCandidate("candidate_1", [101])]);
+    harness.runnerCtl.setScript((req) => {
+      for (let i = 0; i < 30; i++) {
+        req.onEvent?.({ kind: "thinking", delta: "y".repeat(1_000), ts: i, itemId: 1 });
+      }
+      return importProposal("candidate_1", [101]);
+    });
+
+    await harness.svc.analyzeAndWait("sonarr", 1);
+
+    const thinking = persistedEvents(harness).filter((e): e is DeltaEvent => e.kind === "thinking");
+    expect(thinking).toHaveLength(1);
+    expect(thinking[0]?.delta).toBe(`${"y".repeat(20_000)} …[truncated]`);
+  });
+
+  it("keeps ~40 tool calls and shrinks the largest results to fit the size budget", async () => {
+    const harness = makeHarness();
+    harness.sonarr.queue = [makeQueueItem(1)];
+    harness.sonarr.candidatesByItem.set(1, [makeCandidate("candidate_1", [101])]);
+    harness.runnerCtl.setScript((req) => {
+      for (let i = 0; i < 80; i++) {
+        req.onEvent?.({ kind: "tool-call", phase: "start", toolName: `t${i}`, ts: i, itemId: 1 });
+        req.onEvent?.({
+          kind: "tool-call",
+          phase: "end",
+          toolName: `t${i}`,
+          ts: i,
+          itemId: 1,
+          // Two large results; the rest are small.
+          result: i < 78 ? `small ${i}` : "z".repeat(300_000),
+        });
+      }
+      return importProposal("candidate_1", [101]);
+    });
+
+    await harness.svc.analyzeAndWait("sonarr", 1);
+
+    const events = persistedEvents(harness);
+    expect(JSON.stringify(events).length).toBeLessThanOrEqual(400_000);
+    const ends = events.filter(
+      (e): e is Extract<FixerAnalysisEvent, { kind: "tool-call" }> =>
+        e.kind === "tool-call" && e.phase === "end",
+    );
+    expect(ends).toHaveLength(80);
+    expect(ends[0]?.result).toBe("small 0");
+    const shrunk = ends.filter((e) => String(e.result).includes("…[truncated"));
+    expect(shrunk.length).toBeGreaterThanOrEqual(1);
+    expect(String(shrunk[0]?.result)).toMatch(/^z{1000}…\[truncated \d+ chars/);
+    const messages = events.flatMap((e) => (e.kind === "step" ? [e.message] : []));
+    expect(messages).toContain("Loading manual import candidates.");
+  });
 });
 
 describe("FixerService season packs", () => {
