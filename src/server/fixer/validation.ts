@@ -101,13 +101,13 @@ function normalizeStrings(values: unknown): string[] {
   });
 }
 
-const identityVerdicts: IdentityVerdict[] = ["confirmed", "contradicted", "uncertain"];
+const identityVerdicts = new Set<IdentityVerdict>(["confirmed", "contradicted", "uncertain"]);
 
 function normalizeIdentity(value: unknown): ProposalIdentity | undefined {
   if (!value || typeof value !== "object") return undefined;
   const record = value as Partial<ProposalIdentity>;
   return {
-    verdict: identityVerdicts.includes(record.verdict as IdentityVerdict)
+    verdict: identityVerdicts.has(record.verdict as IdentityVerdict)
       ? (record.verdict as IdentityVerdict)
       : "uncertain",
     actualWork: String(record.actualWork ?? "").trim(),

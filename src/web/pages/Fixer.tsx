@@ -513,7 +513,7 @@ function traceText(value: unknown): string {
   }
 }
 
-function TraceValue({ label, value }: { label: string; value: unknown }) {
+function TraceValue({ label, value }: Readonly<{ label: string; value: unknown }>) {
   if (value === undefined) return null;
   return (
     <div>
@@ -525,7 +525,52 @@ function TraceValue({ label, value }: { label: string; value: unknown }) {
   );
 }
 
-function AnalysisEventRow({ ev }: { ev: ResolverEvent }) {
+function eventTypeClass(ev: ResolverEvent, isError: boolean | undefined): string {
+  if (ev.type === "error" || isError) return "text-missing";
+  if (ev.type === "warning") return "text-nongerman";
+  return "text-faint";
+}
+
+function EventMessage({
+  ev,
+  block,
+  expandable,
+  open,
+  onToggle,
+}: Readonly<{
+  ev: ResolverEvent;
+  block: ReturnType<typeof outputBlockKind>;
+  expandable: boolean;
+  open: boolean;
+  onToggle: () => void;
+}>) {
+  if (block) {
+    return (
+      <blockquote
+        className={cn(
+          "min-w-0 whitespace-pre-wrap border-l-2 border-line pl-2 text-muted",
+          block === "thinking" && "italic",
+        )}
+      >
+        {ev.message}
+      </blockquote>
+    );
+  }
+  if (!expandable) return <span className="text-muted">{ev.message}</span>;
+  return (
+    <button
+      type="button"
+      aria-expanded={open}
+      className="flex cursor-pointer items-center gap-1 text-left text-muted hover:text-ink"
+      onClick={onToggle}
+    >
+      {open ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+      {ev.message}
+    </button>
+  );
+}
+
+function AnalysisEventRow({ ev }: Readonly<{ ev: ResolverEvent }>) {
   const [open, setOpen] = useState(false);
   const block = outputBlockKind(ev);
   const tool = toolCallDetails(ev);
@@ -534,40 +579,16 @@ function AnalysisEventRow({ ev }: { ev: ResolverEvent }) {
     <div>
       <div className="flex gap-2">
         <span className="shrink-0 text-faint">{fmtTime(Date.parse(ev.timestamp))}</span>
-        <span
-          className={cn(
-            "shrink-0 uppercase",
-            ev.type === "error" || tool?.isError
-              ? "text-missing"
-              : ev.type === "warning"
-                ? "text-nongerman"
-                : "text-faint",
-          )}
-        >
+        <span className={cn("shrink-0 uppercase", eventTypeClass(ev, tool?.isError))}>
           {block ?? ev.type}
         </span>
-        {block ? (
-          <blockquote
-            className={cn(
-              "min-w-0 whitespace-pre-wrap border-l-2 border-line pl-2 text-muted",
-              block === "thinking" && "italic",
-            )}
-          >
-            {ev.message}
-          </blockquote>
-        ) : expandable ? (
-          <button
-            type="button"
-            aria-expanded={open}
-            className="flex cursor-pointer items-center gap-1 text-left text-muted hover:text-ink"
-            onClick={() => setOpen((o) => !o)}
-          >
-            {open ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
-            {ev.message}
-          </button>
-        ) : (
-          <span className="text-muted">{ev.message}</span>
-        )}
+        <EventMessage
+          ev={ev}
+          block={block}
+          expandable={expandable}
+          open={open}
+          onToggle={() => setOpen((o) => !o)}
+        />
       </div>
       {expandable && open ? (
         <div className="my-1 ml-4 space-y-1">
@@ -579,7 +600,10 @@ function AnalysisEventRow({ ev }: { ev: ResolverEvent }) {
   );
 }
 
-function AnalysisEventLog({ events, className }: { events: ResolverEvent[]; className?: string }) {
+function AnalysisEventLog({
+  events,
+  className,
+}: Readonly<{ events: ResolverEvent[]; className?: string }>) {
   const rows = mergeOutputBlocks(events);
   return (
     <div
@@ -601,7 +625,7 @@ function AnalysisEventLog({ events, className }: { events: ResolverEvent[]; clas
 }
 
 /** Collapsed-by-default audit trail of a finished analysis: steps, tool calls, model output. */
-function AiTrace({ events }: { events: ResolverEvent[] }) {
+function AiTrace({ events }: Readonly<{ events: ResolverEvent[] }>) {
   const [open, setOpen] = useState(false);
   if (events.length === 0) return null;
   return (
@@ -620,19 +644,24 @@ function AiTrace({ events }: { events: ResolverEvent[] }) {
   );
 }
 
-function ReviewPanel({ item, dryRun }: { item: FixerQueueItemDto | null; dryRun: boolean }) {
-  const analysis = useFixerAnalysis(item?.analysisId ?? null);
-  const cancel = useFixerCancel();
-  const retry = useFixerBulk();
+/** Progress events streamed over SSE for the selected analysis (last 200). */
+function useLiveAnalysisEvents(analysisId: string | null): ResolverEvent[] {
   const [liveEvents, setLiveEvents] = useState<Record<string, ResolverEvent[]>>({});
-
   useSseEvent("fixer.analysis.progress", (e) => {
-    if (e.payload.analysisId !== item?.analysisId) return;
+    if (e.payload.analysisId !== analysisId) return;
     setLiveEvents((prev) => {
       const list = prev[e.payload.analysisId] ?? [];
       return { [e.payload.analysisId]: [...list, e.payload.event].slice(-200) };
     });
   });
+  return analysisId ? (liveEvents[analysisId] ?? []) : [];
+}
+
+function ReviewPanel({ item, dryRun }: { item: FixerQueueItemDto | null; dryRun: boolean }) {
+  const analysis = useFixerAnalysis(item?.analysisId ?? null);
+  const cancel = useFixerCancel();
+  const retry = useFixerBulk();
+  const streamed = useLiveAnalysisEvents(item?.analysisId ?? null);
 
   if (!item) {
     return (
@@ -653,7 +682,6 @@ function ReviewPanel({ item, dryRun }: { item: FixerQueueItemDto | null; dryRun:
       </Panel>
     );
   const running = item.analysisState === "analyzing" || a?.status === "running";
-  const streamed = item.analysisId ? (liveEvents[item.analysisId] ?? []) : [];
   const events = [...(a?.events ?? []), ...streamed];
 
   if (running || (!a && item.analysisId && analysis.isPending)) {
@@ -788,7 +816,7 @@ const IDENTITY_COLOR: Record<IdentityVerdict, string> = {
 };
 
 /** The AI's "receipt": guard holds, what the file is, and its written reasoning. */
-function ProposalReceipt({ proposal }: { proposal: ResolutionProposal }) {
+function ProposalReceipt({ proposal }: Readonly<{ proposal: ResolutionProposal }>) {
   const identity = proposal.identity;
   return (
     <>

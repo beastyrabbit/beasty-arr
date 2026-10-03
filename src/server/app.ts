@@ -1,7 +1,7 @@
 import path from "node:path";
 import fastifyHelmet from "@fastify/helmet";
 import fastifyStatic from "@fastify/static";
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify, { type FastifyBaseLogger, type FastifyInstance } from "fastify";
 import { createCodexLoginService, seedOpenAICodexAuthFromCodex } from "./ai/codex-auth.js";
 import { createFixerRunner } from "./ai/fixer-adapter.js";
 import { OracleService } from "./ai/oracle-service.js";
@@ -21,6 +21,7 @@ import { registerRoutes } from "./http/routes/index.js";
 import { HuntEngine } from "./hunt/engine.js";
 import { drainWithin } from "./lifecycle.js";
 import { createMediaProber, parseMediaPathMap } from "./media/probe.js";
+import type { MediaProber } from "./media/types.js";
 import { ProwlarrClient } from "./prowlarr/client.js";
 import { Scheduler } from "./scheduler/index.js";
 import { backupDatabase, snapshotDailyStats } from "./stats/maintenance.js";
@@ -37,6 +38,14 @@ export type BuildAppOptions = {
   /** Background jobs are off in tests unless explicitly enabled. */
   registerJobs?: boolean;
 };
+
+function createFixerProber(env: Env, log: FastifyBaseLogger): MediaProber {
+  const prober = createMediaProber({ pathMap: parseMediaPathMap(env.FIXER_MEDIA_PATH_MAP) });
+  if (!prober.available) {
+    log.warn("FIXER_MEDIA_PATH_MAP is not set; fixer imports will always wait for review.");
+  }
+  return prober;
+}
 
 export async function buildApp(
   opts: BuildAppOptions = {},
@@ -138,10 +147,7 @@ export async function buildApp(
     });
   };
 
-  const prober = createMediaProber({ pathMap: parseMediaPathMap(env.FIXER_MEDIA_PATH_MAP) });
-  if (!prober.available) {
-    app.log.warn("FIXER_MEDIA_PATH_MAP is not set; fixer imports will always wait for review.");
-  }
+  const prober = createFixerProber(env, app.log);
   const fixer = new FixerService(
     db,
     settings,

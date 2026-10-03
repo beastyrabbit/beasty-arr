@@ -82,7 +82,8 @@ function parseReason(queueItem: QueueItem, facts: InspectionFacts): string | und
     return undefined;
   }
   const arr = queueItem.service === "radarr" ? "Radarr" : "Sonarr";
-  return `${arr} parses the release name as ${facts.parse?.matchedTitle ?? `id ${matchedId}`}, not the queued target.`;
+  const matched = facts.parse?.matchedTitle ?? `id ${matchedId}`;
+  return `${arr} parses the release name as ${matched}, not the queued target.`;
 }
 
 /** One selected file mapped to its targets, with what the fixer observed about it. */
@@ -200,8 +201,11 @@ function importReviewReasons(
         `${file.name} could not be inspected (${probeFailure(facts, file.candidate.path)}).`,
       );
     }
-    reasons.push(yearReason(queueItem, file), runtimeReason(queueItem.service, file));
-    reasons.push(...replacementReasons(facts, file));
+    reasons.push(
+      yearReason(queueItem, file),
+      runtimeReason(queueItem.service, file),
+      ...replacementReasons(facts, file),
+    );
   }
   return reasons.filter((reason): reason is string => Boolean(reason));
 }
@@ -255,12 +259,12 @@ export function applyGuards(input: {
   facts: InspectionFacts;
 }): ResolutionProposal {
   const { queueItem, candidates, proposal, facts } = input;
-  const reasons =
-    proposal.action === "import_candidates"
-      ? importReviewReasons(queueItem, candidates, proposal, facts)
-      : proposal.action === "remove_queue_item"
-        ? removalReviewReasons(queueItem, candidates, proposal, facts)
-        : [];
+  let reasons: string[] = [];
+  if (proposal.action === "import_candidates") {
+    reasons = importReviewReasons(queueItem, candidates, proposal, facts);
+  } else if (proposal.action === "remove_queue_item") {
+    reasons = removalReviewReasons(queueItem, candidates, proposal, facts);
+  }
   if (reasons.length === 0) return proposal;
   return {
     ...proposal,

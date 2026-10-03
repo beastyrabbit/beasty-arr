@@ -19,8 +19,11 @@ COPY --from=build /app/package.json /app/pnpm-lock.yaml ./
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/drizzle ./drizzle
-RUN mkdir -p /data/pi && chown -R node:node /data
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ffmpeg \
+  && rm -rf /var/lib/apt/lists/* \
+  && mkdir -p /data/pi \
+  && chown -R node:node /data
 USER node
 EXPOSE 9898
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \

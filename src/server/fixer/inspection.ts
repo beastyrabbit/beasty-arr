@@ -3,7 +3,7 @@ import type { ArrMediaInfo } from "../arr/http-util.js";
 import type { RadarrClient, RadarrMovieRecord } from "../arr/radarr-client.js";
 import { isDiscStreamPath } from "../arr/sample.js";
 import type { SonarrClient, SonarrEpisodeRecord } from "../arr/sonarr-client.js";
-import type { MediaProbeResult, MediaProber } from "../media/types.js";
+import type { MediaProbeResult, MediaProber, ProbeSubtitleStream } from "../media/types.js";
 
 /**
  * Facts the fixer collects itself before and during an analysis, independent
@@ -57,9 +57,25 @@ const MAX_UPFRONT_PROBES = 30;
 const PROBE_CONCURRENCY = 4;
 
 function valueName(value: unknown): string {
-  if (!value || typeof value !== "object") return String(value ?? "");
-  const record = value as Record<string, unknown>;
-  return String(record.name ?? record.id ?? "");
+  if (typeof value === "string" || typeof value === "number") return String(value);
+  if (!value || typeof value !== "object") return "";
+  const { name, id } = value as { name?: unknown; id?: unknown };
+  if (typeof name === "string") return name;
+  return typeof id === "string" || typeof id === "number" ? String(id) : "";
+}
+
+/** "Title (Year)" when the year is known. */
+function titleWithYear(title: string, year: number | undefined): string {
+  return year ? `${title} (${year})` : title;
+}
+
+function episodeCode(episode: SonarrEpisodeRecord): string {
+  if (episode.seasonNumber === undefined || episode.episodeNumber === undefined) {
+    return `episode ${episode.id}`;
+  }
+  const season = String(episode.seasonNumber).padStart(2, "0");
+  const number = String(episode.episodeNumber).padStart(2, "0");
+  return `S${season}E${number}`;
 }
 
 function qualityName(quality: unknown): string | undefined {
@@ -109,7 +125,7 @@ function movieTarget(movie: RadarrMovieRecord): TargetFacts | undefined {
   const file = movie.movieFile;
   return {
     id: movie.id,
-    label: `${movie.title ?? "movie"}${movie.year ? ` (${movie.year})` : ""}`,
+    label: titleWithYear(movie.title ?? "movie", movie.year),
     year: movie.year,
     expectedRuntimeMinutes: movie.runtime || undefined,
     currentFile: file
@@ -126,13 +142,9 @@ function movieTarget(movie: RadarrMovieRecord): TargetFacts | undefined {
 function episodeTarget(episode: SonarrEpisodeRecord): TargetFacts | undefined {
   if (!episode.id) return undefined;
   const file = episode.episodeFile;
-  const number =
-    episode.seasonNumber !== undefined && episode.episodeNumber !== undefined
-      ? `S${String(episode.seasonNumber).padStart(2, "0")}E${String(episode.episodeNumber).padStart(2, "0")}`
-      : `episode ${episode.id}`;
   return {
     id: episode.id,
-    label: `${number}${episode.title ? ` ${episode.title}` : ""}`,
+    label: [episodeCode(episode), episode.title].filter(Boolean).join(" "),
     expectedRuntimeMinutes: episode.runtime || undefined,
     currentFile:
       episode.hasFile && file
@@ -214,7 +226,7 @@ async function independentParse(
         parsedYear: result?.parsedMovieInfo?.year || undefined,
         matchedId: result?.movie?.id,
         matchedTitle: result?.movie
-          ? `${result.movie.title ?? ""}${result.movie.year ? ` (${result.movie.year})` : ""}`
+          ? titleWithYear(result.movie.title ?? "", result.movie.year)
           : undefined,
         matchedEpisodeIds: [],
       };
@@ -275,7 +287,16 @@ function minutes(seconds: number | undefined): string {
 
 function resolutionLabel(probe: MediaProbeResult): string | undefined {
   if (!probe.ok || !probe.video?.height) return undefined;
-  return `${probe.video.width ?? "?"}x${probe.video.height}${probe.video.hdr ? ` ${probe.video.hdr}` : ""}`;
+  const size = `${probe.video.width ?? "?"}x${probe.video.height}`;
+  return probe.video.hdr ? `${size} ${probe.video.hdr}` : size;
+}
+
+function subtitleLabel(stream: ProbeSubtitleStream): string {
+  const parts = [stream.inferredLanguage ?? stream.language ?? "und"];
+  if (stream.title) parts.push(`"${stream.title}"`);
+  if (stream.isForced) parts.push("forced");
+  if (!stream.textBased) parts.push("(image)");
+  return parts.join(" ");
 }
 
 /** Compact, model-facing summary of one probe. */
@@ -296,10 +317,7 @@ export function summarizeProbe(probe: MediaProbeResult) {
       channels: stream.channels,
     })),
     hasGermanAudio: probe.hasGermanAudio,
-    subtitles: probe.subtitles.map(
-      (stream) =>
-        `${stream.inferredLanguage ?? stream.language ?? "und"}${stream.title ? ` "${stream.title}"` : ""}${stream.isForced ? " forced" : ""}${stream.textBased ? "" : " (image)"}`,
-    ),
+    subtitles: probe.subtitles.map(subtitleLabel),
     chapters: probe.chapters.count ? probe.chapters : undefined,
     subtitleExcerpt: probe.subtitleExcerpt,
     folder: probe.folder,

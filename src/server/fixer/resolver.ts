@@ -253,11 +253,15 @@ function inspectionSummary(facts: InspectionFacts): string {
     return "Media inspection is not configured; imports will need review.";
   const probes = [...facts.probes.values()];
   const failed = probes.filter((probe) => !probe.ok).length;
-  return `Inspected ${probes.length - failed} file(s)${failed ? `, ${failed} could not be read` : ""}; independent parse: ${
-    facts.parse
-      ? (facts.parse.matchedTitle ?? `no library match for "${facts.parse.parsedTitle ?? "?"}"`)
-      : "unavailable"
-  }.`;
+  const inspected = failed
+    ? `Inspected ${probes.length - failed} file(s), ${failed} could not be read`
+    : `Inspected ${probes.length} file(s)`;
+  let parse = "unavailable";
+  if (facts.parse) {
+    const parsedTitle = facts.parse.parsedTitle ?? "?";
+    parse = facts.parse.matchedTitle ?? `no library match for "${parsedTitle}"`;
+  }
+  return `${inspected}; independent parse: ${parse}.`;
 }
 
 type Step = (

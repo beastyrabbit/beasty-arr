@@ -81,8 +81,10 @@ const LOCALE_SEPARATOR_RE = /[-_]/;
 const LINE_BREAK_RE = /\r?\n/;
 const SRT_COUNTER_RE = /^\d+$/;
 const SRT_TIMESTAMP_RE = /-->/;
-const SRT_HTML_TAG_RE = /<[^>]*>/g;
-const SRT_ASS_TAG_RE = /\{[^}]*\}/g;
+// Bounded and excluding the opening character, so unclosed tags cannot make
+// stripping quadratic.
+const SRT_HTML_TAG_RE = /<[^<>]{0,200}>/g;
+const SRT_ASS_TAG_RE = /\{[^{}]{0,200}\}/g;
 const SRT_ASS_ESCAPE_RE = /\\[Nnh]/g;
 const IMDB_ID_RE = /tt\d{7,9}/g;
 const TMDB_URL_RE = /themoviedb\.org\/(?:movie|tv)\/(\d+)/gi;
@@ -512,6 +514,11 @@ function execReason(tool: string, error: unknown, timeoutMs: number): string {
 
 class ProbeError extends Error {}
 
+function compareByName(a: FsDirent, b: FsDirent): number {
+  if (a.name === b.name) return 0;
+  return a.name < b.name ? -1 : 1;
+}
+
 function failureReason(error: unknown): string {
   if (error instanceof ProbeError) return error.message;
   return firstLine(error instanceof Error ? error.message : String(error)) || "Probe failed.";
@@ -669,7 +676,7 @@ export function createMediaProber(options: MediaProberOptions): MediaProber {
     } catch {
       return {};
     }
-    const sorted = [...dirents].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    const sorted = [...dirents].sort(compareByName);
     const entries: ProbeFolderEntry[] = await Promise.all(
       sorted.slice(0, FOLDER_MAX_ENTRIES).map(async (dirent) => {
         const isDirectory = dirent.isDirectory();
