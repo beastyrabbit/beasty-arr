@@ -36,24 +36,32 @@ function fileName(path: string): string {
   return path.split("/").pop() ?? path;
 }
 
-/** Resolution class from pixel height: 2160, 1080, 720, 576, 480. */
-function resolutionClass(height: number | undefined): number | undefined {
-  if (!height) return undefined;
-  if (height >= 1600) return 2160;
-  if (height >= 900) return 1080;
-  if (height >= 650) return 720;
-  if (height >= 540) return 576;
+type FrameSize = { width?: number; height?: number };
+
+/**
+ * Resolution class (2160/1080/720/576/480) from width or height, like Sonarr:
+ * a 1920x800 scope film is 1080p and a 1280x960 file is 720p.
+ */
+function resolutionClass(size: FrameSize | undefined): number | undefined {
+  const width = size?.width ?? 0;
+  const height = size?.height ?? 0;
+  if (!width && !height) return undefined;
+  if (width >= 3200 || height >= 2100) return 2160;
+  if (width >= 1800 || height >= 1000) return 1080;
+  if (width >= 1200 || height >= 700) return 720;
+  // 540 keeps cropped PAL encodes (720x544) in the 576 class.
+  if (width >= 1000 || height >= 540) return 576;
   return 480;
 }
 
-function arrResolutionHeight(resolution: string | undefined): number | undefined {
-  const height = Number(resolution?.split("x")[1]);
-  return Number.isFinite(height) && height > 0 ? height : undefined;
+function arrFrameSize(resolution: string | undefined): FrameSize | undefined {
+  const [width, height] = (resolution ?? "").split("x").map(Number);
+  return width > 0 && height > 0 ? { width, height } : undefined;
 }
 
-function currentHeight(facts: InspectionFacts, target: TargetFacts): number | undefined {
-  const probed = probeOf(facts, target.currentFile?.path)?.video?.height;
-  return probed ?? arrResolutionHeight(target.currentFile?.mediaInfo?.resolution);
+function currentFrameSize(facts: InspectionFacts, target: TargetFacts): FrameSize | undefined {
+  const probed = probeOf(facts, target.currentFile?.path)?.video;
+  return probed?.height ? probed : arrFrameSize(target.currentFile?.mediaInfo?.resolution);
 }
 
 function currentHasGerman(facts: InspectionFacts, target: TargetFacts): boolean | undefined {
@@ -96,8 +104,25 @@ type SelectedFile = {
   targets: TargetFacts[];
 };
 
-function yearReason(queueItem: QueueItem, file: SelectedFile): string | undefined {
-  if (queueItem.service !== "radarr") return undefined;
+/**
+ * A series cannot start after its episode aired: a release whose series title
+ * carries a later year (Monster.The.Lizzie.Borden.Story.2026 for a 2022
+ * episode) is a newer show or season, whatever the arr mapped it to.
+ */
+function seriesYearReason(facts: InspectionFacts, file: SelectedFile): string | undefined {
+  const seriesYear = facts.parse?.parsedYear;
+  if (!seriesYear) return undefined;
+  const aired = file.targets.find((target) => target.year && seriesYear > target.year + 1);
+  if (!aired) return undefined;
+  return `The release names a series from ${seriesYear}, but ${aired.label} aired in ${aired.year}.`;
+}
+
+function yearReason(
+  queueItem: QueueItem,
+  file: SelectedFile,
+  facts: InspectionFacts,
+): string | undefined {
+  if (queueItem.service === "sonarr") return seriesYearReason(facts, file);
   const movieYear = file.targets[0]?.year ?? queueItem.movieYear;
   // The file's own names describe what was imported; the queue title is only
   // the grabbed release name and must not mask a different year inside it.
@@ -142,8 +167,8 @@ function replacementReasons(facts: InspectionFacts, file: SelectedFile): string[
         `${name} has no German audio but would replace the German-audio file of ${target.label}.`,
       );
     }
-    const before = resolutionClass(currentHeight(facts, target));
-    const after = resolutionClass(probe?.video?.height);
+    const before = resolutionClass(currentFrameSize(facts, target));
+    const after = resolutionClass(probe?.video);
     const addsGerman = probe?.hasGermanAudio === true && germanNow === false;
     if (before && after && after < before && !addsGerman) {
       reasons.push(
@@ -214,7 +239,7 @@ function importReviewReasons(
       );
     }
     reasons.push(
-      yearReason(queueItem, file),
+      yearReason(queueItem, file, facts),
       runtimeReason(queueItem.service, file),
       ...replacementReasons(facts, file),
     );

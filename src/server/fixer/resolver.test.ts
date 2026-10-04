@@ -644,6 +644,89 @@ describe("deterministic guards on the real 2026-10-03 failures", () => {
     expect(result.proposal.reviewReasons?.[0]).toContain("identity contradicted");
   });
 
+  describe("series year and frame size", () => {
+    async function sonarrImport(input: {
+      parsedYear?: number;
+      airDate: string;
+      candidate?: Partial<MediaProbeOk>;
+      current?: Partial<MediaProbeOk>;
+    }) {
+      const client = new FakeArrClient();
+      client.parseResult = {
+        parsedEpisodeInfo: { seriesTitle: "Show", seriesTitleInfo: { year: input.parsedYear } },
+      };
+      client.episodes = [
+        {
+          id: 101,
+          hasFile: true,
+          seasonNumber: 1,
+          episodeNumber: 6,
+          title: "Silenced",
+          airDate: input.airDate,
+          episodeFile: { path: "/lib/E06.mkv", languages: [] },
+        },
+      ];
+      return analyze(
+        {
+          queueItem: makeQueueItem(),
+          candidates: [makeCandidate("candidate_1")],
+          client,
+          prober: fakeProber({
+            "/downloads/candidate_1.mkv": input.candidate ?? {},
+            "/lib/E06.mkv": input.current ?? {},
+          }),
+        },
+        importProposal("candidate_1"),
+      );
+    }
+
+    it("holds the real Monster case: a 2026 series release mapped to a 2022 episode", async () => {
+      // Monster.The.Lizzie.Borden.Story.2026.S01E06 was confirmed against a library
+      // slot that already held a wrong import.
+      const { result } = await sonarrImport({ parsedYear: 2026, airDate: "2022-09-21" });
+      expect(result.proposal.reviewReasons).toContain(
+        "The release names a series from 2026, but S01E06 Silenced aired in 2022.",
+      );
+    });
+
+    it.each([
+      ["Re:Zero (release 2020, season aired 2026)", 2020, "2026-05-06"],
+      ["no year in the release", undefined, "2022-09-21"],
+    ])("keeps the import for %s", async (_name, parsedYear, airDate) => {
+      const { result } = await sonarrImport({ parsedYear, airDate });
+      expect(result.status).toBe("proposal");
+    });
+
+    it("treats a 1920x800 scope file as 1080p, not a downgrade", async () => {
+      const { result } = await sonarrImport({
+        airDate: "2022-09-21",
+        candidate: { video: { width: 1920, height: 800 }, audio: [englishAudio()] },
+        current: { video: { width: 1920, height: 1080 }, audio: [englishAudio()] },
+      });
+      expect(result.status).toBe("proposal");
+    });
+
+    it("keeps a cropped PAL encode (720x544) in the same class as 720x576", async () => {
+      const { result } = await sonarrImport({
+        airDate: "2022-09-21",
+        candidate: { video: { width: 720, height: 544 }, audio: [englishAudio()] },
+        current: { video: { width: 720, height: 576 }, audio: [englishAudio()] },
+      });
+      expect(result.status).toBe("proposal");
+    });
+
+    it("treats a 1280x960 file as 720p and holds it over a 1080p file", async () => {
+      const { result } = await sonarrImport({
+        airDate: "2022-09-21",
+        candidate: { video: { width: 1280, height: 960 }, audio: [englishAudio()] },
+        current: { video: { width: 1920, height: 1080 }, audio: [englishAudio()] },
+      });
+      expect(result.proposal.reviewReasons?.join(" ")).toContain(
+        "is 720p and would replace the 1080p file",
+      );
+    });
+  });
+
   it("holds the 24 S09E12 downgrade: 720p would replace a 1080p file without adding German", async () => {
     const client = new FakeArrClient();
     client.episodes = [
