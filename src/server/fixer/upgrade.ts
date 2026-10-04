@@ -209,6 +209,12 @@ function describeFile(file: RankedFile): string {
 
 function compareWithExisting(input: Comparison): UpgradeAssessment {
   const { profile, ranking, candidate, existing } = input;
+  if (profile?.upgradeAllowed === false) {
+    return {
+      decision: "skip",
+      reason: `Quality profile ${profileLabel(profile)} does not allow upgrades and the target already has ${describeFile(existing)}.`,
+    };
+  }
   // German audio the library lacks is the goal, so an allowed quality that adds
   // it wins over a higher-ranked or better-scored file without German.
   if (candidate.hasGerman && !existing.hasGerman) {
@@ -221,12 +227,6 @@ function compareWithExisting(input: Comparison): UpgradeAssessment {
     return {
       decision: "skip",
       reason: `${describeFile(candidate)} is a quality downgrade from the existing ${describeFile(existing)}.`,
-    };
-  }
-  if (profile?.upgradeAllowed === false) {
-    return {
-      decision: "skip",
-      reason: `Quality profile ${profileLabel(profile)} does not allow upgrades and the target already has ${describeFile(existing)}.`,
     };
   }
   if (candidate.rank > existing.rank) {

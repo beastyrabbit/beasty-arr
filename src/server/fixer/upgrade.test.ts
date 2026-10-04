@@ -107,6 +107,24 @@ describe("assessCandidateUpgrade", () => {
     expect(result.reason).toContain("adds German audio");
   });
 
+  it("respects a profile that forbids upgrades even when German would be added", () => {
+    const result = assessCandidateUpgrade({
+      candidate: candidate({
+        quality: quality(1, "HDTV-720p"),
+        languages: [{ id: 4, name: "German" }],
+      }),
+      episode: episode({
+        episodeFile: {
+          quality: quality(7, "Bluray-1080p"),
+          languages: [{ id: 1, name: "English" }],
+        },
+      }),
+      profile: { ...profile, upgradeAllowed: false },
+    });
+    expect(result).toMatchObject({ decision: "skip" });
+    expect(result.reason).toContain("does not allow upgrades");
+  });
+
   it("skips a quality downgrade even with a better score", () => {
     const result = assessCandidateUpgrade({
       candidate: candidate({ quality: quality(1, "HDTV-720p"), customFormatScore: 9_000 }),
