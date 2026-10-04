@@ -33,6 +33,10 @@ interface CreateSonarrLookupToolsInput {
   emit?: EmitEvent;
 }
 
+/** Synopses let dialogue confirm an episode by plot; whole-series listings drop them. */
+const SYNOPSIS_MAX_CHARS = 300;
+const SYNOPSIS_LISTING_LIMIT = 25;
+
 function compactEpisode(episode: SonarrEpisodeRecord) {
   return {
     id: episode.id,
@@ -44,6 +48,7 @@ function compactEpisode(episode: SonarrEpisodeRecord) {
     sceneEpisodeNumber: episode.sceneEpisodeNumber,
     sceneAbsoluteEpisodeNumber: episode.sceneAbsoluteEpisodeNumber,
     title: episode.title,
+    synopsis: episode.overview?.slice(0, SYNOPSIS_MAX_CHARS),
     runtimeMinutes: episode.runtime || undefined,
     airDate: episode.airDate,
     hasFile: episode.hasFile,
@@ -312,7 +317,12 @@ export function createSonarrLookupTools({
         filter: params,
         truncated,
         count: episodes.length,
-        episodes: truncateEpisodes(episodes).map(compactEpisode),
+        episodes: truncateEpisodes(episodes).map((episode) => {
+          const compact = compactEpisode(episode);
+          return episodes.length > SYNOPSIS_LISTING_LIMIT
+            ? { ...compact, synopsis: undefined }
+            : compact;
+        }),
       };
       return {
         content: [{ type: "text", text: JSON.stringify(details, null, 2) }],
