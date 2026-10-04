@@ -37,6 +37,7 @@ export interface IndependentParse {
 export interface TargetFacts {
   id: number;
   label: string;
+  /** Movie release year, or the year an episode first aired. */
   year?: number;
   /** Runtime in minutes from TMDb/TVDB metadata. */
   expectedRuntimeMinutes?: number;
@@ -166,6 +167,7 @@ function episodeTarget(episode: SonarrEpisodeRecord): TargetFacts | undefined {
   return {
     id: episode.id,
     label: [episodeCode(episode), episode.title].filter(Boolean).join(" "),
+    year: Number((episode.airDate ?? episode.airDateUtc)?.slice(0, 4)) || undefined,
     expectedRuntimeMinutes: episode.runtime || undefined,
     currentFile:
       episode.hasFile && file
