@@ -153,6 +153,9 @@ describe("RadarrClient", () => {
       if (url.endsWith("/api/v3/command")) {
         return jsonResponse({ id: 88 });
       }
+      // Preflight upgrade check: the movie has no file yet, so any allowed file is wanted.
+      if (url.endsWith("/api/v3/movie/42")) return jsonResponse({ id: 42, hasFile: false });
+      if (url.endsWith("/api/v3/qualityprofile")) return jsonResponse([]);
       return new Response("not found", { status: 404, statusText: "Not Found" });
     });
     const candidate = {
@@ -275,6 +278,79 @@ describe("RadarrClient", () => {
 
     expect(result.ok).toBe(false);
     expect(result.message).toContain("Blocked language downgrade");
+  });
+
+  describe("preflight upgrade check", () => {
+    const profile = {
+      id: 7,
+      name: "HD-1080p",
+      upgradeAllowed: true,
+      cutoff: 30,
+      items: [
+        { quality: { id: 3, name: "WEBDL-1080p" }, allowed: true },
+        { quality: { id: 7, name: "Bluray-1080p" }, allowed: true },
+        { quality: { id: 30, name: "Remux-1080p" }, allowed: true },
+      ],
+    };
+    const movie = {
+      id: 42,
+      title: "Arrival",
+      hasFile: true,
+      qualityProfileId: 7,
+      movieFile: {
+        quality: { quality: { id: 30, name: "Remux-1080p" } },
+        languages: [{ id: 1, name: "English" }],
+        customFormatScore: 500,
+      },
+    };
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.endsWith("/api/v3/movie/42")) return jsonResponse(movie);
+      if (url.endsWith("/api/v3/qualityprofile")) return jsonResponse([profile]);
+      return new Response("not found", { status: 404, statusText: "Not Found" });
+    });
+    function preflight(quality: string, qualityId: number, language: string) {
+      return client(fetchMock).preflightImportProposal(
+        queueItem(),
+        [
+          {
+            id: "candidate_1",
+            service: "radarr",
+            path: "/downloads/Arrival.2016/Arrival.mkv",
+            movieId: 42,
+            episodeIds: [],
+            absoluteEpisodeNumbers: [],
+            episodeLabels: [],
+            quality: { quality: { id: qualityId, name: quality } },
+            languages: [{ id: language === "German" ? 4 : 1, name: language }],
+            languageLabels: [language],
+            rejections: [],
+            isLikelySample: false,
+          },
+        ],
+        {
+          action: "import_candidates",
+          confidence: 0.98,
+          selectedCandidateIds: ["candidate_1"],
+          selectedImports: [{ candidateId: "candidate_1", episodeIds: [], movieId: 42 }],
+          sampleCandidateIds: [],
+          reason: "Feature file.",
+          issueSummary: "Manual import warning.",
+          evidence: [],
+          warnings: [],
+        },
+      );
+    }
+
+    it("refuses an English Bluray over an English Remux", async () => {
+      const result = await preflight("Bluray-1080p", 7, "English");
+      expect(result.ok).toBe(false);
+      expect(result.message).toContain("not importable (skip)");
+    });
+
+    it("allows a German WEB-DL over an English Remux because it adds German", async () => {
+      const result = await preflight("WEBDL-1080p", 3, "German");
+      expect(result).toMatchObject({ ok: true });
+    });
   });
 
   // ---- hunt-engine read methods ----

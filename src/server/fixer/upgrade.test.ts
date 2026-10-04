@@ -88,6 +88,25 @@ describe("assessCandidateUpgrade", () => {
     expect(result.decision).toBe("import");
   });
 
+  it("imports a lower allowed quality when it adds German audio the library lacks", () => {
+    const result = assessCandidateUpgrade({
+      candidate: candidate({
+        quality: quality(1, "HDTV-720p"),
+        languages: [{ id: 4, name: "German" }],
+      }),
+      episode: episode({
+        episodeFile: {
+          quality: quality(7, "Bluray-1080p"),
+          customFormatScore: 125,
+          languages: [{ id: 1, name: "English" }],
+        },
+      }),
+      profile,
+    });
+    expect(result).toMatchObject({ decision: "import" });
+    expect(result.reason).toContain("adds German audio");
+  });
+
   it("skips a quality downgrade even with a better score", () => {
     const result = assessCandidateUpgrade({
       candidate: candidate({ quality: quality(1, "HDTV-720p"), customFormatScore: 9_000 }),

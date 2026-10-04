@@ -59,6 +59,43 @@ describe("createProposalTool", () => {
     expect(Value.Check(tool.parameters, withoutIdentity)).toBe(false);
   });
 
+  it("accepts a removal without the import-only lists and normalizes them to empty", async () => {
+    // Live runs on 0.6.1 retried up to three times because the model left the
+    // empty lists out of a removal.
+    let captured: ResolutionProposal | undefined;
+    const tool = createProposalTool(["candidate_1"], (proposal) => {
+      captured = proposal;
+    });
+    const removal = {
+      action: "remove_queue_item",
+      confidence: 0.98,
+      identity: {
+        verdict: "contradicted",
+        actualWork: "Another episode",
+        evidence: ["Dialogue names other characters."],
+      },
+      queueRemovalOptions: {
+        removeFromClient: true,
+        blocklist: true,
+        skipRedownload: false,
+        changeCategory: false,
+      },
+      reason: "Wrong episode.",
+      rationale: "The dialogue belongs to another episode.",
+      issueSummary: "Sonarr matched by ID only.",
+    };
+
+    expect(Value.Check(tool.parameters, removal)).toBe(true);
+    await tool.execute("call_1", removal, undefined, undefined, undefined as never);
+    expect(captured).toMatchObject({
+      selectedCandidateIds: [],
+      selectedImports: [],
+      sampleCandidateIds: [],
+      evidence: [],
+      warnings: [],
+    });
+  });
+
   it("captures a normalized terminating proposal", async () => {
     let captured: ResolutionProposal | undefined;
     const tool = createProposalTool(["candidate_1"], (proposal) => {

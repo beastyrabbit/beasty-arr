@@ -11,6 +11,7 @@ import type {
   RadarrQualityProfileRecord,
 } from "../arr/radarr-client.js";
 import { compactCandidate } from "../arr/sonarr-format.js";
+import { assessCandidateUpgrade } from "./upgrade.js";
 
 type EmitEvent = (event: Omit<ResolverEvent, "timestamp">) => void;
 
@@ -134,6 +135,23 @@ function compactCustomFormat(format: RadarrCustomFormatRecord) {
     name: format.name,
     includeCustomFormatWhenRenaming: format.includeCustomFormatWhenRenaming,
   };
+}
+
+/** The same upgrade check the Radarr import preflight enforces, per candidate. */
+function movieUpgradeAssessment(
+  candidates: ManualImportCandidate[],
+  movie: RadarrMovieRecord | undefined,
+  profile: RadarrQualityProfileRecord | undefined,
+) {
+  if (!movie) return undefined;
+  return candidates.map((candidate) => {
+    const { decision, reason } = assessCandidateUpgrade({
+      candidate,
+      episode: { id: movie.id, hasFile: movie.hasFile, episodeFile: movie.movieFile },
+      profile,
+    });
+    return { candidateId: candidate.id, decision, reason };
+  });
 }
 
 async function safeGetMovie(client: RadarrClient, movieId?: number) {
@@ -323,6 +341,7 @@ export function createRadarrLookupTools({
         },
         movie: movie ? compactMovie(movie) : undefined,
         candidates: getCandidates().map(compactCandidate),
+        upgradeAssessment: movieUpgradeAssessment(getCandidates(), movie, profile),
         qualityProfile: profile ? compactQualityProfile(profile) : undefined,
         customFormats: customFormats
           .filter(

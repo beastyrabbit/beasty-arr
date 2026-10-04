@@ -1,3 +1,4 @@
+import { hasGermanAudio } from "../../shared/domain.js";
 import type { ManualImportCandidate, MediaService, QueueItem } from "../../shared/fixer-types.js";
 import type { ArrMediaInfo } from "../arr/http-util.js";
 import type { RadarrClient, RadarrMovieRecord } from "../arr/radarr-client.js";
@@ -185,6 +186,30 @@ function inspectableCandidates(candidates: ManualImportCandidate[]): ManualImpor
   return candidates
     .filter((candidate) => candidate.path && !isDiscStreamPath(candidate.path))
     .slice(0, MAX_UPFRONT_PROBES);
+}
+
+const GERMAN_LANGUAGE = { id: 4, name: "German" };
+
+/**
+ * Adds German to the arr's language labels of candidates whose inspected audio
+ * has German the labels missed (an untagged track titled "Deutsch", say), so
+ * the arr-side upgrade and language checks judge the real file.
+ */
+export function withVerifiedGerman(
+  candidates: ManualImportCandidate[],
+  facts: InspectionFacts,
+): ManualImportCandidate[] {
+  return candidates.map((candidate) => {
+    const probe = facts.probes.get(candidate.path);
+    if (!probe?.ok || !probe.hasGermanAudio || hasGermanAudio(candidate.languages)) {
+      return candidate;
+    }
+    return {
+      ...candidate,
+      languages: [...candidate.languages, GERMAN_LANGUAGE],
+      languageLabels: [...candidate.languageLabels, GERMAN_LANGUAGE.name],
+    };
+  });
 }
 
 export function emptyFacts(
