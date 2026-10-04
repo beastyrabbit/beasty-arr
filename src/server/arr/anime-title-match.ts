@@ -28,14 +28,14 @@ export function animeTitleConflict(
   );
   const selectedTitle = usefulTitle(selectedEpisode.title);
   if (!candidateText || !selectedTitle || candidateText.includes(selectedTitle)) return null;
-  // Every file name carries the series name, so an episode titled like the
-  // series (Re:Zero has one) is no evidence of a different episode.
+  // Every file name carries the series name, so an episode titled exactly like
+  // the series (Re:Zero has one) is no evidence of a different episode.
   const seriesTitle = normalizeTitle(candidate.seriesTitle ?? "");
 
   const conflicting = seriesEpisodes.find((episode) => {
     if (episode.id === selectedEpisode.id) return false;
     const title = usefulTitle(episode.title);
-    if (title === null || (seriesTitle && seriesTitle.includes(title))) return false;
+    if (title === null || title === seriesTitle) return false;
     return candidateText.includes(title);
   });
   if (!conflicting?.title) return null;

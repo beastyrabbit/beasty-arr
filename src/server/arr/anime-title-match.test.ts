@@ -65,4 +65,21 @@ describe("animeTitleConflict", () => {
       ),
     ).toBeNull();
   });
+
+  it("still blocks an episode title that is only part of the series name", () => {
+    const zelda = [
+      { id: 1, title: "Breath of the Wild" },
+      { id: 2, title: "Tears of the Kingdom" },
+    ];
+    expect(
+      animeTitleConflict(
+        {
+          ...candidate("Legend.of.Zelda.Breath.of.the.Wild.S01E01.Breath.of.the.Wild.1080p"),
+          seriesTitle: "The Legend of Zelda Breath of the Wild",
+        },
+        zelda[1]!,
+        zelda,
+      ),
+    ).toContain("Breath of the Wild");
+  });
 });
