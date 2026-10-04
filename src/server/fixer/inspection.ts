@@ -42,6 +42,8 @@ export interface TargetFacts {
   year?: number;
   /** Runtime in minutes from TMDb/TVDB metadata. */
   expectedRuntimeMinutes?: number;
+  /** Plot synopsis, so dialogue can confirm the target by content. */
+  synopsis?: string;
   currentFile?: {
     path?: string;
     quality?: string;
@@ -151,6 +153,7 @@ function movieTarget(movie: RadarrMovieRecord): TargetFacts | undefined {
     label: titleWithYear(movie.title ?? "movie", movie.year),
     year: movie.year,
     expectedRuntimeMinutes: movie.runtime || undefined,
+    synopsis: movie.overview?.slice(0, 300),
     currentFile: file
       ? {
           path: file.path,
@@ -170,6 +173,7 @@ function episodeTarget(episode: SonarrEpisodeRecord): TargetFacts | undefined {
     label: [episodeCode(episode), episode.title].filter(Boolean).join(" "),
     year: Number((episode.airDate ?? episode.airDateUtc)?.slice(0, 4)) || undefined,
     expectedRuntimeMinutes: episode.runtime || undefined,
+    synopsis: episode.overview?.slice(0, 300),
     currentFile:
       episode.hasFile && file
         ? {
@@ -384,6 +388,7 @@ export function renderInspection(
       target.expectedRuntimeMinutes !== undefined
         ? `${target.expectedRuntimeMinutes} min`
         : "unknown",
+    synopsis: target.synopsis,
     currentFile: target.currentFile
       ? {
           path: target.currentFile.path,

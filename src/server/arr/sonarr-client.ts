@@ -111,6 +111,8 @@ export type SonarrEpisodeRecord = {
   title?: string;
   airDateUtc?: string;
   airDate?: string;
+  /** Plot synopsis (TVDB). */
+  overview?: string;
   /** Episode runtime in minutes (TVDB). */
   runtime?: number;
   episodeFileId?: number;
