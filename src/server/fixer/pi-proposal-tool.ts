@@ -109,22 +109,29 @@ export function createProposalTool(
         },
         { description: "What the download actually is, established independently of the arr." },
       ),
-      selectedCandidateIds: Type.Array(candidateId, {
-        description:
-          "Candidates to import. Empty unless action is import_candidates. Must match the candidateId values in selectedImports.",
-        maxItems: service === "radarr" ? 1 : candidateIds.length,
-      }),
-      selectedImports: Type.Array(selectedImport, {
-        description:
-          service === "radarr"
-            ? "Authoritative file-to-movie mapping for import_candidates. Empty for non-import actions."
-            : "Authoritative file-to-episode mapping for import_candidates. Empty for non-import actions.",
-        maxItems: service === "radarr" ? 1 : candidateIds.length,
-      }),
-      sampleCandidateIds: Type.Array(candidateId, {
-        description: "Candidates believed to be samples.",
-        maxItems: candidateIds.length,
-      }),
+      // Lists below are optional: a removal or review has nothing to put in them.
+      selectedCandidateIds: Type.Optional(
+        Type.Array(candidateId, {
+          description:
+            "Candidates to import; only for import_candidates. Must match the candidateId values in selectedImports.",
+          maxItems: service === "radarr" ? 1 : candidateIds.length,
+        }),
+      ),
+      selectedImports: Type.Optional(
+        Type.Array(selectedImport, {
+          description:
+            service === "radarr"
+              ? "Authoritative file-to-movie mapping; required for import_candidates."
+              : "Authoritative file-to-episode mapping; required for import_candidates.",
+          maxItems: service === "radarr" ? 1 : candidateIds.length,
+        }),
+      ),
+      sampleCandidateIds: Type.Optional(
+        Type.Array(candidateId, {
+          description: "Candidates believed to be samples.",
+          maxItems: candidateIds.length,
+        }),
+      ),
       queueRemovalOptions: Type.Optional(
         Type.Object(
           {
@@ -158,13 +165,15 @@ export function createProposalTool(
       issueSummary: Type.String({
         description: `What ${serviceName} complained about and whether the complaint was right.`,
       }),
-      evidence: Type.Array(Type.String(), {
-        description:
-          "Concrete facts used for the decision (identity, languages from inspected streams, resolution, runtime, scores).",
-      }),
-      warnings: Type.Array(Type.String(), {
-        description: "Risks or ambiguity the user should review.",
-      }),
+      evidence: Type.Optional(
+        Type.Array(Type.String(), {
+          description:
+            "Concrete facts used for the decision (identity, languages from inspected streams, resolution, runtime, scores).",
+        }),
+      ),
+      warnings: Type.Optional(
+        Type.Array(Type.String(), { description: "Risks or ambiguity the user should review." }),
+      ),
     }),
     async execute(_toolCallId, params) {
       capture(normalizeProposal(params as ResolutionProposal));

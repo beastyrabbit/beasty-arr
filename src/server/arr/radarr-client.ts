@@ -7,6 +7,7 @@ import type {
   QueueRemovalOptions,
   ResolutionProposal,
 } from "../../shared/fixer-types.js";
+import { assessCandidateUpgrade } from "../fixer/upgrade.js";
 import {
   normalizeProposal,
   resolveImportMovieId,
@@ -626,7 +627,48 @@ export class RadarrClient {
     if (languageDowngrades.length > 0) {
       return { ok: false, message: languageDowngrades.join(" ") };
     }
+    const nonUpgrades = await this.findNonUpgrades(normalizedProposal, byId);
+    if (nonUpgrades.length > 0) {
+      return { ok: false, message: nonUpgrades.join(" ") };
+    }
     return { ok: true, message: "Radarr import proposal passed preflight." };
+  }
+
+  /**
+   * The same deterministic upgrade check Sonarr imports get: the selected file
+   * must be wanted by the movie's quality profile against its current file.
+   */
+  private async findNonUpgrades(
+    proposal: ResolutionProposal,
+    candidatesById: Map<string, ManualImportCandidate>,
+  ): Promise<string[]> {
+    let profiles: RadarrQualityProfileRecord[];
+    try {
+      profiles = await this.getQualityProfiles();
+    } catch (error) {
+      throw new Error("Could not read Radarr quality profiles; refusing the import.", {
+        cause: error,
+      });
+    }
+    const messages: string[] = [];
+    for (const selectedImport of proposal.selectedImports) {
+      const candidate = candidatesById.get(selectedImport.candidateId);
+      const movieId =
+        resolveImportMovieId(proposal, selectedImport.candidateId) ?? candidate?.movieId;
+      if (!candidate || !movieId) continue;
+      const movie = await this.getMovie(movieId);
+      const assessment = assessCandidateUpgrade({
+        candidate,
+        episode: { id: movie.id, hasFile: movie.hasFile, episodeFile: movie.movieFile },
+        profile: profiles.find((profile) => profile.id === movie.qualityProfileId),
+      });
+      if (assessment.decision !== "import") {
+        messages.push(
+          `Candidate ${candidate.id} is not importable (${assessment.decision}): ${assessment.reason}`,
+        );
+      }
+    }
+    return messages;
   }
 
   private async findGermanAudioDowngrades(

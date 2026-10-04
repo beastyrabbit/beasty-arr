@@ -644,6 +644,29 @@ describe("deterministic guards on the real 2026-10-03 failures", () => {
     expect(result.proposal.reviewReasons?.[0]).toContain("identity contradicted");
   });
 
+  it("adds German found by inspection to the candidate's arr language labels", async () => {
+    // An untagged track titled "German" that Sonarr labels English (the Sky Captain case).
+    const { result } = await analyze(
+      {
+        queueItem: makeQueueItem(),
+        candidates: [
+          makeCandidate("candidate_1", {
+            languages: [{ id: 1, name: "English" }],
+            languageLabels: ["English"],
+          }),
+        ],
+        prober: fakeProber({
+          "/downloads/candidate_1.mkv": {
+            audio: [{ index: 1, codec: "dts", title: "German", inferredLanguage: "ger" }],
+            hasGermanAudio: true,
+          },
+        }),
+      },
+      importProposal("candidate_1"),
+    );
+    expect(result.candidates[0]?.languageLabels).toEqual(["English", "German"]);
+  });
+
   describe("series year and frame size", () => {
     async function sonarrImport(input: {
       parsedYear?: number;
