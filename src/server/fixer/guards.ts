@@ -49,7 +49,8 @@ function resolutionClass(size: FrameSize | undefined): number | undefined {
   if (width >= 3200 || height >= 2100) return 2160;
   if (width >= 1800 || height >= 1000) return 1080;
   if (width >= 1200 || height >= 700) return 720;
-  if (width >= 1000 || height >= 560) return 576;
+  // 540 keeps cropped PAL encodes (720x544) in the 576 class.
+  if (width >= 1000 || height >= 540) return 576;
   return 480;
 }
 

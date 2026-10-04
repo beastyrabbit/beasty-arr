@@ -706,6 +706,15 @@ describe("deterministic guards on the real 2026-10-03 failures", () => {
       expect(result.status).toBe("proposal");
     });
 
+    it("keeps a cropped PAL encode (720x544) in the same class as 720x576", async () => {
+      const { result } = await sonarrImport({
+        airDate: "2022-09-21",
+        candidate: { video: { width: 720, height: 544 }, audio: [englishAudio()] },
+        current: { video: { width: 720, height: 576 }, audio: [englishAudio()] },
+      });
+      expect(result.status).toBe("proposal");
+    });
+
     it("treats a 1280x960 file as 720p and holds it over a 1080p file", async () => {
       const { result } = await sonarrImport({
         airDate: "2022-09-21",
