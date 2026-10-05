@@ -864,39 +864,47 @@ describe("OracleService.runDailyBatch", () => {
     });
   });
 
-  it("keeps a positive season backed by the work's Synchronkartei entry", async () => {
+  /** Season 2 claimed `exists` from the work's Synchronkartei entry with the given credit notes. */
+  async function synchronkarteiSeasonVerdict(credits: string, librarySeasons: number[]) {
     const ctx = setup();
     seedSeriesSubject(ctx.db, 1, { season: 2 });
+    for (const season of librarySeasons.filter((s) => s !== 2))
+      ctx.db
+        .insert(episodes)
+        .values({
+          id: 900 + season,
+          seriesId: 1,
+          seasonNumber: season,
+          episodeNumber: 1,
+          monitored: true,
+          hasFile: false,
+          lastSyncedAt: NOW,
+        })
+        .run();
+    const season = { season: 2, verdict: "exists", confidence: 0.9, recheckAfterDays: 90 };
     const runner = scriptedRunner(async (req) => {
       await callTool(req, "fetch_url", { url: "https://www.synchronkartei.de/serie/47715" });
       await callTool(req, REPORT_TOOL_NAME, {
-        verdict: "exists",
-        confidence: 0.9,
-        perSeason: [
-          {
-            season: 2,
-            verdict: "exists",
-            confidence: 0.9,
-            evidence: ["Synchronkartei credits a German dub for season 2"],
-            recheckAfterDays: 90,
-          },
-        ],
+        ...season,
+        perSeason: [{ ...season, evidence: ["Synchronkartei credits a German dub"] }],
         evidence: ["Synchronkartei credits a German dub"],
-        recheckAfterDays: 90,
       });
     });
+    const page = `Start\nSerien\nSeries 1\nSeries 1 (2018-2021)\nSynchronfirma:\nStudio Berlin\nDialogbuch:\n${credits}\nSeriendetails`;
     const result = await makeOracle(ctx, runner.runner, {
-      fetchImpl: async () =>
-        new Response(
-          "Deutsche Synchronkartei | Serien | Series 1\nStart\nSerien\nSeries 1\nSeries 1 (2018-2021)\nAnimations-TV-Serie\nSynchronfirma:\nStudio Berlin",
-          { headers: { "content-type": "text/plain" } },
-        ),
+      fetchImpl: async () => new Response(page, { headers: { "content-type": "text/plain" } }),
     }).runDailyBatch();
     expect(result).toMatchObject({ checked: 1, failed: 0 });
-    expect(ctx.db.select().from(aiVerdicts).get()).toMatchObject({
-      verdict: "exists",
-      perSeason: [{ season: 2, verdict: "exists", confidence: 0.9 }],
-    });
+    return ctx.db.select().from(aiVerdicts).get()?.perSeason?.[0]?.verdict;
+  }
+
+  it.each([
+    ["the only library season", "Anna Autorin", [2], "exists"],
+    ["a season its credits name", "Anna Autorin (Staffeln 1, 2 & 4)", [1, 2, 3], "exists"],
+    ["no season of a multi-season work", "Anna Autorin", [1, 2, 3], "unknown"],
+    ["only other seasons", "Anna Autorin (Staffel 1)", [1, 2], "unknown"],
+  ])("lets a Synchronkartei entry back %s", async (_case, credits, seasons, verdict) => {
+    expect(await synchronkarteiSeasonVerdict(credits, seasons)).toBe(verdict);
   });
 
   it("overrides a movie verdict contradicted by exact-title German audio", async () => {

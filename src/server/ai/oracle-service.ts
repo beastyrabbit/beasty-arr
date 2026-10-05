@@ -1,5 +1,5 @@
 import { setTimeout as sleep } from "node:timers/promises";
-import { and, count, eq, gte, inArray, isNull, lt, ne } from "drizzle-orm";
+import { and, count, eq, gt, gte, inArray, isNull, lt, ne } from "drizzle-orm";
 import type { FastifyBaseLogger } from "fastify";
 import type { AiSeasonVerdict, ArrSource } from "../../shared/domain.js";
 import type { SettingsService } from "../config/settings.js";
@@ -25,6 +25,7 @@ import {
 import {
   buildDubCheckSession,
   type DnsLookupFn,
+  type DubCheckSession,
   finalizeDubVerdict,
   PROMPT_VERSION,
 } from "./existence-check.js";
@@ -1105,17 +1106,12 @@ export class OracleService {
         }),
       };
     }
-    // A matching Synchronkartei entry is primary dub evidence, not an aggregator claim.
-    // It rarely ties the dub to seasons, so the model's per-season judgement stands.
-    if (
-      subject.subjectKind === "series" &&
-      final.perSeason &&
-      !session.synchronkarteiEntryFetched()
-    ) {
+    if (subject.subjectKind === "series" && final.perSeason) {
       const independentlyConfirmedSeasons = new Set([
         ...(subject.confirmedGermanSeasons ?? []),
         ...localizedGermanSeasonReleases.map((release) => release.season),
         ...officialGermanSeasonReleases.map((release) => release.season),
+        ...this.synchronkarteiBackedSeasons(subject, session),
       ]);
       let rejectedUnverifiedPositive = false;
       final = {
@@ -1394,6 +1390,26 @@ export class OracleService {
       }
     }
     return { subjects, seasons };
+  }
+
+  /**
+   * Seasons a fetched Synchronkartei entry for this exact work backs. The entry proves the
+   * work's dub but rarely its seasons: it counts for seasons its credit notes name, and for
+   * the only season when the library holds just one season of the work.
+   */
+  private synchronkarteiBackedSeasons(
+    subject: OracleCheckSubject,
+    session: DubCheckSession,
+  ): number[] {
+    const named = session.synchronkarteiNamedSeasons();
+    if (subject.subjectKind !== "series" || named === null) return [];
+    const librarySeasons = this.db
+      .selectDistinct({ seasonNumber: episodes.seasonNumber })
+      .from(episodes)
+      .where(and(eq(episodes.seriesId, subject.subjectId), gt(episodes.seasonNumber, 0)))
+      .all();
+    const only = librarySeasons.length === 1 ? librarySeasons[0]?.seasonNumber : undefined;
+    return only === undefined ? named : [...named, only];
   }
 
   private catalogEvidenceFor(subjectKey: string): DubCatalogEvidence | null {

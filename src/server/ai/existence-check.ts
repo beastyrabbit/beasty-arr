@@ -446,7 +446,21 @@ export function germanAggregatorPageMatchesTitle(
 }
 
 const SYNCHRONKARTEI_SERIES_PATH_RE = /^\/serie\/\d+(?:\/\d+)?\/?$/;
-const SYNCHRONKARTEI_YEAR_SUFFIX_RE = /\s*\((\d{4})(?:\s*-\s*(?:\d{4})?)?\)\s*$/;
+const SYNCHRONKARTEI_YEAR_SUFFIX_RE = / \((\d{4})(?:-(?:\d{4})?)?\)$/;
+const SYNCHRONKARTEI_SEASONS_RE = /\bStaffeln? (\d+(?:(?:, | & | und )\d+)*)/g;
+
+/** Seasons an entry's credit notes name explicitly, e.g. "Dialogbuch: X (Staffeln 1, 2 & 4)". */
+export function synchronkarteiNamedSeasons(text: string): number[] {
+  const lines = text.split("\n").map((line) => line.trim());
+  const credits = lines.findIndex((line) => /^(?:Synchronfirma|Dialogbuch):/.test(line));
+  const roles = lines.indexOf("Seriendetails");
+  if (credits < 0 || roles < credits) return [];
+  const notes = lines.slice(credits, roles).join("\n");
+  const seasons = [...notes.matchAll(SYNCHRONKARTEI_SEASONS_RE)].flatMap((match) =>
+    (match[1] ?? "").split(/, | & | und /).map(Number),
+  );
+  return [...new Set(seasons)].filter((season) => season > 0).sort((a, b) => a - b);
+}
 
 /**
  * A Synchronkartei series entry lists only German dubs, so an entry whose header names
@@ -474,7 +488,7 @@ export function synchronkarteiEntryMatchesWork(
     (line, i) => i > start && /^(?:Synchronfirma|Dialogbuch):/.test(line),
   );
   if (end < 0) return false;
-  const header = lines.slice(start + 1, end).filter((line) => !/^Version:/.test(line));
+  const header = lines.slice(start + 1, end).filter((line) => !line.startsWith("Version:"));
   // The work's own "Title (first-air year)" line; "Version: Synchro (…)" dates only the dub.
   const titleYear = header
     .map((line) => SYNCHRONKARTEI_YEAR_SUFFIX_RE.exec(line))
@@ -821,7 +835,8 @@ export type DubCheckSession = {
   localizedGermanSeasonReleases(): { season: number; url: string }[];
   originalOnlySeasonReleases(): { season: number; url: string }[];
   officialGermanSeasonReleases(): { season: number; url: string }[];
-  synchronkarteiEntryFetched(): boolean;
+  /** Seasons named by a fetched entry for this work; null when no such entry was fetched. */
+  synchronkarteiNamedSeasons(): number[] | null;
 };
 
 const SYSTEM_PROMPT = [
@@ -1040,10 +1055,13 @@ ${
         }
         return [{ season, url: page.url }];
       }),
-    synchronkarteiEntryFetched: () =>
-      state.fetchedPages.some((page) =>
+    synchronkarteiNamedSeasons: () => {
+      const entries = state.fetchedPages.filter((page) =>
         synchronkarteiEntryMatchesWork(page.url, page.text, subject),
-      ),
+      );
+      if (entries.length === 0) return null;
+      return [...new Set(entries.flatMap((page) => synchronkarteiNamedSeasons(page.text)))];
+    },
   };
 }
 

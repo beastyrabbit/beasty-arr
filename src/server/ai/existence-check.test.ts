@@ -28,6 +28,7 @@ import {
   seasonPageShowsLocalizedGermanSeriesRelease,
   seasonPageShowsOriginalOnlyRelease,
   synchronkarteiEntryMatchesWork,
+  synchronkarteiNamedSeasons,
   titlePageShowsGermanProduction,
 } from "./existence-check.js";
 
@@ -311,6 +312,26 @@ describe("synchronkarteiEntryMatchesWork", () => {
         year: 1997,
       }),
     ).toBe(false);
+  });
+});
+
+describe("synchronkarteiNamedSeasons", () => {
+  it("reads seasons from the credit notes only", () => {
+    const page = [
+      "Start",
+      "Serien",
+      "Demon Slayer: Kimetsu no Yaiba (2019-)",
+      "Synchronfirma:",
+      "Oxygen Sound Studios GmbH , Berlin",
+      "Dialogbuch:",
+      "Christian Zeiger (Staffeln 1, 2 & 4)",
+      "Philip Gaube (Staffel 2, Episode 1; Staffel 3)",
+      "Seriendetails",
+      "Staffel 9 Gaststar",
+    ].join("\n");
+    expect(synchronkarteiNamedSeasons(page)).toEqual([1, 2, 3, 4]);
+    expect(synchronkarteiNamedSeasons("Synchronfirma:\nStudio\nSeriendetails")).toEqual([]);
+    expect(synchronkarteiNamedSeasons("Staffel 1\nno credits block")).toEqual([]);
   });
 });
 
