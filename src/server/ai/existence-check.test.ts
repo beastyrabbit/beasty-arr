@@ -279,6 +279,17 @@ describe("synchronkarteiEntryMatchesWork", () => {
     expect(synchronkarteiEntryMatchesWork(url, berserk, { title: "Berserk", year: 2016 })).toBe(
       false,
     );
+    // The dub's own "Version: Synchro (2024-2025)" year never identifies the work.
+    expect(synchronkarteiEntryMatchesWork(url, berserk, { title: "Berserk", year: 2024 })).toBe(
+      false,
+    );
+    // A page without the credits block (error or bot-check page) is not an entry.
+    expect(
+      synchronkarteiEntryMatchesWork(url, "Start\nSerien\nBerserk\nBerserk (1997-1998)", {
+        title: "Berserk",
+        year: 1997,
+      }),
+    ).toBe(false);
     expect(
       synchronkarteiEntryMatchesWork(url, demonSlayer, { title: "Demon Slayer", year: 2019 }),
     ).toBe(false);

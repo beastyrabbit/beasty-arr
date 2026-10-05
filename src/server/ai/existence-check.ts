@@ -469,17 +469,19 @@ export function synchronkarteiEntryMatchesWork(
   const lines = text.split("\n").map((line) => line.trim());
   const start = lines.findIndex((line, i) => line === "Serien" && lines[i - 1] === "Start");
   if (start < 0) return false;
+  // Without the credits that close the header this is not a rendered entry.
   const end = lines.findIndex(
     (line, i) => i > start && /^(?:Synchronfirma|Dialogbuch):/.test(line),
   );
-  const header = lines.slice(start + 1, end > start ? end : start + 12);
-  const years = header.flatMap((line) => {
-    const match = SYNCHRONKARTEI_YEAR_SUFFIX_RE.exec(line);
-    return match ? [Number(match[1])] : [];
-  });
+  if (end < 0) return false;
+  const header = lines.slice(start + 1, end).filter((line) => !/^Version:/.test(line));
+  // The work's own "Title (first-air year)" line; "Version: Synchro (…)" dates only the dub.
+  const titleYear = header
+    .map((line) => SYNCHRONKARTEI_YEAR_SUFFIX_RE.exec(line))
+    .find((match) => match !== null);
+  if (!titleYear) return false;
   // Remakes share titles (Hunter x Hunter 1999/2011); the first-air year must agree.
-  if (subject.year != null && !years.some((year) => Math.abs(year - (subject.year ?? 0)) <= 1))
-    return false;
+  if (subject.year != null && Math.abs(Number(titleYear[1]) - subject.year) > 1) return false;
   const wanted = normalizeComparableTitle(subject.title);
   return header.some(
     (line) =>
