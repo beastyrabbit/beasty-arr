@@ -1105,7 +1105,13 @@ export class OracleService {
         }),
       };
     }
-    if (subject.subjectKind === "series" && final.perSeason) {
+    // A matching Synchronkartei entry is primary dub evidence, not an aggregator claim.
+    // It rarely ties the dub to seasons, so the model's per-season judgement stands.
+    if (
+      subject.subjectKind === "series" &&
+      final.perSeason &&
+      !session.synchronkarteiEntryFetched()
+    ) {
       const independentlyConfirmedSeasons = new Set([
         ...(subject.confirmedGermanSeasons ?? []),
         ...localizedGermanSeasonReleases.map((release) => release.season),

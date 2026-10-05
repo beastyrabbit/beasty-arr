@@ -512,7 +512,7 @@ describe("OracleService.runDailyBatch", () => {
       subjectKind: "series",
       verdict: "unlikely",
       germanTitle: "Die Serie",
-      promptVersion: "dub-oracle-v16",
+      promptVersion: "dub-oracle-v17",
       checkedAt: NOW,
       recheckAfter: NOW + 365 * DAY,
       confidence: 0.95,
@@ -861,6 +861,41 @@ describe("OracleService.runDailyBatch", () => {
           note: expect.stringContaining("independent season-specific source"),
         },
       ],
+    });
+  });
+
+  it("keeps a positive season backed by the work's Synchronkartei entry", async () => {
+    const ctx = setup();
+    seedSeriesSubject(ctx.db, 1, { season: 2 });
+    const runner = scriptedRunner(async (req) => {
+      await callTool(req, "fetch_url", { url: "https://www.synchronkartei.de/serie/47715" });
+      await callTool(req, REPORT_TOOL_NAME, {
+        verdict: "exists",
+        confidence: 0.9,
+        perSeason: [
+          {
+            season: 2,
+            verdict: "exists",
+            confidence: 0.9,
+            evidence: ["Synchronkartei credits a German dub for season 2"],
+            recheckAfterDays: 90,
+          },
+        ],
+        evidence: ["Synchronkartei credits a German dub"],
+        recheckAfterDays: 90,
+      });
+    });
+    const result = await makeOracle(ctx, runner.runner, {
+      fetchImpl: async () =>
+        new Response(
+          "Deutsche Synchronkartei | Serien | Series 1\nStart\nSerien\nSeries 1\nSeries 1 (2018-2021)\nAnimations-TV-Serie\nSynchronfirma:\nStudio Berlin",
+          { headers: { "content-type": "text/plain" } },
+        ),
+    }).runDailyBatch();
+    expect(result).toMatchObject({ checked: 1, failed: 0 });
+    expect(ctx.db.select().from(aiVerdicts).get()).toMatchObject({
+      verdict: "exists",
+      perSeason: [{ season: 2, verdict: "exists", confidence: 0.9 }],
     });
   });
 
