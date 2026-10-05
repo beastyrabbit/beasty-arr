@@ -4,7 +4,7 @@ import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent
 import { Type } from "typebox";
 import { AI_VERDICTS, type AiVerdictValue } from "../../shared/domain.js";
 
-export const PROMPT_VERSION = "dub-oracle-v16";
+export const PROMPT_VERSION = "dub-oracle-v17";
 export const REPORT_TOOL_NAME = "report_dub_verdict";
 
 export const RECHECK_MIN_DAYS = 90;
@@ -445,6 +445,66 @@ export function germanAggregatorPageMatchesTitle(
   return normalizeComparableTitle(documentTitle) === normalizeComparableTitle(subjectTitle);
 }
 
+const SYNCHRONKARTEI_SERIES_PATH_RE = /^\/serie\/\d+(?:\/\d+)?\/?$/;
+const SYNCHRONKARTEI_YEAR_SUFFIX_RE = / \((\d{4})(?:-(?:\d{4})?)?\)$/;
+const SYNCHRONKARTEI_SEASONS_RE = /\bStaffeln? (\d+(?:(?:, | & | und )\d+)*)/g;
+
+/** Seasons an entry's credit notes name explicitly, e.g. "Dialogbuch: X (Staffeln 1, 2 & 4)". */
+export function synchronkarteiNamedSeasons(text: string): number[] {
+  const lines = text.split("\n").map((line) => line.trim());
+  const credits = lines.findIndex((line) => /^(?:Synchronfirma|Dialogbuch):/.test(line));
+  const roles = lines.indexOf("Seriendetails");
+  if (credits < 0 || roles < credits) return [];
+  const notes = lines.slice(credits, roles).join("\n");
+  const seasons = [...notes.matchAll(SYNCHRONKARTEI_SEASONS_RE)].flatMap((match) =>
+    (match[1] ?? "").split(/, | & | und /).map(Number),
+  );
+  return [...new Set(seasons)].filter((season) => season > 0).sort((a, b) => a - b);
+}
+
+/**
+ * A Synchronkartei series entry lists only German dubs, so an entry whose header names
+ * this exact work (title and first-air year) proves the work was dubbed.
+ */
+export function synchronkarteiEntryMatchesWork(
+  rawUrl: string,
+  text: string,
+  subject: { title: string; year?: number | null },
+): boolean {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return false;
+  }
+  const host = url.hostname.toLowerCase();
+  if (host !== "synchronkartei.de" && !host.endsWith(".synchronkartei.de")) return false;
+  if (!SYNCHRONKARTEI_SERIES_PATH_RE.test(url.pathname) || url.search) return false;
+  const lines = text.split("\n").map((line) => line.trim());
+  const start = lines.findIndex((line, i) => line === "Serien" && lines[i - 1] === "Start");
+  if (start < 0) return false;
+  // Without the credits that close the header this is not a rendered entry.
+  const end = lines.findIndex(
+    (line, i) => i > start && /^(?:Synchronfirma|Dialogbuch):/.test(line),
+  );
+  if (end < 0) return false;
+  const header = lines.slice(start + 1, end).filter((line) => !line.startsWith("Version:"));
+  // The work's own "Title (first-air year)" line; "Version: Synchro (…)" dates only the dub.
+  const titleYear = header
+    .map((line) => SYNCHRONKARTEI_YEAR_SUFFIX_RE.exec(line))
+    .find((match) => match !== null);
+  if (!titleYear) return false;
+  // Remakes share titles (Hunter x Hunter 1999/2011); the first-air year must agree.
+  if (subject.year != null && Math.abs(Number(titleYear[1]) - subject.year) > 1) return false;
+  const wanted = normalizeComparableTitle(subject.title);
+  return header.some(
+    (line) =>
+      normalizeComparableTitle(
+        line.replace(/^Alternativ-Titel:\s*/, "").replace(SYNCHRONKARTEI_YEAR_SUFFIX_RE, ""),
+      ) === wanted,
+  );
+}
+
 /** Read a season number only from a Fernsehserien season-guide URL. */
 export function fernsehserienSeasonNumber(rawUrl: string): number | null {
   let url: URL;
@@ -775,6 +835,8 @@ export type DubCheckSession = {
   localizedGermanSeasonReleases(): { season: number; url: string }[];
   originalOnlySeasonReleases(): { season: number; url: string }[];
   officialGermanSeasonReleases(): { season: number; url: string }[];
+  /** Seasons named by a fetched entry for this work; null when no such entry was fetched. */
+  synchronkarteiNamedSeasons(): number[] | null;
 };
 
 const SYSTEM_PROMPT = [
@@ -823,7 +885,8 @@ const SYSTEM_PROMPT = [
   "A German premiere date alone is not dub proof because an OmU release can also have a German premiere. However, an exact season guide proves the season's German version when the German TV/streaming premiere is combined either with localized German episode titles or with a localized German series title, unless the exact season/provider evidence says OmU, original version, or explicitly excludes German audio. Episode titles may remain untranslated.",
   "An exact matching season page that says OmU/original with subtitles outranks an aggregator audio claim. Never transfer audio from a similarly named parent series, remake, search result, or redirected page; the displayed page title must match the requested work.",
   "For Max/HBO/Sky/WOW titles, search for and fetch the exact WOW/Sky title page as well as any aggregator page. A provider label containing `(OmU)` is explicit negative dub evidence.",
-  "A positive season verdict needs independent season-specific proof. A title-wide dub entry or a JustWatch season audio claim by itself is insufficient; if no independent season proof is found, return unlikely for that season.",
+  "A JustWatch season audio claim by itself never proves a season. A matching Synchronkartei entry proves the work's German dub; judge each season from its season notes, episode credits, and that season's German release history.",
+  "Return unlikely for a season only on explicit evidence that this season has no German dub (an OmU/subtitles-only listing, never released in Germany) or when the work has no German dub at all. If the work is dubbed and nothing points either way for a season, return unknown, never unlikely.",
   "</series_contract>",
   "confidence is 0..1. Report a confidence above 0.6 only when a fetched source confirms the verdict.",
   "evidence: short bullets citing what you found, each including its source URL.",
@@ -992,6 +1055,13 @@ ${
         }
         return [{ season, url: page.url }];
       }),
+    synchronkarteiNamedSeasons: () => {
+      const entries = state.fetchedPages.filter((page) =>
+        synchronkarteiEntryMatchesWork(page.url, page.text, subject),
+      );
+      if (entries.length === 0) return null;
+      return [...new Set(entries.flatMap((page) => synchronkarteiNamedSeasons(page.text)))];
+    },
   };
 }
 

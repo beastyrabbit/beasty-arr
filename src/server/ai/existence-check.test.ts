@@ -27,6 +27,8 @@ import {
   seasonPageShowsLocalizedGermanRelease,
   seasonPageShowsLocalizedGermanSeriesRelease,
   seasonPageShowsOriginalOnlyRelease,
+  synchronkarteiEntryMatchesWork,
+  synchronkarteiNamedSeasons,
   titlePageShowsGermanProduction,
 } from "./existence-check.js";
 
@@ -223,6 +225,113 @@ describe("fetchUrlForOracle", () => {
     await expect(
       fetchUrlForOracle("https://example.com/missing", { fetchImpl, lookupFn: publicLookup }),
     ).rejects.toThrow(/HTTP 404/);
+  });
+});
+
+describe("synchronkarteiEntryMatchesWork", () => {
+  const entry = (...header: string[]) =>
+    [
+      "Deutsche Synchronkartei | Serien | X",
+      "Kartei",
+      "Serien",
+      "Start",
+      "Serien",
+      ...header,
+      "Synchronfirma:",
+      "Oxygen Sound Studios GmbH , Berlin",
+    ].join("\n");
+  const demonSlayer = entry(
+    "Demon Slayer: Kimetsu no Yaiba",
+    "Demon Slayer: Kimetsu no Yaiba (2019-)",
+    "Kimetsu no Yaiba",
+    "Animations-TV-Serie",
+  );
+  const berserk = entry(
+    "Berserk",
+    "Berserk (1997-1998)",
+    "Kenpuu Denki Berserk",
+    "Version: Synchro (2024-2025)",
+  );
+  const url = "https://www.synchronkartei.de/serie/47715";
+
+  it("matches the exact work by any header title and first-air year", () => {
+    expect(
+      synchronkarteiEntryMatchesWork(url, demonSlayer, {
+        title: "Demon Slayer: Kimetsu no Yaiba",
+        year: 2019,
+      }),
+    ).toBe(true);
+    expect(synchronkarteiEntryMatchesWork(url, demonSlayer, { title: "Kimetsu no Yaiba" })).toBe(
+      true,
+    );
+    expect(synchronkarteiEntryMatchesWork(url, berserk, { title: "Berserk", year: 1997 })).toBe(
+      true,
+    );
+    expect(
+      synchronkarteiEntryMatchesWork(
+        url,
+        entry("Dragon Ball Z Kai (2009-2011)", "Alternativ-Titel: Dragonball Z Kai"),
+        { title: "Dragonball Z Kai", year: 2009 },
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects remakes, other titles, search pages, and other sites", () => {
+    expect(synchronkarteiEntryMatchesWork(url, berserk, { title: "Berserk", year: 2016 })).toBe(
+      false,
+    );
+    // The dub's own "Version: Synchro (2024-2025)" year never identifies the work.
+    expect(synchronkarteiEntryMatchesWork(url, berserk, { title: "Berserk", year: 2024 })).toBe(
+      false,
+    );
+    // A page without the credits block (error or bot-check page) is not an entry.
+    expect(
+      synchronkarteiEntryMatchesWork(url, "Start\nSerien\nBerserk\nBerserk (1997-1998)", {
+        title: "Berserk",
+        year: 1997,
+      }),
+    ).toBe(false);
+    expect(
+      synchronkarteiEntryMatchesWork(url, demonSlayer, { title: "Demon Slayer", year: 2019 }),
+    ).toBe(false);
+    expect(
+      synchronkarteiEntryMatchesWork("https://www.synchronkartei.de/suche?q=Berserk", berserk, {
+        title: "Berserk",
+        year: 1997,
+      }),
+    ).toBe(false);
+    expect(
+      synchronkarteiEntryMatchesWork("https://www.synchronkartei.de/film/12345", berserk, {
+        title: "Berserk",
+        year: 1997,
+      }),
+    ).toBe(false);
+    expect(
+      synchronkarteiEntryMatchesWork("https://example.com/serie/47715", berserk, {
+        title: "Berserk",
+        year: 1997,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("synchronkarteiNamedSeasons", () => {
+  it("reads seasons from the credit notes only", () => {
+    const page = [
+      "Start",
+      "Serien",
+      "Demon Slayer: Kimetsu no Yaiba (2019-)",
+      "Synchronfirma:",
+      "Oxygen Sound Studios GmbH , Berlin",
+      "Dialogbuch:",
+      "Christian Zeiger (Staffeln 1, 2 & 4)",
+      "Philip Gaube (Staffel 2, Episode 1; Staffel 3)",
+      "Seriendetails",
+      "Staffel 9 Gaststar",
+    ].join("\n");
+    expect(synchronkarteiNamedSeasons(page)).toEqual([1, 2, 3, 4]);
+    expect(synchronkarteiNamedSeasons("Synchronfirma:\nStudio\nSeriendetails")).toEqual([]);
+    expect(synchronkarteiNamedSeasons("Staffel 1\nno credits block")).toEqual([]);
   });
 });
 
