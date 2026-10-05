@@ -1602,6 +1602,35 @@ describe("dispatch safety and recovery", () => {
     expect(huntRow(db, target).searchCount).toBe(1);
   });
 
+  it.each([
+    [404, "failed"],
+    [503, "interrupted"],
+  ])("finishes an interrupted command the arr answers with %s as %s", async (code, status) => {
+    const { db, engine, settings, radarr } = makeHarness();
+    settings.update({ dryRun: false });
+    const target = seedMovie(db, { id: 1, hasFile: true }, { state: "non_german" });
+    db.insert(searchAttempts)
+      .values({
+        createdAt: T0 - 1000,
+        source: "radarr",
+        commandName: "MoviesSearch",
+        arrCommandId: 77,
+        payload: { name: "MoviesSearch", movieIds: [1] },
+        targetIds: [target],
+        estimatedQueries: 1,
+        status: "interrupted",
+      })
+      .run();
+    radarr.getCommand = async () => {
+      throw new RadarrRequestError("gone", code, "error", "", "/command/77");
+    };
+    await engine.runCycle();
+    expect(db.select().from(searchAttempts).get()?.status).toBe(status);
+    expect(engine.engineStatus().holdReason ?? null).toBe(
+      code === 404 ? null : "search 1 awaiting command reconciliation",
+    );
+  });
+
   it("splits full episode batches against a real 100-query indexer", async () => {
     const { db, settings, sonarr, radarr, sync, bus, clock } = makeHarness();
     settings.update({ dryRun: false });

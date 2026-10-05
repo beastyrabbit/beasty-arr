@@ -229,6 +229,12 @@ function defaultSleep(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
+function isNotFound(err: unknown): boolean {
+  return (
+    (err instanceof SonarrRequestError || err instanceof RadarrRequestError) && err.status === 404
+  );
+}
+
 function effectiveVerdict(
   verdict: {
     verdict: AiVerdictValue;
@@ -579,8 +585,10 @@ export class HuntEngine {
       if (client && attempt.arrCommandId != null) {
         try {
           status = (await client.getCommand(attempt.arrCommandId)).status;
-        } catch {
-          // Missing command records and network errors are both ambiguous.
+        } catch (err) {
+          // The arr accepted this command but no longer tracks it: it purged the
+          // record or restarted, so it will never run. Network errors stay ambiguous.
+          if (isNotFound(err)) status = "failed";
         }
       }
       if (status === "completed" || status === "failed" || status === "aborted") {
