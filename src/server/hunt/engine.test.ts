@@ -1576,11 +1576,13 @@ describe("dispatch safety and recovery", () => {
     },
   );
 
-  it("reconciles accepted queued commands before allowing retries", async () => {
-    const { db, engine, settings, radarr } = makeHarness();
-    settings.update({ dryRun: false });
-    const target = seedMovie(db, { id: 1, hasFile: true }, { state: "non_german" });
-    db.insert(searchAttempts)
+  /** A live movie search whose MoviesSearch command 77 the engine must reconcile. */
+  function seedCommandAttempt(status: "queued" | "interrupted") {
+    const harness = makeHarness();
+    harness.settings.update({ dryRun: false });
+    const target = seedMovie(harness.db, { id: 1, hasFile: true }, { state: "non_german" });
+    harness.db
+      .insert(searchAttempts)
       .values({
         createdAt: T0 - 1000,
         source: "radarr",
@@ -1589,9 +1591,14 @@ describe("dispatch safety and recovery", () => {
         payload: { name: "MoviesSearch", movieIds: [1] },
         targetIds: [target],
         estimatedQueries: 1,
-        status: "queued",
+        status,
       })
       .run();
+    return { ...harness, target };
+  }
+
+  it("reconciles accepted queued commands before allowing retries", async () => {
+    const { db, engine, radarr, target } = seedCommandAttempt("queued");
     radarr.defaultCommandStatus = "queued";
     await engine.runCycle();
     expect(radarr.sent).toHaveLength(0);
@@ -1606,21 +1613,7 @@ describe("dispatch safety and recovery", () => {
     [404, "failed"],
     [503, "interrupted"],
   ])("finishes an interrupted command the arr answers with %s as %s", async (code, status) => {
-    const { db, engine, settings, radarr } = makeHarness();
-    settings.update({ dryRun: false });
-    const target = seedMovie(db, { id: 1, hasFile: true }, { state: "non_german" });
-    db.insert(searchAttempts)
-      .values({
-        createdAt: T0 - 1000,
-        source: "radarr",
-        commandName: "MoviesSearch",
-        arrCommandId: 77,
-        payload: { name: "MoviesSearch", movieIds: [1] },
-        targetIds: [target],
-        estimatedQueries: 1,
-        status: "interrupted",
-      })
-      .run();
+    const { db, engine, radarr } = seedCommandAttempt("interrupted");
     radarr.getCommand = async () => {
       throw new RadarrRequestError("gone", code, "error", "", "/command/77");
     };
