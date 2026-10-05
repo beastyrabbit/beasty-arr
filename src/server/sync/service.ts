@@ -468,10 +468,25 @@ export class SyncService {
         },
       ]),
     );
+    const germanSeasons = new Set(
+      this.db
+        .selectDistinct({ seriesId: episodes.seriesId, seasonNumber: episodes.seasonNumber })
+        .from(episodes)
+        .where(and(inArray(episodes.seriesId, seriesIds), eq(episodes.hasGerman, true)))
+        .all()
+        .map((r) => `${r.seriesId}:${r.seasonNumber}`),
+    );
     for (const { ep } of rows) {
       const meta = metaById.get(ep.seriesId);
       if (!meta) continue;
-      const derived = deriveState(this.episodeDeriveInput(ctx, meta, ep));
+      const derived = deriveState(
+        this.episodeDeriveInput(
+          ctx,
+          meta,
+          ep,
+          germanSeasons.has(`${ep.seriesId}:${ep.seasonNumber}`),
+        ),
+      );
       this.applyHuntState({
         source: "sonarr",
         targetKind: "episode",
@@ -640,15 +655,22 @@ export class SyncService {
       this.db.delete(episodes).where(inArray(episodes.id, goneIds)).run();
     }
 
-    for (const ep of eps) {
+    const mapped = eps.map((ep) => {
       const file = ep.episodeFileId != null ? fileById.get(ep.episodeFileId) : undefined;
-      const row = this.mapEpisode(ep, file, meta, now);
+      return { ep, row: this.mapEpisode(ep, file, meta, now) };
+    });
+    const germanSeasons = new Set(
+      mapped.filter(({ row }) => row.hasGerman).map(({ ep }) => ep.seasonNumber),
+    );
+    for (const { ep, row } of mapped) {
       this.db
         .insert(episodes)
         .values(row)
         .onConflictDoUpdate({ target: episodes.id, set: row })
         .run();
-      const derived = deriveState(this.episodeDeriveInput(ctx, meta, row));
+      const derived = deriveState(
+        this.episodeDeriveInput(ctx, meta, row, germanSeasons.has(ep.seasonNumber)),
+      );
       this.applyHuntState({
         source: "sonarr",
         targetKind: "episode",
@@ -997,11 +1019,20 @@ export class SyncService {
     };
   }
 
-  private episodeDeriveInput(ctx: SourceCtx, meta: SeriesMeta, ep: EpisodeFacts): DeriveStateInput {
+  private episodeDeriveInput(
+    ctx: SourceCtx,
+    meta: SeriesMeta,
+    ep: EpisodeFacts,
+    seasonHasGerman: boolean,
+  ): DeriveStateInput {
     const season = ctx.seasonOverrides.get(`${meta.id}:${ep.seasonNumber}`);
     const seriesOverride = ctx.seriesOverrides.get(meta.id);
     const override = season ?? seriesOverride;
-    const verdict = this.pickVerdict(ctx, `sonarr:${meta.id}`, ep.seasonNumber);
+    // A German episode proves the season's dub exists, so an "unlikely" verdict
+    // must not pause it; the hunt engine lifts such pauses by the same rule.
+    const verdict = seasonHasGerman
+      ? null
+      : this.pickVerdict(ctx, `sonarr:${meta.id}`, ep.seasonNumber);
     return {
       kind: "episode",
       monitored: ep.monitored,

@@ -229,6 +229,12 @@ function defaultSleep(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
+function isNotFound(err: unknown): boolean {
+  return (
+    (err instanceof SonarrRequestError || err instanceof RadarrRequestError) && err.status === 404
+  );
+}
+
 function effectiveVerdict(
   verdict: {
     verdict: AiVerdictValue;
@@ -574,70 +580,93 @@ export class HuntEngine {
       .where(and(eq(searchAttempts.dryRun, false), isNull(searchAttempts.completedAt)))
       .all();
     for (const attempt of attempts) {
-      let status: string | undefined;
       const client = clients.get(attempt.source);
-      if (client && attempt.arrCommandId != null) {
-        try {
-          status = (await client.getCommand(attempt.arrCommandId)).status;
-        } catch {
-          // Missing command records and network errors are both ambiguous.
-        }
-      }
+      const status =
+        client && attempt.arrCommandId != null
+          ? await this.recoveredCommandStatus(client, attempt.arrCommandId)
+          : undefined;
       if (status === "completed" || status === "failed" || status === "aborted") {
-        const covered = this.db
-          .select()
-          .from(huntState)
-          .where(inArray(huntState.id, attempt.targetIds))
-          .all();
-        const candidates: HuntCandidate[] = covered.map((row) => ({
-          huntStateId: row.id,
-          source: row.source,
-          kind: row.targetKind,
-          targetId: row.targetId,
-          seriesId: row.seriesId,
-          seasonNumber: row.seasonNumber,
-          episodeNumber: null,
-          title: attempt.targetLabel ?? "Recovered search",
-          year: null,
-          anime: false,
-          score: 0,
-          bucket: "upgrade",
-          searchCount: row.searchCount,
-          manualPriority: row.manualPriority,
-        }));
-        await this.afterCommand(
-          {
-            source: attempt.source,
-            kind: attempt.source === "sonarr" ? "tv" : "movie",
-            name: attempt.commandName as PlannedCommand["name"],
-            payload: attempt.payload as PlannedCommand["payload"],
-            searchOps: candidates.length,
-            anime: false,
-            label: attempt.targetLabel ?? "Recovered search",
-            covered: candidates,
-          },
-          attempt.trigger as SearchTrigger,
-          attempt.id,
-          status === "completed" ? "completed" : "failed",
-        );
+        await this.finishRecoveredAttempt(attempt, status === "completed" ? "completed" : "failed");
       } else {
-        // A crash can precede persistence of either the response or its error.
-        // Expose that unknown acceptance through the same operator recovery path.
-        if (attempt.arrCommandId === null && attempt.status !== "interrupted") {
-          this.db
-            .update(searchAttempts)
-            .set({ status: "interrupted" })
-            .where(eq(searchAttempts.id, attempt.id))
-            .run();
-        }
-        for (const id of attempt.targetIds) held.add(id);
-        this.setHold(
-          `search ${attempt.id} awaiting command reconciliation${attempt.arrCommandId == null ? "; acceptance unknown" : ""}`,
-          { key: "recovery", level: "warn" },
-        );
+        this.holdUnreconciledAttempt(attempt, held);
       }
     }
     return held;
+  }
+
+  private async recoveredCommandStatus(
+    client: HuntArrClientPort,
+    arrCommandId: number,
+  ): Promise<string | undefined> {
+    try {
+      return (await client.getCommand(arrCommandId)).status;
+    } catch (err) {
+      // The arr accepted this command but no longer tracks it: it purged the
+      // record or restarted, so it will never run. Network errors stay ambiguous.
+      return isNotFound(err) ? "failed" : undefined;
+    }
+  }
+
+  private async finishRecoveredAttempt(
+    attempt: typeof searchAttempts.$inferSelect,
+    finalStatus: "completed" | "failed",
+  ): Promise<void> {
+    const covered = this.db
+      .select()
+      .from(huntState)
+      .where(inArray(huntState.id, attempt.targetIds))
+      .all();
+    const candidates: HuntCandidate[] = covered.map((row) => ({
+      huntStateId: row.id,
+      source: row.source,
+      kind: row.targetKind,
+      targetId: row.targetId,
+      seriesId: row.seriesId,
+      seasonNumber: row.seasonNumber,
+      episodeNumber: null,
+      title: attempt.targetLabel ?? "Recovered search",
+      year: null,
+      anime: false,
+      score: 0,
+      bucket: "upgrade",
+      searchCount: row.searchCount,
+      manualPriority: row.manualPriority,
+    }));
+    await this.afterCommand(
+      {
+        source: attempt.source,
+        kind: attempt.source === "sonarr" ? "tv" : "movie",
+        name: attempt.commandName as PlannedCommand["name"],
+        payload: attempt.payload as PlannedCommand["payload"],
+        searchOps: candidates.length,
+        anime: false,
+        label: attempt.targetLabel ?? "Recovered search",
+        covered: candidates,
+      },
+      attempt.trigger as SearchTrigger,
+      attempt.id,
+      finalStatus,
+    );
+  }
+
+  private holdUnreconciledAttempt(
+    attempt: typeof searchAttempts.$inferSelect,
+    held: Set<number>,
+  ): void {
+    // A crash can precede persistence of either the response or its error.
+    // Expose that unknown acceptance through the same operator recovery path.
+    if (attempt.arrCommandId === null && attempt.status !== "interrupted") {
+      this.db
+        .update(searchAttempts)
+        .set({ status: "interrupted" })
+        .where(eq(searchAttempts.id, attempt.id))
+        .run();
+    }
+    for (const id of attempt.targetIds) held.add(id);
+    this.setHold(
+      `search ${attempt.id} awaiting command reconciliation${attempt.arrCommandId == null ? "; acceptance unknown" : ""}`,
+      { key: "recovery", level: "warn" },
+    );
   }
 
   private async openScheduledSources(

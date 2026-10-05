@@ -8,6 +8,7 @@ import { SettingsService } from "../config/settings.js";
 import { createDb } from "../db/index.js";
 import {
   activityLog,
+  aiVerdicts,
   episodes,
   huntState,
   movies,
@@ -332,6 +333,39 @@ describe("fullReconcile", () => {
     expect(h.cursor("radarr.lastHistoryId")).toBe("0");
     expect(h.cursor("lastFullSyncAt")).toBe(String(T0));
     expect(h.cursor("sonarr.lastFullSyncAt")).toBe(String(T0));
+  });
+
+  it("ignores an unlikely season verdict once that season has German", async () => {
+    const h = makeHarness();
+    seedStandardFixture(h);
+    h.sonarr.episodesBySeries
+      .get(1)
+      ?.push(episodeDto({ id: 105, seasonNumber: 2, hasFile: true, episodeFileId: 5002 }));
+    const unlikely = { verdict: "unlikely" as const, confidence: 0.98 };
+    h.db
+      .insert(aiVerdicts)
+      .values({
+        subjectKind: "series",
+        subjectKey: "sonarr:1",
+        title: "Dark Matters",
+        verdict: "unlikely",
+        confidence: 0.98,
+        perSeason: [
+          { season: 1, ...unlikely },
+          { season: 2, ...unlikely },
+        ],
+        evidence: [],
+        provider: "codex",
+        model: "gpt-6.1-sol",
+        promptVersion: "v1",
+        checkedAt: T0,
+        recheckAfter: T0 + 90 * DAY,
+      })
+      .run();
+    await h.svc.fullReconcile();
+
+    expect(h.huntRow("sonarr", "episode", 102)?.state).toBe("non_german");
+    expect(h.huntRow("sonarr", "episode", 105)?.state).toBe("ai_paused");
   });
 
   it("preserves tier/searchCount on existing rows and only moves state", async () => {
