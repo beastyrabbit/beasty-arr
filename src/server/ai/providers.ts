@@ -550,6 +550,7 @@ async function runPiSessionAttempt(
   modelId: string,
   limit: { timeoutMs: number; deadline: number },
 ): Promise<PiSessionResult> {
+  if (Date.now() >= limit.deadline) throw new InferenceTimeoutError(limit.timeoutMs);
   const session = await createPiSession(deps, request, provider, modelId);
   const tracker = createSessionTracker(request);
   const { toolCalls, usage } = tracker;
