@@ -1376,87 +1376,78 @@ describe("deterministic guards on the real 2026-10-08 failures", () => {
     ]);
   });
 
-  it("holds removing a German episode Sonarr scores above the library file (Benjamin Blümchen S01E03)", async () => {
+  /** Episode 101 with a German library file; analyses `candidate_1` with `proposal`. */
+  async function analyzeEpisode(input: {
+    candidate?: Partial<ManualImportCandidate>;
+    candidateProbe?: Partial<MediaProbeOk>;
+    libraryScore?: number;
+    libraryVideo?: MediaProbeOk["video"];
+    proposal?: ResolutionProposal;
+  }) {
     const client = new FakeArrClient();
     client.episodes = [
       {
         id: 101,
         hasFile: true,
-        episodeFile: { path: "/lib/E03.mkv", languages: [], customFormatScore: -23300 },
+        episodeFile: { path: "/lib/E01.mkv", languages: [], customFormatScore: input.libraryScore },
       },
     ];
     const { result } = await analyze(
       {
         queueItem: makeQueueItem(),
-        candidates: [makeCandidate("candidate_1", { customFormatScore: 11700 })],
+        candidates: [makeCandidate("candidate_1", input.candidate)],
         client,
         prober: fakeProber({
-          "/downloads/candidate_1.mkv": { audio: [germanAudio()], hasGermanAudio: true },
-          "/lib/E03.mkv": { audio: [germanAudio()], hasGermanAudio: true },
+          "/downloads/candidate_1.mkv": {
+            audio: [germanAudio()],
+            hasGermanAudio: true,
+            ...input.candidateProbe,
+          },
+          "/lib/E01.mkv": {
+            video: input.libraryVideo,
+            audio: [germanAudio()],
+            hasGermanAudio: true,
+          },
         }),
       },
-      removeProposal(blocklistOnly),
+      input.proposal ?? removeProposal(blocklistOnly),
     );
+    return result;
+  }
+
+  it("holds removing a German episode Sonarr scores above the library file (Benjamin Blümchen S01E03)", async () => {
+    const result = await analyzeEpisode({
+      candidate: { customFormatScore: 11700 },
+      libraryScore: -23300,
+    });
     expect(result.status).toBe("needs_review");
     expect(result.proposal.reviewReasons).toEqual([
       "candidate_1.mkv keeps German audio and Sonarr scores it 11700 against -23300 for the library file of episode 101, so it may be an upgrade.",
     ]);
   });
 
-  it("removes a German duplicate the arr itself rejects as no upgrade (Apostle)", async () => {
-    const client = new FakeArrClient();
-    client.episodes = [
-      { id: 101, hasFile: true, episodeFile: { path: "/lib/E01.mkv", languages: [] } },
-    ];
-    const { result } = await analyze(
-      {
-        queueItem: makeQueueItem(),
-        candidates: [
-          makeCandidate("candidate_1", {
-            rejections: ["Not a Custom Format upgrade for existing episode file(s)."],
-          }),
-        ],
-        client,
-        prober: fakeProber({
-          "/downloads/candidate_1.mkv": { audio: [germanAudio()], hasGermanAudio: true },
-          "/lib/E01.mkv": { audio: [germanAudio()], hasGermanAudio: true },
-        }),
-      },
-      removeProposal(blocklistOnly),
-    );
+  it.each([
+    "Not a Custom Format upgrade for existing episode file(s).",
+    "Not an upgrade for existing episode file(s).",
+    "Not a quality upgrade for existing episode file(s).",
+    "Not a revision upgrade for existing episode file(s).",
+    "Not a quality revision upgrade for existing episode file(s).",
+  ])("removes a German duplicate the arr itself rejects: '%s' (Apostle)", async (rejection) => {
+    const result = await analyzeEpisode({ candidate: { rejections: [rejection] } });
     expect(result.status).toBe("proposal");
     expect(result.proposal.action).toBe("remove_queue_item");
   });
 
   it("holds an import whose only German track is uncertain over a German library file", async () => {
-    const client = new FakeArrClient();
-    client.episodes = [
-      { id: 101, hasFile: true, episodeFile: { path: "/lib/E01.mkv", languages: [] } },
-    ];
-    const { result } = await analyze(
-      {
-        queueItem: makeQueueItem(),
-        candidates: [makeCandidate("candidate_1")],
-        client,
-        prober: fakeProber({
-          "/downloads/candidate_1.mkv": {
-            audio: [
-              {
-                index: 1,
-                codec: "ac3",
-                language: "spa",
-                inferredLanguage: "spa",
-                title: "Deutsch",
-              },
-            ],
-            hasGermanAudio: true,
-            germanAudioUncertain: true,
-          },
-          "/lib/E01.mkv": { audio: [germanAudio()], hasGermanAudio: true },
-        }),
+    const result = await analyzeEpisode({
+      candidateProbe: {
+        audio: [
+          { index: 1, codec: "ac3", language: "spa", inferredLanguage: "spa", title: "Deutsch" },
+        ],
+        germanAudioUncertain: true,
       },
-      importProposal("candidate_1"),
-    );
+      proposal: importProposal("candidate_1"),
+    });
     expect(result.status).toBe("needs_review");
     expect(result.proposal.reviewReasons).toEqual([
       "candidate_1.mkv's German audio is uncertain (a track's language tag and title disagree) and it would replace the German-audio file of episode 101.",
@@ -1464,61 +1455,12 @@ describe("deterministic guards on the real 2026-10-08 failures", () => {
   });
 
   it("removes a lower-resolution German file even when the arr's labels missed its German", async () => {
-    const client = new FakeArrClient();
-    client.episodes = [
-      { id: 101, hasFile: true, episodeFile: { path: "/lib/E01.mkv", languages: [] } },
-    ];
-    const { result } = await analyze(
-      {
-        queueItem: makeQueueItem(),
-        candidates: [
-          makeCandidate("candidate_1", {
-            languages: [{ id: 1, name: "English" }],
-            languageLabels: ["English"],
-          }),
-        ],
-        client,
-        prober: fakeProber({
-          "/downloads/candidate_1.mkv": {
-            video: { width: 1280, height: 720 },
-            audio: [germanAudio()],
-            hasGermanAudio: true,
-          },
-          "/lib/E01.mkv": {
-            video: { width: 1920, height: 1080 },
-            audio: [germanAudio()],
-            hasGermanAudio: true,
-          },
-        }),
-      },
-      removeProposal(blocklistOnly),
-    );
+    const result = await analyzeEpisode({
+      candidate: { languages: [{ id: 1, name: "English" }], languageLabels: ["English"] },
+      candidateProbe: { video: { width: 1280, height: 720 } },
+      libraryVideo: { width: 1920, height: 1080 },
+    });
     expect(result.status).toBe("proposal");
     expect(result.proposal.action).toBe("remove_queue_item");
-  });
-
-  it.each([
-    "Not an upgrade for existing episode file(s).",
-    "Not a quality upgrade for existing episode file(s).",
-    "Not a revision upgrade for existing episode file(s).",
-    "Not a quality revision upgrade for existing episode file(s).",
-  ])("accepts the arr's own rejection '%s' as no upgrade", async (rejection) => {
-    const client = new FakeArrClient();
-    client.episodes = [
-      { id: 101, hasFile: true, episodeFile: { path: "/lib/E01.mkv", languages: [] } },
-    ];
-    const { result } = await analyze(
-      {
-        queueItem: makeQueueItem(),
-        candidates: [makeCandidate("candidate_1", { rejections: [rejection] })],
-        client,
-        prober: fakeProber({
-          "/downloads/candidate_1.mkv": { audio: [germanAudio()], hasGermanAudio: true },
-          "/lib/E01.mkv": { audio: [germanAudio()], hasGermanAudio: true },
-        }),
-      },
-      removeProposal(blocklistOnly),
-    );
-    expect(result.status).toBe("proposal");
   });
 });
