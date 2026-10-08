@@ -240,10 +240,14 @@ export async function withProviderRetries<T>(
   options: {
     signal?: AbortSignal;
     retryDelaysMs?: readonly number[];
+    /** Epoch ms; a retry that could not start before it is skipped and the error rethrown. */
+    deadline?: number;
+    now?: () => number;
     onRetry?: (attempt: number, error: unknown, delayMs: number) => void;
   } = {},
 ): Promise<T> {
   const retryDelaysMs = options.retryDelaysMs ?? DEFAULT_PROVIDER_RETRY_DELAYS_MS;
+  const now = options.now ?? Date.now;
   for (let retry = 0; ; retry += 1) {
     try {
       return await task();
@@ -251,6 +255,7 @@ export async function withProviderRetries<T>(
       options.signal?.throwIfAborted();
       const delayMs = retryDelaysMs[retry];
       if (delayMs === undefined || !isRetryableProviderError(error)) throw error;
+      if (options.deadline !== undefined && now() + delayMs >= options.deadline) throw error;
       options.onRetry?.(retry + 1, error, delayMs);
       await waitForProviderRetry(delayMs, options.signal);
     }
@@ -620,9 +625,10 @@ export function createPiRunner(deps: PiRunnerDeps): PiRunner {
     // One inference limit across all attempts so retries cannot stack fresh limits.
     const timeoutMs = request.timeoutMs ?? deps.env.PI_INFERENCE_TIMEOUT_MS;
     const limit = { timeoutMs, deadline: Date.now() + timeoutMs };
-    const attempt = () => runPiSessionAttempt(deps, request, provider, modelId, limit);
-    return await withProviderRetries(attempt, {
+    const runAttempt = () => runPiSessionAttempt(deps, request, provider, modelId, limit);
+    return await withProviderRetries(runAttempt, {
       signal: request.signal,
+      deadline: limit.deadline,
       onRetry: (attempt, error, delayMs) => {
         const reason = error instanceof Error ? error.message : String(error);
         request.onEvent?.({

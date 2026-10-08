@@ -111,6 +111,27 @@ describe("withProviderRetries", () => {
     expect(attempts).toBe(2);
   });
 
+  it("skips a retry whose wait would end past the deadline", async () => {
+    let attempts = 0;
+    const retries: number[] = [];
+    await expect(
+      withProviderRetries(
+        async () => {
+          attempts += 1;
+          throw new Error("503 service unavailable");
+        },
+        {
+          retryDelaysMs: [0, 60_000],
+          deadline: 1_030_000,
+          now: () => 1_000_000,
+          onRetry: (attempt) => retries.push(attempt),
+        },
+      ),
+    ).rejects.toThrow(/503/);
+    expect(attempts).toBe(2);
+    expect(retries).toEqual([1]);
+  });
+
   it("aborts immediately while waiting for a provider retry", async () => {
     const controller = new AbortController();
     const task = withProviderRetries(
