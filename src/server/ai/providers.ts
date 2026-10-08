@@ -573,6 +573,8 @@ async function runPiSessionAttempt(
   else combinedSignal.addEventListener("abort", abortSession, { once: true });
 
   try {
+    // Session setup can itself outlast the deadline; never start prompting past it.
+    if (Date.now() >= limit.deadline) throw new InferenceTimeoutError(timeoutMs);
     const promptError = await promptUntilTerminated(session, request, tracker, combinedSignal);
     if (timeoutSignal.aborted && !request.signal?.aborted) {
       throw new InferenceTimeoutError(timeoutMs);
