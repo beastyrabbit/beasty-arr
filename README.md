@@ -35,8 +35,8 @@ Removals wait when they would throw away German audio the library lacks, when th
 a German file the arr scores above the library copy or whose German track the arr's labels missed,
 when a "different work" verdict has no backing from the release year, runtime, or independent
 parse, or when they would search for German the library already has. Downloads are checked against
-the movie or series they were grabbed for, not the one the arr's queue re-maps them to by title. An
-audio track counts as German when its language tag or its title says so; when the two disagree,
+the movie or series they were grabbed for, not the one the arr's queue re-maps them to by title;
+when the two differ, an import waits for review. An audio track counts as German when its language tag or its title says so; when the two disagree,
 an import that would replace a German library file waits. Each analysis keeps its tool results
 and the model's reasoning in the AI trace.
 

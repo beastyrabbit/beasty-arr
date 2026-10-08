@@ -1255,6 +1255,33 @@ describe("deterministic guards on the real 2026-10-08 failures", () => {
     ]);
   });
 
+  it("holds an import between namesakes even when nothing else contradicts it", async () => {
+    const client = new FakeArrClient();
+    client.moviesById.set(11075, { id: 11075, title: "Maria", year: 2024, runtime: 112 });
+    const release = "Maria.2024.German.DL.EAC3.1080p.NF.WEB.H264-ZeroTwo";
+    const { result } = await analyze(
+      {
+        queueItem: { ...radarrItem(11075, release), queueMappedId: 11094 },
+        candidates: [radarrCandidate(11094, release)],
+        client,
+        prober: fakeProber({
+          "/downloads/candidate_1.mkv": {
+            durationSeconds: minutes(112),
+            audio: [germanAudio()],
+            hasGermanAudio: true,
+          },
+        }),
+      },
+      importProposal("candidate_1", {
+        selectedImports: [{ candidateId: "candidate_1", episodeIds: [], movieId: 11075 }],
+      }),
+    );
+    expect(result.status).toBe("needs_review");
+    expect(result.proposal.reviewReasons).toEqual([
+      "Radarr's queue mapped this download to another work of the same title (id 11094) than the one it was grabbed for.",
+    ]);
+  });
+
   it("does not count a parse naming the queue's namesake as wrong-work evidence (Mary after the grab fix)", async () => {
     const client = new FakeArrClient();
     client.moviesById.set(11075, radarrMovie(11075, "Maria", 2024, 112));

@@ -223,6 +223,17 @@ function otherMovieReason(queueItem: QueueItem, proposal: ResolutionProposal): s
   return `The file would be imported as movie ${other.movieId}, not the queued movie ${queueItem.movieId}.`;
 }
 
+/**
+ * The queue mapped the download to another work of the same title (Mary vs
+ * Maria); the arr's candidate data was computed against that namesake, so an
+ * import waits for a person.
+ */
+function namesakeReason(queueItem: QueueItem): string | undefined {
+  if (queueItem.queueMappedId === undefined) return undefined;
+  const arr = queueItem.service === "radarr" ? "Radarr" : "Sonarr";
+  return `${arr}'s queue mapped this download to another work of the same title (id ${queueItem.queueMappedId}) than the one it was grabbed for.`;
+}
+
 function importReviewReasons(
   queueItem: QueueItem,
   candidates: ManualImportCandidate[],
@@ -234,6 +245,7 @@ function importReviewReasons(
     facts.proberAvailable
       ? undefined
       : "Media inspection is not configured, so the real file could not be checked.",
+    namesakeReason(queueItem),
     parseReason(queueItem, facts),
     otherMovieReason(queueItem, proposal),
   ];
