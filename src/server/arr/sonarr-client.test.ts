@@ -114,6 +114,21 @@ describe("SonarrClient", () => {
     expect(String(fetchMock.mock.calls[1]?.[0])).toContain("page=2");
   });
 
+  it("loads a complete-series pack's episodes in bounded batches", async () => {
+    const fetchMock = vi.fn<FetchImpl>(async (url) => {
+      const ids = new URL(String(url)).searchParams.getAll("episodeIds").map(Number);
+      return jsonResponse(ids.map((id) => ({ id })));
+    });
+    const ids = Array.from({ length: 250 }, (_, index) => index + 1);
+    const episodes = await client(fetchMock).getEpisodes({ episodeIds: ids });
+    expect(episodes.map((episode) => episode.id)).toEqual(ids);
+    expect(
+      fetchMock.mock.calls.map(
+        ([url]) => new URL(String(url)).searchParams.getAll("episodeIds").length,
+      ),
+    ).toEqual([100, 100, 50]);
+  });
+
   it("reports no grabbed series when there is no grab or it spans several series", async () => {
     const none = vi.fn<FetchImpl>(async () => jsonResponse({ records: [] }));
     await expect(client(none).getGrabbedEpisodes("dl-1")).resolves.toBeUndefined();

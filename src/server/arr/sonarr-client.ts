@@ -277,6 +277,9 @@ function joinUrl(baseUrl: string, path: string): string {
   return `${cleanBase}${cleanPath}`;
 }
 
+/** Episode ids per GET /api/v3/episode request (about 1.7 KB of query string). */
+const EPISODE_ID_BATCH = 100;
+
 function appendQuery(
   path: string,
   params: Record<string, string | number | boolean | undefined>,
@@ -812,19 +815,30 @@ export class SonarrClient {
     includeSeries?: boolean;
     includeEpisodeFile?: boolean;
   }): Promise<SonarrEpisodeRecord[]> {
-    const params = new URLSearchParams();
-    if (seriesId !== undefined) {
-      params.set("seriesId", String(seriesId));
+    // Every id is its own query parameter; batches keep a complete-series pack
+    // under Sonarr's and the proxy's request-line limits.
+    const batches: Array<number[] | undefined> = [];
+    for (let start = 0; start < (episodeIds?.length ?? 0); start += EPISODE_ID_BATCH) {
+      batches.push(episodeIds?.slice(start, start + EPISODE_ID_BATCH));
     }
-    if (seasonNumber !== undefined) {
-      params.set("seasonNumber", String(seasonNumber));
-    }
-    for (const episodeId of episodeIds ?? []) {
-      params.append("episodeIds", String(episodeId));
-    }
-    params.set("includeSeries", String(includeSeries));
-    params.set("includeEpisodeFile", String(includeEpisodeFile));
-    return this.request<SonarrEpisodeRecord[]>(`/api/v3/episode?${params.toString()}`);
+    const results = await Promise.all(
+      (batches.length > 0 ? batches : [undefined]).map((batch) => {
+        const params = new URLSearchParams();
+        if (seriesId !== undefined) {
+          params.set("seriesId", String(seriesId));
+        }
+        if (seasonNumber !== undefined) {
+          params.set("seasonNumber", String(seasonNumber));
+        }
+        for (const episodeId of batch ?? []) {
+          params.append("episodeIds", String(episodeId));
+        }
+        params.set("includeSeries", String(includeSeries));
+        params.set("includeEpisodeFile", String(includeEpisodeFile));
+        return this.request<SonarrEpisodeRecord[]>(`/api/v3/episode?${params.toString()}`);
+      }),
+    );
+    return results.flat();
   }
 
   async listQueue(options: { includeInProgress?: boolean } = {}): Promise<QueueItem[]> {
