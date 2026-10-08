@@ -215,7 +215,9 @@ export function isRetryableProviderError(error: unknown): boolean {
   return !TERMINAL_PROVIDER_ERROR.test(message) && RETRYABLE_PROVIDER_ERROR.test(message);
 }
 
-const DEFAULT_PROVIDER_RETRY_DELAYS_MS = [2_000, 8_000] as const;
+// Codex drops requests with a generic server error in bursts lasting minutes,
+// so the budget spans ~4 minutes; cancel still aborts the wait immediately.
+const DEFAULT_PROVIDER_RETRY_DELAYS_MS = [2_000, 10_000, 30_000, 60_000, 120_000] as const;
 
 async function waitForProviderRetry(delayMs: number, signal?: AbortSignal) {
   signal?.throwIfAborted();
@@ -238,10 +240,14 @@ export async function withProviderRetries<T>(
   options: {
     signal?: AbortSignal;
     retryDelaysMs?: readonly number[];
+    /** Epoch ms; a retry that could not start before it is skipped and the error rethrown. */
+    deadline?: number;
+    now?: () => number;
     onRetry?: (attempt: number, error: unknown, delayMs: number) => void;
   } = {},
 ): Promise<T> {
   const retryDelaysMs = options.retryDelaysMs ?? DEFAULT_PROVIDER_RETRY_DELAYS_MS;
+  const now = options.now ?? Date.now;
   for (let retry = 0; ; retry += 1) {
     try {
       return await task();
@@ -249,6 +255,7 @@ export async function withProviderRetries<T>(
       options.signal?.throwIfAborted();
       const delayMs = retryDelaysMs[retry];
       if (delayMs === undefined || !isRetryableProviderError(error)) throw error;
+      if (options.deadline !== undefined && now() + delayMs >= options.deadline) throw error;
       options.onRetry?.(retry + 1, error, delayMs);
       await waitForProviderRetry(delayMs, options.signal);
     }
@@ -546,14 +553,16 @@ async function runPiSessionAttempt(
   request: PiSessionRequest,
   provider: ProviderId,
   modelId: string,
+  limit: { timeoutMs: number; deadline: number },
 ): Promise<PiSessionResult> {
+  if (Date.now() >= limit.deadline) throw new InferenceTimeoutError(limit.timeoutMs);
   const session = await createPiSession(deps, request, provider, modelId);
   const tracker = createSessionTracker(request);
   const { toolCalls, usage } = tracker;
   const unsubscribe = session.subscribe(tracker.listener);
 
-  const timeoutMs = request.timeoutMs ?? deps.env.PI_INFERENCE_TIMEOUT_MS;
-  const timeoutSignal = AbortSignal.timeout(timeoutMs);
+  const timeoutMs = limit.timeoutMs;
+  const timeoutSignal = AbortSignal.timeout(Math.max(0, limit.deadline - Date.now()));
   const combinedSignal = request.signal
     ? AbortSignal.any([request.signal, timeoutSignal])
     : timeoutSignal;
@@ -564,6 +573,8 @@ async function runPiSessionAttempt(
   else combinedSignal.addEventListener("abort", abortSession, { once: true });
 
   try {
+    // Session setup can itself outlast the deadline; never start prompting past it.
+    if (Date.now() >= limit.deadline) throw new InferenceTimeoutError(timeoutMs);
     const promptError = await promptUntilTerminated(session, request, tracker, combinedSignal);
     if (timeoutSignal.aborted && !request.signal?.aborted) {
       throw new InferenceTimeoutError(timeoutMs);
@@ -613,13 +624,18 @@ export function createPiRunner(deps: PiRunnerDeps): PiRunner {
     const provider = request.provider ?? snapshot.aiProvider;
     if (provider === "off") throw new Error("AI provider is disabled (aiProvider=off).");
     const modelId = request.model ?? snapshot.aiModel;
-    return await withProviderRetries(() => runPiSessionAttempt(deps, request, provider, modelId), {
+    // One inference limit across all attempts so retries cannot stack fresh limits.
+    const timeoutMs = request.timeoutMs ?? deps.env.PI_INFERENCE_TIMEOUT_MS;
+    const limit = { timeoutMs, deadline: Date.now() + timeoutMs };
+    const runAttempt = () => runPiSessionAttempt(deps, request, provider, modelId, limit);
+    return await withProviderRetries(runAttempt, {
       signal: request.signal,
+      deadline: limit.deadline,
       onRetry: (attempt, error, delayMs) => {
         const reason = error instanceof Error ? error.message : String(error);
         request.onEvent?.({
           type: "provider_retry",
-          message: `Retrying provider request in ${Math.round(delayMs / 1_000)}s after a transient error (${attempt}/2).`,
+          message: `Retrying provider request in ${Math.round(delayMs / 1_000)}s after a transient error (${attempt}/${DEFAULT_PROVIDER_RETRY_DELAYS_MS.length}).`,
           data: { attempt, delayMs, reason },
         });
       },

@@ -31,6 +31,15 @@ describe("isRetryableProviderError", () => {
     expect(isRetryableProviderError(new Error("fetch failed"))).toBe(true);
     expect(isRetryableProviderError(new Error("socket hang up"))).toBe(true);
     expect(isRetryableProviderError(new Error("Request timed out"))).toBe(true);
+    // Codex dropouts seen in prod on 2026-10-08.
+    expect(
+      isRetryableProviderError(
+        new Error(
+          "Codex error: An error occurred while processing your request. You can retry your request, or contact us through our help center at help.openai.com if the error persists.",
+        ),
+      ),
+    ).toBe(true);
+    expect(isRetryableProviderError(new Error("WebSocket closed 1000"))).toBe(true);
   });
 
   it("classifies auth/quota/config errors as terminal", () => {
@@ -100,6 +109,27 @@ describe("withProviderRetries", () => {
       ),
     ).rejects.toThrow(/rate limit/);
     expect(attempts).toBe(2);
+  });
+
+  it("skips a retry whose wait would end past the deadline", async () => {
+    let attempts = 0;
+    const retries: number[] = [];
+    await expect(
+      withProviderRetries(
+        async () => {
+          attempts += 1;
+          throw new Error("503 service unavailable");
+        },
+        {
+          retryDelaysMs: [0, 60_000],
+          deadline: 1_030_000,
+          now: () => 1_000_000,
+          onRetry: (attempt) => retries.push(attempt),
+        },
+      ),
+    ).rejects.toThrow(/503/);
+    expect(attempts).toBe(2);
+    expect(retries).toEqual([1]);
   });
 
   it("aborts immediately while waiting for a provider retry", async () => {
