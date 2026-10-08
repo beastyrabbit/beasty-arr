@@ -548,14 +548,15 @@ async function runPiSessionAttempt(
   request: PiSessionRequest,
   provider: ProviderId,
   modelId: string,
+  limit: { timeoutMs: number; deadline: number },
 ): Promise<PiSessionResult> {
   const session = await createPiSession(deps, request, provider, modelId);
   const tracker = createSessionTracker(request);
   const { toolCalls, usage } = tracker;
   const unsubscribe = session.subscribe(tracker.listener);
 
-  const timeoutMs = request.timeoutMs ?? deps.env.PI_INFERENCE_TIMEOUT_MS;
-  const timeoutSignal = AbortSignal.timeout(timeoutMs);
+  const timeoutMs = limit.timeoutMs;
+  const timeoutSignal = AbortSignal.timeout(Math.max(0, limit.deadline - Date.now()));
   const combinedSignal = request.signal
     ? AbortSignal.any([request.signal, timeoutSignal])
     : timeoutSignal;
@@ -615,7 +616,11 @@ export function createPiRunner(deps: PiRunnerDeps): PiRunner {
     const provider = request.provider ?? snapshot.aiProvider;
     if (provider === "off") throw new Error("AI provider is disabled (aiProvider=off).");
     const modelId = request.model ?? snapshot.aiModel;
-    return await withProviderRetries(() => runPiSessionAttempt(deps, request, provider, modelId), {
+    // One inference limit across all attempts so retries cannot stack fresh limits.
+    const timeoutMs = request.timeoutMs ?? deps.env.PI_INFERENCE_TIMEOUT_MS;
+    const limit = { timeoutMs, deadline: Date.now() + timeoutMs };
+    const attempt = () => runPiSessionAttempt(deps, request, provider, modelId, limit);
+    return await withProviderRetries(attempt, {
       signal: request.signal,
       onRetry: (attempt, error, delayMs) => {
         const reason = error instanceof Error ? error.message : String(error);
