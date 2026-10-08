@@ -31,6 +31,15 @@ describe("isRetryableProviderError", () => {
     expect(isRetryableProviderError(new Error("fetch failed"))).toBe(true);
     expect(isRetryableProviderError(new Error("socket hang up"))).toBe(true);
     expect(isRetryableProviderError(new Error("Request timed out"))).toBe(true);
+    // Codex dropouts seen in prod on 2026-10-08.
+    expect(
+      isRetryableProviderError(
+        new Error(
+          "Codex error: An error occurred while processing your request. You can retry your request, or contact us through our help center at help.openai.com if the error persists.",
+        ),
+      ),
+    ).toBe(true);
+    expect(isRetryableProviderError(new Error("WebSocket closed 1000"))).toBe(true);
   });
 
   it("classifies auth/quota/config errors as terminal", () => {

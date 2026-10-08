@@ -215,7 +215,9 @@ export function isRetryableProviderError(error: unknown): boolean {
   return !TERMINAL_PROVIDER_ERROR.test(message) && RETRYABLE_PROVIDER_ERROR.test(message);
 }
 
-const DEFAULT_PROVIDER_RETRY_DELAYS_MS = [2_000, 8_000] as const;
+// Codex drops requests with a generic server error in bursts lasting minutes,
+// so the budget spans ~4 minutes; cancel still aborts the wait immediately.
+const DEFAULT_PROVIDER_RETRY_DELAYS_MS = [2_000, 10_000, 30_000, 60_000, 120_000] as const;
 
 async function waitForProviderRetry(delayMs: number, signal?: AbortSignal) {
   signal?.throwIfAborted();
@@ -619,7 +621,7 @@ export function createPiRunner(deps: PiRunnerDeps): PiRunner {
         const reason = error instanceof Error ? error.message : String(error);
         request.onEvent?.({
           type: "provider_retry",
-          message: `Retrying provider request in ${Math.round(delayMs / 1_000)}s after a transient error (${attempt}/2).`,
+          message: `Retrying provider request in ${Math.round(delayMs / 1_000)}s after a transient error (${attempt}/${DEFAULT_PROVIDER_RETRY_DELAYS_MS.length}).`,
           data: { attempt, delayMs, reason },
         });
       },
