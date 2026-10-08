@@ -684,8 +684,14 @@ export class SonarrClient {
     const grabs = records.filter(
       (record) => record.eventType === "grabbed" && record.seriesId && record.episodeId,
     );
-    const seriesId = grabs[0]?.seriesId;
-    if (!seriesId || grabs.some((record) => record.seriesId !== seriesId)) return undefined;
+    const seriesIds = [...new Set(grabs.map((record) => record.seriesId))];
+    if (seriesIds.length > 1) {
+      throw new Error(
+        `Download ${downloadId} was grabbed for several series (${seriesIds.join(", ")}); refusing to guess.`,
+      );
+    }
+    const seriesId = seriesIds[0];
+    if (!seriesId) return undefined;
     return { seriesId, episodeIds: [...new Set(grabs.map((record) => record.episodeId ?? 0))] };
   }
 

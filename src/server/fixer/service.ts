@@ -656,8 +656,10 @@ export class FixerService {
       episodeIds: grabbed.episodeIds,
       includeSeries: true,
     });
-    if (episodes.length === 0) {
-      throw new Error(`The episodes this download was grabbed for are no longer in Sonarr.`);
+    if (episodes.length < grabbed.episodeIds.length) {
+      throw new Error(
+        `Only ${episodes.length} of the ${grabbed.episodeIds.length} episodes this download was grabbed for are still in Sonarr.`,
+      );
     }
     const series = episodes[0]?.series;
     const label = `${series?.title ?? "series"} (series ${grabbed.seriesId})`;

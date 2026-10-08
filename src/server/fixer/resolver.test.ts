@@ -1281,6 +1281,28 @@ describe("deterministic guards on the real 2026-10-08 failures", () => {
     );
   });
 
+  it("does not measure an unmapped pack episode against the whole pack's runtime", async () => {
+    // A namesake re-target leaves the candidate on the other series' episode 101,
+    // so it falls back to both grabbed targets (2 x 25 min) while it runs 25 min.
+    const client = new FakeArrClient();
+    client.episodes = [301, 302].map((id) => ({ id, runtime: 25 }));
+    const { result } = await analyze(
+      {
+        queueItem: makeQueueItem({ seriesId: 77, episodeIds: [301, 302], queueMappedId: 5 }),
+        candidates: [makeCandidate("candidate_1", { seriesId: 5, episodeIds: [101] })],
+        client,
+        prober: fakeProber({
+          "/downloads/candidate_1.mkv": { durationSeconds: minutes(25), audio: [germanAudio()] },
+        }),
+      },
+      removeProposal(blocklistAndSearch, contradicted("another series")),
+    );
+    expect(result.status).toBe("needs_review");
+    expect(result.proposal.reviewReasons?.[0]).toContain(
+      "judged the download to be a different work",
+    );
+  });
+
   it("still blocklists a grab for the wrong namesake when the runtime contradicts it (Apostle for Paul)", async () => {
     // 2026-10-08: Radarr grabbed Apostle (2018) for "Paul, Apostle of Christ" (2018).
     const client = new FakeArrClient();

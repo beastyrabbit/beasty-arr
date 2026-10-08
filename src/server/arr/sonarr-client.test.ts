@@ -129,7 +129,7 @@ describe("SonarrClient", () => {
     ).toEqual([100, 100, 50]);
   });
 
-  it("reports no grabbed series when there is no grab or it spans several series", async () => {
+  it("reports no grab as unknown and refuses a grab that spans several series", async () => {
     const none = vi.fn<FetchImpl>(async () => jsonResponse({ records: [] }));
     await expect(client(none).getGrabbedEpisodes("dl-1")).resolves.toBeUndefined();
     const mixed = vi.fn<FetchImpl>(async () =>
@@ -140,7 +140,9 @@ describe("SonarrClient", () => {
         ],
       }),
     );
-    await expect(client(mixed).getGrabbedEpisodes("dl-1")).resolves.toBeUndefined();
+    await expect(client(mixed).getGrabbedEpisodes("dl-1")).rejects.toThrow(
+      "Download dl-1 was grabbed for several series (77, 5); refusing to guess.",
+    );
   });
 
   it("loads system status for connection tests", async () => {

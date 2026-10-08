@@ -392,10 +392,19 @@ export class RadarrClient {
    */
   async getGrabbedMovieId(downloadId: string): Promise<number | undefined> {
     const page = await this.request<ArrPaged<RadarrHistoryRecord>>(
-      appendQuery("/api/v3/history", { downloadId, eventType: 1, page: 1, pageSize: 10 }),
+      appendQuery("/api/v3/history", { downloadId, eventType: 1, page: 1, pageSize: 50 }),
     );
-    return (page.records ?? []).find((record) => record.eventType === "grabbed" && record.movieId)
-      ?.movieId;
+    const movieIds = new Set(
+      (page.records ?? []).flatMap((record) =>
+        record.eventType === "grabbed" && record.movieId ? [record.movieId] : [],
+      ),
+    );
+    if (movieIds.size > 1) {
+      throw new Error(
+        `Download ${downloadId} was grabbed for several movies (${[...movieIds].join(", ")}); refusing to guess.`,
+      );
+    }
+    return [...movieIds][0];
   }
 
   async parseRelease(title: string): Promise<RadarrParseResult> {

@@ -326,7 +326,14 @@ function wrongWorkReasons(
       probe: probeOf(facts, candidate.path),
       targets: targetsOfCandidate(queueItem, candidate, targets),
     };
-    return Boolean(yearReason(queueItem, file, facts) || runtimeReason(queueItem.service, file));
+    // An episode file not mapped to a target would be measured against the
+    // whole pack's summed runtime, so its runtime proves nothing.
+    const ownRuntime =
+      queueItem.service === "radarr" ||
+      targets.some((target) => candidate.episodeIds.includes(target.id));
+    return Boolean(
+      yearReason(queueItem, file, facts) || (ownRuntime && runtimeReason(queueItem.service, file)),
+    );
   });
   if (backed) return [];
   const labels = targets.map((target) => target.label).join(", ") || "the queued target";
