@@ -96,6 +96,24 @@ describe("SonarrClient", () => {
     );
   });
 
+  it("reads every page of a large pack's grab history", async () => {
+    const grab = (episodeId: number) => ({
+      id: episodeId,
+      eventType: "grabbed",
+      seriesId: 9,
+      episodeId,
+    });
+    const fetchMock = vi
+      .fn<FetchImpl>()
+      .mockResolvedValueOnce(jsonResponse({ totalRecords: 251, records: [grab(1)] }))
+      .mockResolvedValueOnce(jsonResponse({ totalRecords: 251, records: [grab(251)] }));
+    await expect(client(fetchMock).getGrabbedEpisodes("pack")).resolves.toEqual({
+      seriesId: 9,
+      episodeIds: [1, 251],
+    });
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("page=2");
+  });
+
   it("reports no grabbed series when there is no grab or it spans several series", async () => {
     const none = vi.fn<FetchImpl>(async () => jsonResponse({ records: [] }));
     await expect(client(none).getGrabbedEpisodes("dl-1")).resolves.toBeUndefined();

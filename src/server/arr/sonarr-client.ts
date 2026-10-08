@@ -668,10 +668,17 @@ export class SonarrClient {
   async getGrabbedEpisodes(
     downloadId: string,
   ): Promise<{ seriesId: number; episodeIds: number[] } | undefined> {
-    const page = await this.request<ArrPaged<SonarrHistoryRecord>>(
-      appendQuery("/api/v3/history", { downloadId, eventType: 1, page: 1, pageSize: 250 }),
-    );
-    const grabs = (page.records ?? []).filter(
+    // A complete-series pack can hold far more than one page of grabbed episodes.
+    const records: SonarrHistoryRecord[] = [];
+    const pageSize = 250;
+    for (let page = 1; ; page += 1) {
+      const response = await this.request<ArrPaged<SonarrHistoryRecord>>(
+        appendQuery("/api/v3/history", { downloadId, eventType: 1, page, pageSize }),
+      );
+      records.push(...(response.records ?? []));
+      if (page * pageSize >= (response.totalRecords ?? 0)) break;
+    }
+    const grabs = records.filter(
       (record) => record.eventType === "grabbed" && record.seriesId && record.episodeId,
     );
     const seriesId = grabs[0]?.seriesId;
