@@ -13,6 +13,7 @@ import type {
   ValidationResult,
 } from "../../shared/fixer-types.js";
 import { canLoadManualImportCandidates } from "../arr/sonarr-client.js";
+import { episodeLabel } from "../arr/sonarr-format.js";
 import type { SettingsService } from "../config/settings.js";
 import type { Db } from "../db/index.js";
 import { aiVerdicts, fixerAnalyses, fixerHistory } from "../db/schema.js";
@@ -605,7 +606,86 @@ export class FixerService {
         `Queue item ${queueItemId} was not found in the ${serviceName(service)} queue. Refresh the queue.`,
       );
     }
-    return mergeDownloadRows(item, this.queueCache?.items ?? []);
+    return this.withGrabbedTarget(mergeDownloadRows(item, this.queueCache?.items ?? []));
+  }
+
+  /**
+   * Radarr's queue re-maps an import-pending download by its title; the grab
+   * event names the movie it was downloaded for. With two "Maria (2024)" movies
+   * the queue named the wrong one and two correct releases were blocklisted.
+   * A failed lookup fails the analysis or apply rather than trusting the queue.
+   */
+  private async withGrabbedMovie<T extends QueueItem>(item: T): Promise<T> {
+    const radarr = this.clients.radarr;
+    if (item.service !== "radarr" || !item.downloadId || !radarr?.getGrabbedMovieId) return item;
+    const grabbedId = await radarr.getGrabbedMovieId(item.downloadId);
+    if (!grabbedId || grabbedId === item.movieId) return item;
+    const movie = await radarr.getMovie(grabbedId);
+    const label = [movie.title ?? `movie ${grabbedId}`, movie.year ? `(${movie.year})` : undefined]
+      .filter(Boolean)
+      .join(" ");
+    const queued = item.movieTitle ? `${item.movieTitle} (movie ${item.movieId})` : "another movie";
+    return {
+      ...item,
+      movieId: grabbedId,
+      queueMappedId: item.movieId,
+      seriesId: grabbedId,
+      movieTitle: movie.title,
+      seriesTitle: movie.title,
+      movieYear: movie.year,
+      episodeIds: [grabbedId],
+      episodeLabels: [label],
+      statusMessages: [
+        ...item.statusMessages,
+        `Radarr's queue maps this download to ${queued}, but it was grabbed for ${label} (movie ${grabbedId}); the grabbed movie is the target.`,
+      ],
+    };
+  }
+
+  /**
+   * Sonarr's counterpart: a download whose title parses to another series of
+   * the same name is checked against the series it was grabbed for. Episode
+   * mapping within the grabbed series stays Sonarr's; the episode guards check it.
+   */
+  private async withGrabbedSeries<T extends QueueItem>(item: T): Promise<T> {
+    const sonarr = this.clients.sonarr;
+    if (item.service !== "sonarr" || !item.downloadId || !sonarr?.getGrabbedEpisodes) return item;
+    const grabbed = await sonarr.getGrabbedEpisodes(item.downloadId);
+    if (!grabbed || grabbed.seriesId === item.seriesId) return item;
+    const episodes = await sonarr.getEpisodes({
+      episodeIds: grabbed.episodeIds,
+      includeSeries: true,
+    });
+    if (episodes.length === 0) {
+      throw new Error(`The episodes this download was grabbed for are no longer in Sonarr.`);
+    }
+    const series = episodes[0]?.series;
+    const label = `${series?.title ?? "series"} (series ${grabbed.seriesId})`;
+    const queued = item.seriesTitle
+      ? `${item.seriesTitle} (series ${item.seriesId})`
+      : "another series";
+    return {
+      ...item,
+      seriesId: grabbed.seriesId,
+      queueMappedId: item.seriesId,
+      seriesTitle: series?.title,
+      seriesType: series?.seriesType,
+      episodeIds: episodes.flatMap((episode) => (episode.id === undefined ? [] : [episode.id])),
+      absoluteEpisodeNumbers: episodes.flatMap((episode) =>
+        episode.absoluteEpisodeNumber === undefined ? [] : [episode.absoluteEpisodeNumber],
+      ),
+      episodeLabels: episodes.map(episodeLabel),
+      seasonEpisode: undefined,
+      statusMessages: [
+        ...item.statusMessages,
+        `Sonarr's queue maps this download to ${queued}, but it was grabbed for ${label}; the grabbed episodes are the target.`,
+      ],
+    };
+  }
+
+  /** The grab, not the queue's title re-mapping, names what a download is for. */
+  private async withGrabbedTarget<T extends QueueItem>(item: T): Promise<T> {
+    return item.service === "radarr" ? this.withGrabbedMovie(item) : this.withGrabbedSeries(item);
   }
 
   private async currentQueueItem(
@@ -620,7 +700,7 @@ export class FixerService {
       );
       const primary = rows.find((entry) => entry.id === queueItemId) ?? rows[0];
       if (!primary) return undefined;
-      const merged = mergeDownloadRows(primary, rows);
+      const merged = await this.withGrabbedTarget(mergeDownloadRows(primary, rows));
       if (merged.isInProgress)
         throw new Error("Download is still in progress; reanalyze when complete.");
       return { ...merged, issueType: queueIssueType(merged) };

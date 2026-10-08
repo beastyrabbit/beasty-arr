@@ -31,8 +31,14 @@ dialogue, folder listings, and NFO ids, and look up TMDb/TVDB titles and runtime
 states what the file actually is and why. Imports wait for review when the AI cannot confirm the
 identity, when the release year, runtime, or independent parse contradicts the target, when the
 file could not be inspected, or when it would lower the resolution without adding German audio.
-Removals wait when they would throw away German audio the library lacks or search for German the
-library already has. Each analysis keeps its tool results and the model's reasoning in the AI trace.
+Removals wait when they would throw away German audio the library lacks, when they would discard
+a German file the arr scores above the library copy or whose German track the arr's labels missed,
+when a "different work" verdict has no backing from the release year, runtime, or independent
+parse, or when they would search for German the library already has. Downloads are checked against
+the movie or series they were grabbed for, not the one the arr's queue re-maps them to by title. An
+audio track counts as German when its language tag or its title says so; when the two disagree,
+an import that would replace a German library file waits. Each analysis keeps its tool results
+and the model's reasoning in the AI trace.
 
 File inspection needs `FIXER_MEDIA_PATH_MAP` (for example `/data=/arr-data`) and the media share
 mounted read-only at the mapped path. Without it, every import waits for review.

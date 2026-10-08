@@ -54,8 +54,10 @@ export interface MediaProbeOk {
   audio: ProbeAudioStream[];
   subtitles: ProbeSubtitleStream[];
   chapters: { count: number; titles: string[] };
-  /** True when any audio stream's inferred language is German. */
+  /** True when any audio stream's language tag or title says German. */
   hasGermanAudio: boolean;
+  /** German comes only from tracks whose tag and title disagree ("spa" titled "Deutsch"). */
+  germanAudioUncertain?: boolean;
   /** Distinct inferred audio languages, in stream order. */
   audioLanguages: string[];
   /** Dialogue lines from the start of the best text subtitle stream (eng, then ger, then any). */

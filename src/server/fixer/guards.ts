@@ -167,6 +167,11 @@ function replacementReasons(facts: InspectionFacts, file: SelectedFile): string[
         `${name} has no German audio but would replace the German-audio file of ${target.label}.`,
       );
     }
+    if (probe?.hasGermanAudio && probe.germanAudioUncertain && germanNow) {
+      reasons.push(
+        `${name}'s German audio is uncertain (a track's language tag and title disagree) and it would replace the German-audio file of ${target.label}.`,
+      );
+    }
     const before = resolutionClass(currentFrameSize(facts, target));
     const after = resolutionClass(probe?.video);
     const addsGerman = probe?.hasGermanAudio === true && germanNow === false;
@@ -294,6 +299,87 @@ function germanLossReasons(
   });
 }
 
+function isFeatureFile(candidate: ManualImportCandidate): boolean {
+  return !candidate.isLikelySample && !isDiscStreamPath(candidate.path);
+}
+
+/**
+ * "It is a different work" must be backed by more than the AI's reading: the
+ * release year, the runtime, or the arr's own parse naming another title.
+ * Mary (2024) checked against Maria (2024) had none of them, and two correct
+ * releases were blocklisted. A parse naming the namesake the queue mapped the
+ * download to is no evidence: the two works share the title.
+ */
+function wrongWorkReasons(
+  queueItem: QueueItem,
+  candidates: ManualImportCandidate[],
+  targets: TargetFacts[],
+  facts: InspectionFacts,
+): string[] {
+  const parsedNamesake =
+    queueItem.queueMappedId !== undefined && facts.parse?.matchedId === queueItem.queueMappedId;
+  if (!parsedNamesake && parseReason(queueItem, facts)) return [];
+  const backed = candidates.filter(isFeatureFile).some((candidate) => {
+    const file: SelectedFile = {
+      name: fileName(candidate.path),
+      candidate,
+      probe: probeOf(facts, candidate.path),
+      targets: targetsOfCandidate(queueItem, candidate, targets),
+    };
+    return Boolean(yearReason(queueItem, file, facts) || runtimeReason(queueItem.service, file));
+  });
+  if (backed) return [];
+  const labels = targets.map((target) => target.label).join(", ") || "the queued target";
+  return [
+    `The AI judged the download to be a different work, but neither its release year, its runtime nor the arr's own parse of the name contradicts ${labels}.`,
+  ];
+}
+
+const NOT_AN_UPGRADE =
+  /\bnot an? (?:(?:custom format|quality revision|quality|revision) )?upgrade\b/i;
+
+/**
+ * A removal must not throw away a German file that may be an upgrade: the arr
+ * scores it higher than the library file (Benjamin Blümchen S01E03: 11700
+ * against -23300), or its labels missed the German track, so its scores and
+ * rejections were computed without it. The arr's own "not an upgrade" counts
+ * only when its labels saw the German track; a lower resolution never upgrades.
+ */
+function upgradeLossReasons(
+  queueItem: QueueItem,
+  candidates: ManualImportCandidate[],
+  targets: TargetFacts[],
+  facts: InspectionFacts,
+): string[] {
+  const arr = queueItem.service === "radarr" ? "Radarr" : "Sonarr";
+  return candidates.filter(isFeatureFile).flatMap((candidate) => {
+    if (!mayHaveGerman(facts, candidate)) return [];
+    const name = fileName(candidate.path);
+    const after = resolutionClass(probeOf(facts, candidate.path)?.video);
+    // A target without a file is germanLossReasons' case.
+    const comparable = targetsOfCandidate(queueItem, candidate, targets).filter((target) => {
+      if (!target.currentFile) return false;
+      const before = resolutionClass(currentFrameSize(facts, target));
+      return !(before && after && after < before);
+    });
+    if (comparable.length === 0) return [];
+    if (candidate.germanFromInspection) {
+      return [
+        `${name} has German audio that ${arr}'s labels missed, so ${arr}'s scores ignore it and it may be an upgrade.`,
+      ];
+    }
+    if (candidate.rejections.some((rejection) => NOT_AN_UPGRADE.test(rejection))) return [];
+    const score = candidate.customFormatScore;
+    return comparable.flatMap((target) => {
+      const now = target.currentFile?.customFormatScore;
+      if (score !== undefined && now !== undefined && score <= now) return [];
+      return [
+        `${name} keeps German audio and ${arr} scores it ${score ?? "unknown"} against ${now ?? "unknown"} for the library file of ${target.label}, so it may be an upgrade.`,
+      ];
+    });
+  });
+}
+
 function removalReviewReasons(
   queueItem: QueueItem,
   candidates: ManualImportCandidate[],
@@ -309,8 +395,13 @@ function removalReviewReasons(
   const libraryHasGerman =
     targets.length > 0 && targets.every((target) => currentHasGerman(facts, target) === true);
 
-  if (proposal.identity?.verdict !== "contradicted") {
-    reasons.push(...germanLossReasons(queueItem, candidates, targets, facts));
+  if (proposal.identity?.verdict === "contradicted") {
+    reasons.push(...wrongWorkReasons(queueItem, candidates, targets, facts));
+  } else {
+    reasons.push(
+      ...germanLossReasons(queueItem, candidates, targets, facts),
+      ...upgradeLossReasons(queueItem, candidates, targets, facts),
+    );
   }
   if (
     libraryHasGerman &&

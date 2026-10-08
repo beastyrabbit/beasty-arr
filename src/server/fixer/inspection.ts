@@ -4,6 +4,7 @@ import type { ArrMediaInfo } from "../arr/http-util.js";
 import type { RadarrClient, RadarrMovieRecord } from "../arr/radarr-client.js";
 import { isDiscStreamPath } from "../arr/sample.js";
 import type { SonarrClient, SonarrEpisodeRecord } from "../arr/sonarr-client.js";
+import { germanTagTitleConflict } from "../media/probe.js";
 import type { MediaProbeResult, MediaProber, ProbeSubtitleStream } from "../media/types.js";
 
 /**
@@ -49,11 +50,13 @@ export interface TargetFacts {
     quality?: string;
     languages: string[];
     mediaInfo?: ArrMediaInfo;
+    /** The arr's custom-format score of the library file, when it reports one. */
+    customFormatScore?: number;
   };
 }
 
 export type RadarrInspectionClient = Pick<RadarrClient, "getMovie"> &
-  Partial<Pick<RadarrClient, "parseRelease">>;
+  Partial<Pick<RadarrClient, "parseRelease" | "getMovieFile">>;
 export type SonarrInspectionClient = Pick<SonarrClient, "getEpisodes"> &
   Partial<Pick<SonarrClient, "parseRelease">>;
 
@@ -145,7 +148,10 @@ async function probeOnce(
   facts.probes.set(path, result);
 }
 
-function movieTarget(movie: RadarrMovieRecord): TargetFacts | undefined {
+function movieTarget(
+  movie: RadarrMovieRecord,
+  fileScore: number | undefined,
+): TargetFacts | undefined {
   if (!movie.id) return undefined;
   const file = movie.movieFile;
   return {
@@ -160,6 +166,7 @@ function movieTarget(movie: RadarrMovieRecord): TargetFacts | undefined {
           quality: qualityName(file.quality),
           languages: (file.languages ?? []).map(valueName).filter(Boolean),
           mediaInfo: file.mediaInfo,
+          customFormatScore: fileScore,
         }
       : undefined,
   };
@@ -181,6 +188,7 @@ function episodeTarget(episode: SonarrEpisodeRecord): TargetFacts | undefined {
             quality: qualityName(file.quality),
             languages: (file.languages ?? []).map(valueName).filter(Boolean),
             mediaInfo: file.mediaInfo,
+            customFormatScore: file.customFormatScore,
           }
         : undefined,
   };
@@ -212,6 +220,7 @@ export function withVerifiedGerman(
       ...candidate,
       languages: [...candidate.languages, GERMAN_LANGUAGE],
       languageLabels: [...candidate.languageLabels, GERMAN_LANGUAGE.name],
+      germanFromInspection: true,
     };
   });
 }
@@ -234,10 +243,20 @@ async function fetchTargets(
   ids: number[],
 ): Promise<Array<TargetFacts | undefined>> {
   if (service === "radarr") {
-    const movies = await Promise.all(
-      ids.map((id) => (client as RadarrInspectionClient).getMovie(id).catch(() => undefined)),
+    const radarr = client as RadarrInspectionClient;
+    return Promise.all(
+      ids.map(async (id) => {
+        const movie = await radarr.getMovie(id).catch(() => undefined);
+        if (!movie) return undefined;
+        // /movie/{id} omits the file's custom-format score; /moviefile/{id} has it.
+        const fileId = movie.movieFile?.id ?? movie.movieFileId;
+        const file =
+          fileId && radarr.getMovieFile
+            ? await radarr.getMovieFile(fileId).catch(() => undefined)
+            : undefined;
+        return movieTarget(movie, file?.customFormatScore);
+      }),
     );
-    return movies.map((movie) => movie && movieTarget(movie));
   }
   const episodes = await (client as SonarrInspectionClient)
     .getEpisodes({ episodeIds: ids, includeEpisodeFile: true })
@@ -367,8 +386,12 @@ export function summarizeProbe(probe: MediaProbeResult) {
       title: stream.title,
       codec: stream.codec,
       channels: stream.channels,
+      ...(germanTagTitleConflict(stream)
+        ? { conflict: "language tag and title name different languages" }
+        : {}),
     })),
     hasGermanAudio: probe.hasGermanAudio,
+    germanAudioUncertain: probe.germanAudioUncertain || undefined,
     subtitles: probe.subtitles.map(subtitleLabel),
     chapters: probe.chapters.count ? probe.chapters : undefined,
     subtitleExcerpt: probe.subtitleExcerpt,
@@ -394,6 +417,7 @@ export function renderInspection(
           path: target.currentFile.path,
           arrQuality: target.currentFile.quality,
           arrLanguages: target.currentFile.languages,
+          arrCustomFormatScore: target.currentFile.customFormatScore ?? "unknown",
           inspected: target.currentFile.path
             ? summarizeProbe(
                 facts.probes.get(target.currentFile.path) ?? {

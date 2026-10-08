@@ -660,6 +660,25 @@ export class SonarrClient {
     return this.request<SonarrSeriesRecord>(`/api/v3/series/${seriesId}`);
   }
 
+  /**
+   * The series and episodes a download was grabbed for. Sonarr's queue maps an
+   * import-pending download by parsing its title, which can name another series
+   * of the same title; the grab events name what Sonarr searched for.
+   */
+  async getGrabbedEpisodes(
+    downloadId: string,
+  ): Promise<{ seriesId: number; episodeIds: number[] } | undefined> {
+    const page = await this.request<ArrPaged<SonarrHistoryRecord>>(
+      appendQuery("/api/v3/history", { downloadId, eventType: 1, page: 1, pageSize: 250 }),
+    );
+    const grabs = (page.records ?? []).filter(
+      (record) => record.eventType === "grabbed" && record.seriesId && record.episodeId,
+    );
+    const seriesId = grabs[0]?.seriesId;
+    if (!seriesId || grabs.some((record) => record.seriesId !== seriesId)) return undefined;
+    return { seriesId, episodeIds: [...new Set(grabs.map((record) => record.episodeId ?? 0))] };
+  }
+
   async parseRelease(title: string): Promise<SonarrParseResult> {
     return this.request<SonarrParseResult>(appendQuery("/api/v3/parse", { title }));
   }

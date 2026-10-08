@@ -60,6 +60,11 @@ export interface QueueItem {
   movieId?: number;
   movieTitle?: string;
   movieYear?: number;
+  /**
+   * The movie/series id the arr's queue mapped the download to by title, set
+   * only when the grab named a different one (two works sharing a title).
+   */
+  queueMappedId?: number;
   statusMessages: string[];
   canAnalyze: boolean;
   addedAt?: string;
@@ -97,6 +102,11 @@ export interface ManualImportCandidate {
   downloadId?: string;
   isLikelySample: boolean;
   sampleReason?: string;
+  /**
+   * German was added from the fixer's file inspection because the arr's labels
+   * missed it; the arr's scores and rejections were computed without it.
+   */
+  germanFromInspection?: boolean;
 }
 
 /** Active Dub Oracle research supplied as evidence to the fixer model. */

@@ -68,6 +68,24 @@ describe("RadarrClient", () => {
     expect(queue[0]?.isInProgress).toBe(true);
     expect(String(fetchMock.mock.calls[1]?.[0])).toContain("page=2");
   });
+  it("reads the movie a download was grabbed for from its grab event", async () => {
+    const fetchMock = vi.fn<FetchImpl>(async () =>
+      jsonResponse({
+        totalRecords: 1,
+        records: [{ id: 5, eventType: "grabbed", movieId: 11075, downloadId: "dl 1" }],
+      }),
+    );
+    await expect(client(fetchMock).getGrabbedMovieId("dl 1")).resolves.toBe(11075);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      "http://radarr.local/api/v3/history?downloadId=dl+1&eventType=1&page=1&pageSize=10",
+    );
+  });
+
+  it("reports no grabbed movie when the history has no grab event", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ totalRecords: 0, records: [] }));
+    await expect(client(fetchMock).getGrabbedMovieId("dl-2")).resolves.toBeUndefined();
+  });
+
   it("loads system status for connection tests", async () => {
     const fetchMock = vi.fn(async () => jsonResponse({ version: "5.1.0", instanceName: "Movies" }));
 

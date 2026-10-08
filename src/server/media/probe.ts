@@ -267,6 +267,21 @@ export function inferLanguageFromTitle(title: string | undefined): string | unde
   return undefined;
 }
 
+/**
+ * A stream whose language tag and title name different languages, one of them
+ * German: a remux muxed "spa" with the title "Deutsch Dolby Digital 5.1".
+ * Which one is right cannot be told from the container, so German is uncertain.
+ */
+export function germanTagTitleConflict(stream: { language?: string; title?: string }): boolean {
+  const byTag = normalizeLanguageTag(stream.language);
+  const byTitle = inferLanguageFromTitle(stream.title);
+  return Boolean(byTag && byTitle && byTag !== byTitle && (byTag === "ger" || byTitle === "ger"));
+}
+
+function mayBeGermanStream(stream: { inferredLanguage?: string; title?: string }): boolean {
+  return stream.inferredLanguage === "ger" || inferLanguageFromTitle(stream.title) === "ger";
+}
+
 // ---------------------------------------------------------------------------
 // ffprobe mapping
 
@@ -389,7 +404,11 @@ export function mapFfprobeOutput(output: unknown): ProbedFile {
         .flatMap((chapter) => tagValue(chapter.tags, "title") ?? [])
         .slice(0, CHAPTER_TITLE_LIMIT),
     },
-    hasGermanAudio: audio.some((stream) => stream.inferredLanguage === "ger"),
+    hasGermanAudio: audio.some(mayBeGermanStream),
+    // Uncertain only when German comes solely from tracks whose tag and title disagree.
+    germanAudioUncertain:
+      audio.some(germanTagTitleConflict) &&
+      !audio.some((stream) => mayBeGermanStream(stream) && !germanTagTitleConflict(stream)),
     audioLanguages,
   };
 }
