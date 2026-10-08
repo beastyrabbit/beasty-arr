@@ -483,6 +483,31 @@ describe("ffprobe mapping", () => {
     expect(mapped.durationSeconds).toBe(1420.1);
   });
 
+  it("counts a German-titled track as German despite another language tag, and flags it uncertain", () => {
+    // For Your Consideration (MAMA remux, 2026-10-08): tagged spa, titled Deutsch.
+    const audio = (index: number, language: string, title?: string) => ({
+      index,
+      codec_type: "audio",
+      codec_name: "ac3",
+      tags: { language, ...(title ? { title } : {}) },
+    });
+    const mistagged = mapFfprobeOutput({
+      streams: [audio(1, "spa", "Deutsch Dolby Digital 5.1 (DVD)"), audio(2, "eng", "English")],
+    });
+    expect(mistagged.hasGermanAudio).toBe(true);
+    expect(mistagged.germanAudioUncertain).toBe(true);
+
+    const alsoProperGerman = mapFfprobeOutput({
+      streams: [audio(1, "spa", "Deutsch"), audio(2, "ger", "Deutsch DTS")],
+    });
+    expect(alsoProperGerman.hasGermanAudio).toBe(true);
+    expect(alsoProperGerman.germanAudioUncertain).toBe(false);
+
+    const plainSpanish = mapFfprobeOutput({ streams: [audio(1, "spa", "Castellano")] });
+    expect(plainSpanish.hasGermanAudio).toBe(false);
+    expect(plainSpanish.germanAudioUncertain).toBe(false);
+  });
+
   it("detects HDR10 and tolerates missing sections", () => {
     expect(
       mapFfprobeOutput({

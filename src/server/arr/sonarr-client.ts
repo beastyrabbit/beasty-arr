@@ -277,6 +277,9 @@ function joinUrl(baseUrl: string, path: string): string {
   return `${cleanBase}${cleanPath}`;
 }
 
+/** Episode ids per GET /api/v3/episode request (about 1.7 KB of query string). */
+const EPISODE_ID_BATCH = 100;
+
 function appendQuery(
   path: string,
   params: Record<string, string | number | boolean | undefined>,
@@ -660,6 +663,38 @@ export class SonarrClient {
     return this.request<SonarrSeriesRecord>(`/api/v3/series/${seriesId}`);
   }
 
+  /**
+   * The series and episodes a download was grabbed for. Sonarr's queue maps an
+   * import-pending download by parsing its title, which can name another series
+   * of the same title; the grab events name what Sonarr searched for.
+   */
+  async getGrabbedEpisodes(
+    downloadId: string,
+  ): Promise<{ seriesId: number; episodeIds: number[] } | undefined> {
+    // A complete-series pack can hold far more than one page of grabbed episodes.
+    const records: SonarrHistoryRecord[] = [];
+    const pageSize = 250;
+    for (let page = 1; ; page += 1) {
+      const response = await this.request<ArrPaged<SonarrHistoryRecord>>(
+        appendQuery("/api/v3/history", { downloadId, eventType: 1, page, pageSize }),
+      );
+      records.push(...(response.records ?? []));
+      if (page * pageSize >= (response.totalRecords ?? 0)) break;
+    }
+    const grabs = records.filter(
+      (record) => record.eventType === "grabbed" && record.seriesId && record.episodeId,
+    );
+    const seriesIds = [...new Set(grabs.map((record) => record.seriesId))];
+    if (seriesIds.length > 1) {
+      throw new Error(
+        `Download ${downloadId} was grabbed for several series (${seriesIds.join(", ")}); refusing to guess.`,
+      );
+    }
+    const seriesId = seriesIds[0];
+    if (!seriesId) return undefined;
+    return { seriesId, episodeIds: [...new Set(grabs.map((record) => record.episodeId ?? 0))] };
+  }
+
   async parseRelease(title: string): Promise<SonarrParseResult> {
     return this.request<SonarrParseResult>(appendQuery("/api/v3/parse", { title }));
   }
@@ -786,19 +821,30 @@ export class SonarrClient {
     includeSeries?: boolean;
     includeEpisodeFile?: boolean;
   }): Promise<SonarrEpisodeRecord[]> {
-    const params = new URLSearchParams();
-    if (seriesId !== undefined) {
-      params.set("seriesId", String(seriesId));
+    // Every id is its own query parameter; batches keep a complete-series pack
+    // under Sonarr's and the proxy's request-line limits.
+    const batches: Array<number[] | undefined> = [];
+    for (let start = 0; start < (episodeIds?.length ?? 0); start += EPISODE_ID_BATCH) {
+      batches.push(episodeIds?.slice(start, start + EPISODE_ID_BATCH));
     }
-    if (seasonNumber !== undefined) {
-      params.set("seasonNumber", String(seasonNumber));
-    }
-    for (const episodeId of episodeIds ?? []) {
-      params.append("episodeIds", String(episodeId));
-    }
-    params.set("includeSeries", String(includeSeries));
-    params.set("includeEpisodeFile", String(includeEpisodeFile));
-    return this.request<SonarrEpisodeRecord[]>(`/api/v3/episode?${params.toString()}`);
+    const results = await Promise.all(
+      (batches.length > 0 ? batches : [undefined]).map((batch) => {
+        const params = new URLSearchParams();
+        if (seriesId !== undefined) {
+          params.set("seriesId", String(seriesId));
+        }
+        if (seasonNumber !== undefined) {
+          params.set("seasonNumber", String(seasonNumber));
+        }
+        for (const episodeId of batch ?? []) {
+          params.append("episodeIds", String(episodeId));
+        }
+        params.set("includeSeries", String(includeSeries));
+        params.set("includeEpisodeFile", String(includeEpisodeFile));
+        return this.request<SonarrEpisodeRecord[]>(`/api/v3/episode?${params.toString()}`);
+      }),
+    );
+    return results.flat();
   }
 
   async listQueue(options: { includeInProgress?: boolean } = {}): Promise<QueueItem[]> {

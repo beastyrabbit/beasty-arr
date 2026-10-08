@@ -308,6 +308,100 @@ describe("FixerService analyze lifecycle", () => {
     });
   });
 
+  it("checks a Radarr download against the movie it was grabbed for, not the queue's re-mapping", async () => {
+    // 2026-10-08: Mary (2024, movie 11075) was grabbed, but Radarr's queue named
+    // Maria (2024, movie 11094), so two correct releases were blocklisted.
+    const { svc, radarr, runnerCtl, db } = makeHarness();
+    radarr.queue = [
+      makeQueueItem(2, {
+        service: "radarr",
+        title: "Maria.2024.German.DL.EAC3.1080p.NF.WEB.H264-ZeroTwo",
+        movieId: 11094,
+        movieTitle: "Maria",
+        movieYear: 2024,
+        episodeIds: [11094],
+        statusMessages: [
+          "Movie [Maria (2024)][tt22893404, 1038263] was not found in the grabbed release",
+        ],
+      }),
+    ];
+    radarr.candidatesByItem.set(2, [
+      makeCandidate("candidate_1", [], { service: "radarr", movieId: 11094 }),
+    ]);
+    const grabbedFor: string[] = [];
+    Object.assign(radarr, {
+      getGrabbedMovieId: async (downloadId: string) => {
+        grabbedFor.push(downloadId);
+        return 11075;
+      },
+      getMovie: async (movieId: number) => ({ id: movieId, title: "Maria", year: 2024 }),
+    });
+
+    const { analysisId } = await svc.analyze("radarr", 2);
+    await svc.waitForAnalysis(analysisId);
+
+    expect(grabbedFor).toEqual(["dl-2"]);
+    const prompt = runnerCtl.calls[0]?.prompt ?? "";
+    expect(prompt).toContain('"movieId": 11075');
+    expect(prompt).toContain(
+      "Radarr's queue maps this download to Maria (movie 11094), but it was grabbed for Maria (2024) (movie 11075); the grabbed movie is the target.",
+    );
+    expect(
+      db.select().from(fixerAnalyses).where(eq(fixerAnalyses.id, analysisId)).get()
+        ?.targetEpisodeIds,
+    ).toEqual([11075]);
+  });
+
+  it("checks a Sonarr download against the series it was grabbed for when the queue names a namesake", async () => {
+    const { svc, sonarr, runnerCtl } = makeHarness();
+    sonarr.queue = [
+      makeQueueItem(1, {
+        title: "Monster.S01E01.German.1080p",
+        seriesId: 5,
+        seriesTitle: "Monster",
+      }),
+    ];
+    sonarr.candidatesByItem.set(1, [makeCandidate("candidate_1", [101])]);
+    sonarr.episodes = [
+      {
+        id: 301,
+        seasonNumber: 1,
+        episodeNumber: 1,
+        title: "Herbstliche Rosen",
+        series: { id: 77, title: "Monster", seriesType: "anime" },
+      },
+    ];
+    Object.assign(sonarr, {
+      getGrabbedEpisodes: async () => ({ seriesId: 77, episodeIds: [301] }),
+    });
+
+    const { analysisId } = await svc.analyze("sonarr", 1);
+    await svc.waitForAnalysis(analysisId);
+
+    const prompt = runnerCtl.calls[0]?.prompt ?? "";
+    expect(prompt).toContain('"seriesId": 77');
+    expect(prompt).toContain('"seriesType": "anime"');
+    expect(prompt).toContain(
+      "Sonarr's queue maps this download to Monster (series 5), but it was grabbed for Monster (series 77); the grabbed episodes are the target.",
+    );
+    expect(svc.getAnalysis(analysisId)?.targetEpisodeIds).toEqual([301]);
+  });
+
+  it("keeps Sonarr's episode mapping when the grab names the same series", async () => {
+    const { svc, sonarr, runnerCtl } = makeHarness();
+    sonarr.queue = [makeQueueItem(1)];
+    sonarr.candidatesByItem.set(1, [makeCandidate("candidate_1", [101])]);
+    Object.assign(sonarr, {
+      getGrabbedEpisodes: async () => ({ seriesId: 5, episodeIds: [999] }),
+    });
+
+    const { analysisId } = await svc.analyze("sonarr", 1);
+    await svc.waitForAnalysis(analysisId);
+
+    expect(runnerCtl.calls[0]?.prompt).not.toContain("but it was grabbed for");
+    expect(svc.getAnalysis(analysisId)?.targetEpisodeIds).toEqual([101]);
+  });
+
   it("runs an analysis to completion, persisting proposal, validation, candidates, and events", async () => {
     const { svc, sonarr, runnerCtl, busEvents } = makeHarness();
     sonarr.queue = [makeQueueItem(1)];

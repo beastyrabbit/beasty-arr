@@ -77,6 +77,74 @@ describe("SonarrClient", () => {
     expect(queue[0]?.isInProgress).toBe(true);
     expect(String(fetchMock.mock.calls[1]?.[0])).toContain("page=2");
   });
+  it("reads the series and episodes a download was grabbed for", async () => {
+    const fetchMock = vi.fn<FetchImpl>(async () =>
+      jsonResponse({
+        records: [
+          { id: 1, eventType: "grabbed", seriesId: 77, episodeId: 301 },
+          { id: 2, eventType: "grabbed", seriesId: 77, episodeId: 302 },
+          { id: 3, eventType: "grabbed", seriesId: 77, episodeId: 301 },
+        ],
+      }),
+    );
+    await expect(client(fetchMock).getGrabbedEpisodes("dl-1")).resolves.toEqual({
+      seriesId: 77,
+      episodeIds: [301, 302],
+    });
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
+      "/api/v3/history?downloadId=dl-1&eventType=1&page=1&pageSize=250",
+    );
+  });
+
+  it("reads every page of a large pack's grab history", async () => {
+    const grab = (episodeId: number) => ({
+      id: episodeId,
+      eventType: "grabbed",
+      seriesId: 9,
+      episodeId,
+    });
+    const fetchMock = vi
+      .fn<FetchImpl>()
+      .mockResolvedValueOnce(jsonResponse({ totalRecords: 251, records: [grab(1)] }))
+      .mockResolvedValueOnce(jsonResponse({ totalRecords: 251, records: [grab(251)] }));
+    await expect(client(fetchMock).getGrabbedEpisodes("pack")).resolves.toEqual({
+      seriesId: 9,
+      episodeIds: [1, 251],
+    });
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("page=2");
+  });
+
+  it("loads a complete-series pack's episodes in bounded batches", async () => {
+    const fetchMock = vi.fn<FetchImpl>(async (url) => {
+      const ids = new URL(String(url)).searchParams.getAll("episodeIds").map(Number);
+      return jsonResponse(ids.map((id) => ({ id })));
+    });
+    const ids = Array.from({ length: 250 }, (_, index) => index + 1);
+    const episodes = await client(fetchMock).getEpisodes({ episodeIds: ids });
+    expect(episodes.map((episode) => episode.id)).toEqual(ids);
+    expect(
+      fetchMock.mock.calls.map(
+        ([url]) => new URL(String(url)).searchParams.getAll("episodeIds").length,
+      ),
+    ).toEqual([100, 100, 50]);
+  });
+
+  it("reports no grab as unknown and refuses a grab that spans several series", async () => {
+    const none = vi.fn<FetchImpl>(async () => jsonResponse({ records: [] }));
+    await expect(client(none).getGrabbedEpisodes("dl-1")).resolves.toBeUndefined();
+    const mixed = vi.fn<FetchImpl>(async () =>
+      jsonResponse({
+        records: [
+          { id: 1, eventType: "grabbed", seriesId: 77, episodeId: 301 },
+          { id: 2, eventType: "grabbed", seriesId: 5, episodeId: 101 },
+        ],
+      }),
+    );
+    await expect(client(mixed).getGrabbedEpisodes("dl-1")).rejects.toThrow(
+      "Download dl-1 was grabbed for several series (77, 5); refusing to guess.",
+    );
+  });
+
   it("loads system status for connection tests", async () => {
     const fetchMock = vi.fn(async () => jsonResponse({ version: "4.0.0", instanceName: "Series" }));
 

@@ -6,7 +6,11 @@ import type {
   QueueRemovalOptions,
   ResolutionProposal,
 } from "../../shared/fixer-types.js";
-import type { RadarrMovieRecord, RadarrParseResult } from "../arr/radarr-client.js";
+import type {
+  RadarrMovieFileRecord,
+  RadarrMovieRecord,
+  RadarrParseResult,
+} from "../arr/radarr-client.js";
 import type { SonarrEpisodeRecord, SonarrParseResult } from "../arr/sonarr-client.js";
 import type { MediaProbeOk } from "../media/types.js";
 import type { FixerAnalysisEvent, FixerPiRunner, FixerPiRunRequest } from "./ai-port.js";
@@ -30,6 +34,7 @@ class FakeArrClient {
   episodes: SonarrEpisodeRecord[] = [];
   moviesById = new Map<number, RadarrMovieRecord>();
   parseResult: RadarrParseResult & SonarrParseResult = {};
+  getMovieFile?: (movieFileId: number) => Promise<RadarrMovieFileRecord>;
   async listQueue(): Promise<QueueItem[]> {
     return this.queue;
   }
@@ -979,16 +984,25 @@ describe("deterministic guards on the real 2026-10-03 failures", () => {
 
   it("holds a pack removal when one episode would lose its only German source", async () => {
     const client = new FakeArrClient();
+    // Scores below the library's keep the upgrade guard out of this case.
     client.episodes = [
-      { id: 101, hasFile: true, episodeFile: { path: "/lib/E01.mkv", languages: [] } },
-      { id: 102, hasFile: true, episodeFile: { path: "/lib/E02.mkv", languages: [] } },
+      {
+        id: 101,
+        hasFile: true,
+        episodeFile: { path: "/lib/E01.mkv", languages: [], customFormatScore: 200 },
+      },
+      {
+        id: 102,
+        hasFile: true,
+        episodeFile: { path: "/lib/E02.mkv", languages: [], customFormatScore: 200 },
+      },
     ];
     const { result } = await analyze(
       {
         queueItem: makeQueueItem({ episodeIds: [101, 102] }),
         candidates: [
-          makeCandidate("candidate_1", { episodeIds: [101] }),
-          makeCandidate("candidate_2", { episodeIds: [102] }),
+          makeCandidate("candidate_1", { episodeIds: [101], customFormatScore: 100 }),
+          makeCandidate("candidate_2", { episodeIds: [102], customFormatScore: 100 }),
         ],
         client,
         prober: fakeProber({
@@ -1170,5 +1184,305 @@ describe("deterministic guards on the real 2026-10-03 failures", () => {
     });
     expect(calls).toHaveLength(1);
     expect(result.status).toBe("proposal");
+  });
+});
+
+describe("deterministic guards on the real 2026-10-08 failures", () => {
+  const blocklistAndSearch = {
+    removeFromClient: true,
+    blocklist: true,
+    skipRedownload: false,
+    changeCategory: false,
+  };
+  const blocklistOnly = { ...blocklistAndSearch, skipRedownload: true };
+  const contradicted = (actualWork: string) => ({
+    identity: { verdict: "contradicted" as const, actualWork, evidence: ["Subtitle dialogue."] },
+  });
+
+  function radarrMovie(id: number, title: string, year: number, runtime: number) {
+    return {
+      id,
+      title,
+      year,
+      runtime,
+      movieFile: { id: id * 10, path: `/lib/${title}.mkv`, languages: [{ id: 4, name: "German" }] },
+    };
+  }
+
+  function radarrItem(movieId: number, title: string): QueueItem {
+    return makeQueueItem({ service: "radarr", movieId, episodeIds: [], title });
+  }
+
+  function radarrCandidate(movieId: number, folderName: string, over = {}) {
+    return makeCandidate("candidate_1", {
+      service: "radarr",
+      movieId,
+      episodeIds: [],
+      folderName,
+      relativePath: `${folderName}.mkv`,
+      ...over,
+    });
+  }
+
+  it("holds a wrong-movie blocklist that no year, runtime or parse backs (Mary checked as Maria)", async () => {
+    const client = new FakeArrClient();
+    client.moviesById.set(11094, radarrMovie(11094, "Maria", 2024, 123));
+    client.parseResult = { movie: { id: 11094, title: "Maria", year: 2024 } };
+    const release = "Maria.2024.German.DL.EAC3.1080p.NF.WEB.H264-ZeroTwo";
+    const { result } = await analyze(
+      {
+        queueItem: radarrItem(11094, release),
+        candidates: [radarrCandidate(11094, release)],
+        client,
+        prober: fakeProber({
+          "/downloads/candidate_1.mkv": {
+            durationSeconds: minutes(112),
+            audio: [germanAudio()],
+            hasGermanAudio: true,
+          },
+          "/lib/Maria.mkv": {
+            durationSeconds: minutes(123),
+            audio: [germanAudio()],
+            hasGermanAudio: true,
+          },
+        }),
+      },
+      removeProposal(blocklistAndSearch, contradicted("Mary (2024)")),
+    );
+    expect(result.status).toBe("needs_review");
+    expect(result.proposal.reviewReasons).toEqual([
+      "The AI judged the download to be a different work, but neither its release year, its runtime nor the arr's own parse of the name contradicts Maria (2024).",
+    ]);
+  });
+
+  it("does not count a parse naming the queue's namesake as wrong-work evidence (Mary after the grab fix)", async () => {
+    const client = new FakeArrClient();
+    client.moviesById.set(11075, radarrMovie(11075, "Maria", 2024, 112));
+    client.parseResult = { movie: { id: 11094, title: "Maria", year: 2024 } };
+    const release = "Maria.2024.German.DL.EAC3.1080p.NF.WEB.H264-ZeroTwo";
+    const { result } = await analyze(
+      {
+        queueItem: { ...radarrItem(11075, release), queueMappedId: 11094 },
+        candidates: [radarrCandidate(11094, release)],
+        client,
+        prober: fakeProber({
+          "/downloads/candidate_1.mkv": {
+            durationSeconds: minutes(112),
+            audio: [germanAudio()],
+            hasGermanAudio: true,
+          },
+        }),
+      },
+      removeProposal(blocklistAndSearch, contradicted("Maria (2024), the Callas film")),
+    );
+    expect(result.status).toBe("needs_review");
+    expect(result.proposal.reviewReasons?.[0]).toContain(
+      "judged the download to be a different work",
+    );
+  });
+
+  it("does not measure an unmapped pack episode against the whole pack's runtime", async () => {
+    // A namesake re-target leaves the candidate on the other series' episode 101,
+    // so it falls back to both grabbed targets (2 x 25 min) while it runs 25 min.
+    const client = new FakeArrClient();
+    client.episodes = [301, 302].map((id) => ({ id, runtime: 25 }));
+    const { result } = await analyze(
+      {
+        queueItem: makeQueueItem({ seriesId: 77, episodeIds: [301, 302], queueMappedId: 5 }),
+        candidates: [makeCandidate("candidate_1", { seriesId: 5, episodeIds: [101] })],
+        client,
+        prober: fakeProber({
+          "/downloads/candidate_1.mkv": { durationSeconds: minutes(25), audio: [germanAudio()] },
+        }),
+      },
+      removeProposal(blocklistAndSearch, contradicted("another series")),
+    );
+    expect(result.status).toBe("needs_review");
+    expect(result.proposal.reviewReasons?.[0]).toContain(
+      "judged the download to be a different work",
+    );
+  });
+
+  it("still blocklists a grab for the wrong namesake when the runtime contradicts it (Apostle for Paul)", async () => {
+    // 2026-10-08: Radarr grabbed Apostle (2018) for "Paul, Apostle of Christ" (2018).
+    const client = new FakeArrClient();
+    client.moviesById.set(13511, radarrMovie(13511, "Paulus, der Apostel Christi", 2018, 108));
+    client.parseResult = { movie: { id: 12359, title: "Apostle", year: 2018 } };
+    const release = "Apostle.2018.German.DL.1080p.WEB.x264.iNTERNAL-BiGiNT";
+    const { result } = await analyze(
+      {
+        queueItem: { ...radarrItem(13511, release), queueMappedId: 12359 },
+        candidates: [radarrCandidate(12359, release)],
+        client,
+        prober: fakeProber({
+          "/downloads/candidate_1.mkv": {
+            durationSeconds: minutes(130),
+            audio: [germanAudio()],
+            hasGermanAudio: true,
+          },
+        }),
+      },
+      removeProposal(blocklistAndSearch, contradicted("Apostle (2018)")),
+    );
+    expect(result.status).toBe("proposal");
+    expect(result.proposal.action).toBe("remove_queue_item");
+  });
+
+  it("still blocklists a wrong movie whose release year contradicts the target (Jack for Ghostbusters)", async () => {
+    const client = new FakeArrClient();
+    client.moviesById.set(2367, radarrMovie(2367, "Ghostbusters", 1984, 105));
+    const release = "Jack.Extrem.schnell.2000.German.AC3D.DL.1080p.AmazonHD.h264-paranoid06";
+    const { result } = await analyze(
+      {
+        queueItem: radarrItem(2367, release),
+        candidates: [radarrCandidate(2367, release)],
+        client,
+        prober: fakeProber({
+          "/downloads/candidate_1.mkv": {
+            durationSeconds: minutes(93),
+            audio: [germanAudio()],
+            hasGermanAudio: true,
+          },
+        }),
+      },
+      removeProposal(blocklistAndSearch, contradicted("Jack – Extrem schnell (2000)")),
+    );
+    expect(result.status).toBe("proposal");
+    expect(result.proposal.action).toBe("remove_queue_item");
+  });
+
+  it("holds removing a German remux whose German track Radarr's labels missed (For Your Consideration)", async () => {
+    const client = new FakeArrClient();
+    client.moviesById.set(13659, radarrMovie(13659, "Es lebe Hollywood", 2006, 86));
+    client.getMovieFile = async () => ({ customFormatScore: 11700 });
+    const release =
+      "Es.lebe.Hollywood.-.For.Your.Consideration.2006.German.Dubbed.AC3.DL.1080p.WAC.BluRay.AVC.Remux-MAMA";
+    const { result } = await analyze(
+      {
+        queueItem: radarrItem(13659, release),
+        candidates: [
+          radarrCandidate(13659, release, {
+            languages: [
+              { id: 3, name: "Spanish" },
+              { id: 1, name: "English" },
+            ],
+            languageLabels: ["Spanish", "English"],
+            customFormatScore: 4800,
+          }),
+        ],
+        client,
+        prober: fakeProber({
+          "/downloads/candidate_1.mkv": {
+            durationSeconds: minutes(86),
+            audio: [
+              {
+                index: 1,
+                codec: "ac3",
+                language: "spa",
+                inferredLanguage: "spa",
+                title: "Deutsch Dolby Digital 5.1 (DVD)",
+              },
+              englishAudio(),
+            ],
+            hasGermanAudio: true,
+            germanAudioUncertain: true,
+          },
+          "/lib/Es lebe Hollywood.mkv": { audio: [germanAudio()], hasGermanAudio: true },
+        }),
+      },
+      removeProposal(blocklistOnly),
+    );
+    expect(result.status).toBe("needs_review");
+    expect(result.proposal.reviewReasons).toEqual([
+      "candidate_1.mkv has German audio that Radarr's labels missed, so Radarr's scores ignore it and it may be an upgrade.",
+    ]);
+  });
+
+  /** Episode 101 with a German library file; analyses `candidate_1` with `proposal`. */
+  async function analyzeEpisode(input: {
+    candidate?: Partial<ManualImportCandidate>;
+    candidateProbe?: Partial<MediaProbeOk>;
+    libraryScore?: number;
+    libraryVideo?: MediaProbeOk["video"];
+    proposal?: ResolutionProposal;
+  }) {
+    const client = new FakeArrClient();
+    client.episodes = [
+      {
+        id: 101,
+        hasFile: true,
+        episodeFile: { path: "/lib/E01.mkv", languages: [], customFormatScore: input.libraryScore },
+      },
+    ];
+    const { result } = await analyze(
+      {
+        queueItem: makeQueueItem(),
+        candidates: [makeCandidate("candidate_1", input.candidate)],
+        client,
+        prober: fakeProber({
+          "/downloads/candidate_1.mkv": {
+            audio: [germanAudio()],
+            hasGermanAudio: true,
+            ...input.candidateProbe,
+          },
+          "/lib/E01.mkv": {
+            video: input.libraryVideo,
+            audio: [germanAudio()],
+            hasGermanAudio: true,
+          },
+        }),
+      },
+      input.proposal ?? removeProposal(blocklistOnly),
+    );
+    return result;
+  }
+
+  it("holds removing a German episode Sonarr scores above the library file (Benjamin Blümchen S01E03)", async () => {
+    const result = await analyzeEpisode({
+      candidate: { customFormatScore: 11700 },
+      libraryScore: -23300,
+    });
+    expect(result.status).toBe("needs_review");
+    expect(result.proposal.reviewReasons).toEqual([
+      "candidate_1.mkv keeps German audio and Sonarr scores it 11700 against -23300 for the library file of episode 101, so it may be an upgrade.",
+    ]);
+  });
+
+  it.each([
+    "Not a Custom Format upgrade for existing episode file(s).",
+    "Not an upgrade for existing episode file(s).",
+    "Not a quality upgrade for existing episode file(s).",
+    "Not a revision upgrade for existing episode file(s).",
+    "Not a quality revision upgrade for existing episode file(s).",
+  ])("removes a German duplicate the arr itself rejects: '%s' (Apostle)", async (rejection) => {
+    const result = await analyzeEpisode({ candidate: { rejections: [rejection] } });
+    expect(result.status).toBe("proposal");
+    expect(result.proposal.action).toBe("remove_queue_item");
+  });
+
+  it("holds an import whose only German track is uncertain over a German library file", async () => {
+    const result = await analyzeEpisode({
+      candidateProbe: {
+        audio: [
+          { index: 1, codec: "ac3", language: "spa", inferredLanguage: "spa", title: "Deutsch" },
+        ],
+        germanAudioUncertain: true,
+      },
+      proposal: importProposal("candidate_1"),
+    });
+    expect(result.status).toBe("needs_review");
+    expect(result.proposal.reviewReasons).toEqual([
+      "candidate_1.mkv's German audio is uncertain (a track's language tag and title disagree) and it would replace the German-audio file of episode 101.",
+    ]);
+  });
+
+  it("removes a lower-resolution German file even when the arr's labels missed its German", async () => {
+    const result = await analyzeEpisode({
+      candidate: { languages: [{ id: 1, name: "English" }], languageLabels: ["English"] },
+      candidateProbe: { video: { width: 1280, height: 720 } },
+      libraryVideo: { width: 1920, height: 1080 },
+    });
+    expect(result.status).toBe("proposal");
+    expect(result.proposal.action).toBe("remove_queue_item");
   });
 });

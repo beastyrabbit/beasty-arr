@@ -46,7 +46,14 @@ export type SonarrFixerClientPort = Pick<
   | "getCustomFormats"
 > &
   Partial<
-    Pick<SonarrClient, "verifyImportApplied" | "parseRelease" | "lookupSeries" | "getSeriesById">
+    Pick<
+      SonarrClient,
+      | "verifyImportApplied"
+      | "parseRelease"
+      | "lookupSeries"
+      | "getSeriesById"
+      | "getGrabbedEpisodes"
+    >
   >;
 
 export type RadarrFixerClientPort = Pick<
@@ -60,7 +67,12 @@ export type RadarrFixerClientPort = Pick<
   | "getQualityProfiles"
   | "getCustomFormats"
 > &
-  Partial<Pick<RadarrClient, "verifyImportApplied" | "parseRelease" | "lookupMovies">>;
+  Partial<
+    Pick<
+      RadarrClient,
+      "verifyImportApplied" | "parseRelease" | "lookupMovies" | "getMovieFile" | "getGrabbedMovieId"
+    >
+  >;
 
 export type FixerClientPort = SonarrFixerClientPort | RadarrFixerClientPort;
 

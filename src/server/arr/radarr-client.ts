@@ -380,6 +380,33 @@ export class RadarrClient {
     return this.request<RadarrMovieRecord>(`/api/v3/movie/${movieId}`);
   }
 
+  /** Unlike movie.movieFile, this carries the file's custom-format score. */
+  async getMovieFile(movieFileId: number): Promise<RadarrMovieFileRecord> {
+    return this.request<RadarrMovieFileRecord>(`/api/v3/moviefile/${movieFileId}`);
+  }
+
+  /**
+   * The movie a download was grabbed for. Radarr's queue re-maps an import-pending
+   * download by its title, so with two movies called "Maria (2024)" the queue can
+   * name the wrong one; the grab event names the movie Radarr searched for.
+   */
+  async getGrabbedMovieId(downloadId: string): Promise<number | undefined> {
+    const page = await this.request<ArrPaged<RadarrHistoryRecord>>(
+      appendQuery("/api/v3/history", { downloadId, eventType: 1, page: 1, pageSize: 50 }),
+    );
+    const movieIds = new Set(
+      (page.records ?? []).flatMap((record) =>
+        record.eventType === "grabbed" && record.movieId ? [record.movieId] : [],
+      ),
+    );
+    if (movieIds.size > 1) {
+      throw new Error(
+        `Download ${downloadId} was grabbed for several movies (${[...movieIds].join(", ")}); refusing to guess.`,
+      );
+    }
+    return [...movieIds][0];
+  }
+
   async parseRelease(title: string): Promise<RadarrParseResult> {
     return this.request<RadarrParseResult>(appendQuery("/api/v3/parse", { title }));
   }
