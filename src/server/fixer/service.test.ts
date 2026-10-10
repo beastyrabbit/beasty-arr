@@ -57,8 +57,11 @@ class FakeArrClient {
     options?: ImportVerificationOptions,
   ) => Promise<ApplyResult>;
   episodes: SonarrEpisodeRecord[] = [];
-  async listQueue(): Promise<QueueItem[]> {
-    return this.queue;
+  /** Like the real clients: in-progress rows only when asked for. */
+  async listQueue(options: { includeInProgress?: boolean } = {}): Promise<QueueItem[]> {
+    return options.includeInProgress
+      ? this.queue
+      : this.queue.filter((item) => item.isInProgress !== true);
   }
   async getManualImportCandidates(queueItem: QueueItem): Promise<ManualImportCandidate[]> {
     if (this.failCandidates) {
@@ -861,6 +864,35 @@ describe("FixerService apply", () => {
     expect(removal).toMatchObject({ ok: false, busy: true });
     expect(harness.sonarr.removeCalls).toHaveLength(0);
     expect((await applying).ok).toBe(true);
+  });
+
+  it("finds a running apply from a cold cache through an in-progress sibling row", async () => {
+    const harness = makeHarness();
+    harness.sonarr.queue = [
+      makeQueueItem(1, { downloadId: "season-pack" }),
+      makeQueueItem(2, { downloadId: "season-pack", episodeIds: [102] }),
+    ];
+    harness.sonarr.candidatesByItem.set(1, [makeCandidate("candidate_1", [101])]);
+    harness.runnerCtl.setScript(() => importProposal("candidate_1", [101]));
+    const { analysisId } = await harness.svc.analyzeAndWait("sonarr", 1);
+    harness.settings.update({ dryRun: false });
+    let finish: () => void = () => undefined;
+    harness.sonarr.verifyImportApplied = (_queueItem, result) =>
+      new Promise((resolve) => {
+        finish = () => resolve(result);
+      });
+
+    const applying = harness.svc.apply(analysisId);
+    await vi.waitFor(() => expect(harness.sonarr.applyCalls).toHaveLength(1));
+    // Sonarr now reports the sibling as importing, and the cache is gone.
+    harness.sonarr.queue[1] = { ...(harness.sonarr.queue[1] as QueueItem), isInProgress: true };
+    (harness.svc as unknown as { queueCache: null }).queueCache = null;
+    const removal = await harness.svc.removeQueueItem("sonarr", 2);
+    finish();
+
+    expect(removal).toMatchObject({ ok: false, busy: true });
+    expect(harness.sonarr.removeCalls).toHaveLength(0);
+    await applying;
   });
 
   it("drains a running apply on shutdown and stops its verification", async () => {

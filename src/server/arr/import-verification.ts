@@ -49,6 +49,29 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
+/**
+ * Settles with undefined as soon as the signal aborts. An arr request can hang
+ * for its 30 s timeout plus retries; shutdown must not wait for it.
+ */
+function untilAborted<T>(work: Promise<T>, signal?: AbortSignal): Promise<T | undefined> {
+  if (!signal) return work;
+  return new Promise((resolve, reject) => {
+    const stop = () => resolve(undefined);
+    if (signal.aborted) return stop();
+    signal.addEventListener("abort", stop, { once: true });
+    work.then(
+      (value) => {
+        signal.removeEventListener("abort", stop);
+        resolve(value);
+      },
+      (error: unknown) => {
+        signal.removeEventListener("abort", stop);
+        reject(error);
+      },
+    );
+  });
+}
+
 /** The command's failure label when Sonarr/Radarr reports a terminal failure. */
 function terminalFailure(command: ArrCommandResource | undefined): string | undefined {
   const status = command?.status?.trim().toLowerCase();
@@ -116,7 +139,7 @@ export async function verifyManualImport(input: ImportVerificationInput): Promis
 
   try {
     for (let attempt = 0; attempt < attempts && !input.signal?.aborted; attempt += 1) {
-      const result = await pollImport(input, state);
+      const result = await untilAborted(pollImport(input, state), input.signal);
       if (result) return result;
       if (attempt + 1 < attempts && intervalMs > 0) {
         await sleep(Math.min(MAX_INTERVAL_MS, intervalMs * 2 ** attempt), input.signal);

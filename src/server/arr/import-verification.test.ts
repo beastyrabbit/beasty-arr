@@ -70,6 +70,24 @@ describe("verifyManualImport", () => {
     expect(result.message).toContain("stopped for shutdown");
   });
 
+  it("does not wait for a hung arr request once shutdown aborts", async () => {
+    const controller = new AbortController();
+
+    const verifying = verifyManualImport({
+      serviceName: "Radarr",
+      commandId: 13,
+      downloadId: "movie",
+      getCommand: () => new Promise(() => undefined),
+      getQueueDownloadIds: async () => new Set(["movie"]),
+      signal: controller.signal,
+    });
+    controller.abort();
+
+    const result = await verifying;
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("stopped for shutdown");
+  });
+
   it("backs off between polls up to the interval cap", async () => {
     vi.useFakeTimers();
     try {

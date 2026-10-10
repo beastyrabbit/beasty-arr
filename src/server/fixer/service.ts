@@ -1136,10 +1136,31 @@ export class FixerService {
     opts: FixerActionOpts,
   ): Promise<string[]> {
     const analysis = opts.analysisId ? this.getAnalysis(opts.analysisId) : undefined;
-    const queueItem = analysis?.downloadId
-      ? undefined
-      : await this.findQueueItem(service, queueItemId);
-    return lockKeys(service, queueItemId, analysis?.downloadId ?? queueItem?.downloadId);
+    const cached = this.queueCache?.items.find(
+      (item) => item.service === service && item.id === queueItemId,
+    );
+    const downloadId =
+      analysis?.downloadId ??
+      cached?.downloadId ??
+      (await this.liveDownloadId(service, queueItemId));
+    return lockKeys(service, queueItemId, downloadId);
+  }
+
+  /**
+   * The download id of a queue row from the live queue, in-progress rows
+   * included. When the queue cannot be read, the removal itself fails its own
+   * queue check before sending anything, so no lock alias is needed.
+   */
+  private async liveDownloadId(
+    service: MediaService,
+    queueItemId: number,
+  ): Promise<string | undefined> {
+    try {
+      const rows = await this.requireClient(service).listQueue({ includeInProgress: true });
+      return rows.find((row) => row.id === queueItemId)?.downloadId;
+    } catch {
+      return undefined;
+    }
   }
 
   async apply(
