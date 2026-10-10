@@ -67,11 +67,11 @@ export function createProposalTool(
       `identity is mandatory: say what the download actually is and how you know. verdict confirmed only when your own observations (embedded title, subtitle dialogue, runtime against the looked-up runtime, NFO ids, ${serviceName}'s independent parse) show it is the queued ${target}. Matching ids from ${serviceName}'s grab history are never evidence.`,
       "An import with identity verdict other than confirmed is never applied automatically; it waits for the user.",
       "Never select candidates that are samples, extras, or Blu-ray disc structure chunks.",
-      "Judge languages from the inspected audio streams (including untagged tracks titled German/Deutsch), not from the arr's language labels.",
+      "Judge languages from the inspected audio streams (including untagged tracks titled German/Deutsch), not from the arr's language labels. An explicit release-name marker such as German, Deutsch, GER or DEU is useful corroborating evidence; when a stream tag and title disagree, weigh the filename marker, other streams, and release context like a person doing a manual import, then explain the uncertainty in rationale.",
       "When active Dub Oracle context says exists with confidence greater than 0.6 and the inspected candidate has no German audio, use remove_queue_item with removeFromClient=true, blocklist=true, skipRedownload=false, changeCategory=false so a German release is searched, unless the current library file already has German audio.",
       "If the current library file has German audio (per inspection) and the candidate does not, use remove_queue_item with removeFromClient=true, blocklist=true, skipRedownload=true, changeCategory=false: block the exact release, no replacement search is needed because the library target is already satisfied.",
       "Never remove a candidate that has German audio while the current library file has none; import it or use needs_review.",
-      "Use needs_review when the identity or the right action cannot be established. That is the correct answer for genuine doubt, not a failure.",
+      "Use needs_review only when direct observations leave the identity or right action materially unresolved. A stale arr label or one conflicting stream metadata field alone is not enough; make the best supported decision from the whole release.",
     ],
     parameters: Type.Object({
       action: Type.Union([

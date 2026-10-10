@@ -27,6 +27,14 @@ describe("createProposalTool", () => {
     expect(guidance).toContain("blocklist=true, skipRedownload=false, changeCategory=false");
   });
 
+  it("asks the AI to weigh release markers like a manual importer", () => {
+    const tool = createProposalTool(["candidate_1"], () => undefined, "sonarr");
+    const guidance = JSON.stringify(tool);
+
+    expect(guidance).toContain("explicit release-name marker such as German, Deutsch, GER or DEU");
+    expect(guidance).toContain("like a person doing a manual import");
+  });
+
   it("restricts candidate ids through the TypeBox schema", () => {
     const tool = createProposalTool(["candidate_1", "candidate_2"], () => undefined);
     const valid = {
