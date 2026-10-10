@@ -167,11 +167,6 @@ function replacementReasons(facts: InspectionFacts, file: SelectedFile): string[
         `${name} has no German audio but would replace the German-audio file of ${target.label}.`,
       );
     }
-    if (probe?.hasGermanAudio && probe.germanAudioUncertain && germanNow) {
-      reasons.push(
-        `${name}'s German audio is uncertain (a track's language tag and title disagree) and it would replace the German-audio file of ${target.label}.`,
-      );
-    }
     const before = resolutionClass(currentFrameSize(facts, target));
     const after = resolutionClass(probe?.video);
     const addsGerman = probe?.hasGermanAudio === true && germanNow === false;

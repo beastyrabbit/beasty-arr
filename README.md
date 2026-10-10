@@ -37,7 +37,7 @@ when a "different work" verdict has no backing from the release year, runtime, o
 parse, or when they would search for German the library already has. Downloads are checked against
 the movie or series they were grabbed for, not the one the arr's queue re-maps them to by title;
 when the two differ, an import waits for review. An audio track counts as German when its language tag or its title says so; when the two disagree,
-an import that would replace a German library file waits. Each analysis keeps its tool results
+the Fixer weighs the release name and other observations before deciding whether an import is safe. Each analysis keeps its tool results
 and the model's reasoning in the AI trace.
 
 File inspection needs `FIXER_MEDIA_PATH_MAP` (for example `/data=/arr-data`) and the media share

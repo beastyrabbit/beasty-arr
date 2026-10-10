@@ -289,6 +289,9 @@ describe("resolveQueueItem", () => {
     expect(request?.systemPrompt).toContain(
       "Numbering alone does not prove which episode a file is, but dialogue that fits the episode's synopsis does",
     );
+    expect(request?.systemPrompt).toContain(
+      "Subbed, SUB, or GER SUB means German subtitles rather than German audio",
+    );
     expect(result.status).toBe("proposal");
     expect(result.proposal.identity?.verdict).toBe("confirmed");
     expect(
@@ -1487,7 +1490,7 @@ describe("deterministic guards on the real 2026-10-08 failures", () => {
     expect(result.proposal.action).toBe("remove_queue_item");
   });
 
-  it("holds an import whose only German track is uncertain over a German library file", async () => {
+  it("lets the AI decide when a German track's metadata conflicts", async () => {
     const result = await analyzeEpisode({
       candidateProbe: {
         audio: [
@@ -1497,10 +1500,8 @@ describe("deterministic guards on the real 2026-10-08 failures", () => {
       },
       proposal: importProposal("candidate_1"),
     });
-    expect(result.status).toBe("needs_review");
-    expect(result.proposal.reviewReasons).toEqual([
-      "candidate_1.mkv's German audio is uncertain (a track's language tag and title disagree) and it would replace the German-audio file of episode 101.",
-    ]);
+    expect(result.status).toBe("proposal");
+    expect(result.proposal.reviewReasons).toBeUndefined();
   });
 
   it("removes a lower-resolution German file even when the arr's labels missed its German", async () => {
