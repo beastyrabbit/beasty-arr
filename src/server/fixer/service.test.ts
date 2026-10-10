@@ -912,6 +912,17 @@ describe("FixerService apply", () => {
     expect(harness.sonarr.removeCalls).toHaveLength(0);
   });
 
+  it("previews a dry-run removal without reading the arr queue", async () => {
+    const harness = makeHarness();
+    const listQueue = vi.fn().mockRejectedValue(new Error("Sonarr 503"));
+    harness.sonarr.listQueue = listQueue;
+
+    const removal = await harness.svc.removeQueueItem("sonarr", 2);
+
+    expect(removal).toMatchObject({ ok: true, dryRun: true });
+    expect(harness.sonarr.removeCalls).toHaveLength(0);
+  });
+
   it("drains a running apply on shutdown and stops its verification", async () => {
     const { svc, sonarr, settings, analysisId } = await analyzedHarness();
     settings.update({ dryRun: false });

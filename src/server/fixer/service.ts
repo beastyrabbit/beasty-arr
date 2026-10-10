@@ -1139,11 +1139,11 @@ export class FixerService {
     const cached = this.queueCache?.items.find(
       (item) => item.service === service && item.id === queueItemId,
     );
-    const downloadId =
-      analysis?.downloadId ??
-      cached?.downloadId ??
-      (await this.liveDownloadId(service, queueItemId));
-    return lockKeys(service, queueItemId, downloadId);
+    const known = analysis?.downloadId ?? cached?.downloadId;
+    // A dry-run removal only records a simulation, so its preview must not
+    // depend on the arr being reachable.
+    if (known || this.settings.get().dryRun) return lockKeys(service, queueItemId, known);
+    return lockKeys(service, queueItemId, await this.liveDownloadId(service, queueItemId));
   }
 
   /**
