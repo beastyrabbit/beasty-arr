@@ -32,6 +32,9 @@ describe("createProposalTool", () => {
     const guidance = JSON.stringify(tool);
 
     expect(guidance).toContain("explicit release-name marker such as German, Deutsch, GER or DEU");
+    expect(guidance).toContain(
+      "Subbed, SUB, or GER SUB means German subtitles rather than German audio",
+    );
     expect(guidance).toContain("like a person doing a manual import");
   });
 

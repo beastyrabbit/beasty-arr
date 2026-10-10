@@ -289,6 +289,9 @@ describe("resolveQueueItem", () => {
     expect(request?.systemPrompt).toContain(
       "Numbering alone does not prove which episode a file is, but dialogue that fits the episode's synopsis does",
     );
+    expect(request?.systemPrompt).toContain(
+      "Subbed, SUB, or GER SUB means German subtitles rather than German audio",
+    );
     expect(result.status).toBe("proposal");
     expect(result.proposal.identity?.verdict).toBe("confirmed");
     expect(
