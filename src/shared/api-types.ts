@@ -53,7 +53,8 @@ export type StatusResponse = {
   huntsToday: number;
   /** Max trailing24h/cap across limited indexers, 0..100. */
   budgetUsedPct: number;
-  fixerPending: number;
+  /** Null when Sonarr's or Radarr's queue could not be read. */
+  fixerPending: number | null;
   aiStatus: AiStatusValue;
 };
 
@@ -81,7 +82,8 @@ export type DashboardSummary = {
   deltaWeekPct: number | null;
   huntsToday: number;
   arrHealth: { sonarr: ArrHealthValue; radarr: ArrHealthValue; prowlarr: ArrHealthValue };
-  fixer: { pending: number; analyzing: number; proposals: number; errors: number };
+  /** pending is null when Sonarr's or Radarr's queue could not be read. */
+  fixer: { pending: number | null; analyzing: number; proposals: number; errors: number };
   ai: {
     status: AiStatusValue;
     checksToday: number;

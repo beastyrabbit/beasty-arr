@@ -12,6 +12,7 @@ type Listener = () => void;
 type EventHandler = (event: AnyServerEvent) => void;
 
 const DOWN_AFTER_ERRORS = 3;
+const MAX_RETRY_MS = 30_000;
 
 /**
  * SSE EventSource singleton. Native EventSource replays Last-Event-ID on
@@ -29,12 +30,13 @@ class SseClient {
   private reconnectHandlers = new Set<Listener>();
   private latest = new Map<AppEventType, AnyServerEvent>();
   private latestListeners = new Set<Listener>();
+  private retryTimer: ReturnType<typeof setTimeout> | null = null;
 
   connect(): void {
     if (this.es) return;
     const es = new EventSource("/api/events");
     this.es = es;
-    this.setStatus("connecting");
+    if (!this.hadDrop) this.setStatus("connecting");
 
     es.onopen = () => {
       const reconnected = this.hadDrop;
@@ -47,6 +49,9 @@ class SseClient {
       this.errorCount++;
       this.hadDrop = true;
       this.setStatus(this.errorCount >= DOWN_AFTER_ERRORS ? "down" : "reconnecting");
+      // A non-200 reply (an ingress 502 during a rollout) closes an
+      // EventSource for good; only network drops are retried natively.
+      if (es.readyState === EventSource.CLOSED) this.retryLater(es);
     };
     for (const type of APP_EVENT_TYPES) {
       es.addEventListener(type, (msg) => {
@@ -64,9 +69,23 @@ class SseClient {
   }
 
   disconnect(): void {
+    if (this.retryTimer) clearTimeout(this.retryTimer);
+    this.retryTimer = null;
     this.es?.close();
     this.es = null;
+    this.errorCount = 0;
+    this.hadDrop = false;
     this.setStatus("idle");
+  }
+
+  private retryLater(closed: EventSource): void {
+    if (this.es !== closed) return;
+    this.es = null;
+    const delay = Math.min(MAX_RETRY_MS, 1_000 * 2 ** (this.errorCount - 1));
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = null;
+      this.connect();
+    }, delay);
   }
 
   private setStatus(status: SseStatus): void {

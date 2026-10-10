@@ -1362,6 +1362,29 @@ describe("OracleService.recheckSubject", () => {
     expect(row.subjectKey).toBe("sonarr:1");
   });
 
+  it("refuses a second check of a title whose check is still running", async () => {
+    const ctx = setup();
+    seedSeriesSubject(ctx.db, 1);
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const verdict = reportVerdict({ verdict: "exists" });
+    const { runner, calls } = scriptedRunner(async (req) => {
+      await gate;
+      await verdict(req);
+    });
+    const oracle = makeOracle(ctx, runner);
+
+    const first = oracle.recheckSubject("sonarr:1", true);
+    await expect(oracle.recheckSubject("sonarr:1", true)).rejects.toThrow(/already running/);
+    release();
+
+    await expect(first).resolves.toMatchObject({ subjectKey: "sonarr:1" });
+    expect(calls).toHaveLength(1);
+    await expect(oracle.recheckSubject("sonarr:1", true)).resolves.toBeDefined();
+  });
+
   it("keeps the previous good verdict active when a manual recheck fails", async () => {
     const ctx = setup();
     seedSeriesSubject(ctx.db, 1);

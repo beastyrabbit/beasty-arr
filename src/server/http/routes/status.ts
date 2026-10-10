@@ -74,11 +74,13 @@ function budgetUsedPct(ctx: AppContext): number {
   return round1(Math.min(100, max));
 }
 
-async function fixerPending(ctx: AppContext): Promise<number> {
+/** Null when an arr queue could not be read: a partial count would look like a clean queue. */
+async function fixerPending(ctx: AppContext): Promise<number | null> {
   try {
-    return (await ctx.services.fixer.getQueue()).items.length;
+    const queue = await ctx.services.fixer.getQueue();
+    return Object.keys(queue.errors).length > 0 ? null : queue.items.length;
   } catch {
-    return 0;
+    return null;
   }
 }
 

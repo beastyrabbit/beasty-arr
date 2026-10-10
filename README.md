@@ -41,7 +41,8 @@ an import that would replace a German library file waits. Each analysis keeps it
 and the model's reasoning in the AI trace.
 
 File inspection needs `FIXER_MEDIA_PATH_MAP` (for example `/data=/arr-data`) and the media share
-mounted read-only at the mapped path. Without it, every import waits for review.
+mounted read-only at the mapped path. Without it, every import and removal waits for review.
+Only one apply, removal, or ignore runs per download at a time; an overlapping request gets HTTP 409.
 
 Season packs are handled as one download: the Fixer merges Sonarr's per-episode queue rows,
 decides file by file which episodes are missing or upgrades, imports those together, and removes

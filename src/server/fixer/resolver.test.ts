@@ -1135,7 +1135,7 @@ describe("deterministic guards on the real 2026-10-03 failures", () => {
     );
   });
 
-  it("holds every import when media inspection is not configured, but still allows removals", async () => {
+  it("holds every import and removal when media inspection is not configured", async () => {
     const unavailable = { available: false, probe: fakeProber().probe };
     const imported = await analyze(
       {
@@ -1161,7 +1161,12 @@ describe("deterministic guards on the real 2026-10-03 failures", () => {
         changeCategory: false,
       }),
     );
-    expect(removed.result.status).toBe("proposal");
+    // An untagged German track is invisible to the arr's labels, so a removal
+    // cannot be checked for German loss without inspection.
+    expect(removed.result.status).toBe("needs_review");
+    expect(removed.result.proposal.reviewReasons).toContain(
+      "Media inspection is not configured, so the real files could not be checked.",
+    );
   });
 
   it("still lets an AI-requested lookup tool run against the fake client", async () => {

@@ -206,6 +206,17 @@ describe("status + dashboard", () => {
     expect(body.budgetUsedPct).toBe(0);
     expect(body.aiStatus).toBe("unauthenticated");
     expect(typeof body.germanPct).toBe("number");
+    expect(body.fixerPending).toBe(0);
+  });
+
+  it("reports the Fixer count as unknown when an arr queue cannot be read", async () => {
+    vi.spyOn(b.ctx.services.fixer, "getQueue").mockResolvedValue({
+      fetchedAt: 0,
+      items: [],
+      errors: { sonarr: "Sonarr 503" },
+    });
+    const res = await get(b.app, "/api/status");
+    expect(res.json().fixerPending).toBeNull();
   });
 
   it("returns the dashboard summary shape", async () => {

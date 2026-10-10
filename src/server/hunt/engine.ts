@@ -495,6 +495,7 @@ export class HuntEngine {
           await chains.get(cmd.source);
           if (signal?.aborted) break;
           const current = this.settings.get();
+          if (this.replanChangedTargets(plan, planIndex)) continue;
           if (!this.isImmediateTrigger(trigger)) {
             if (isEnginePaused(this.db)) {
               this.setHold("automatic hunting is paused", { logActivity: false });
@@ -567,6 +568,53 @@ export class HuntEngine {
       this.lastCycleAt = cycleStart;
       this.cycleRunning = false;
     }
+  }
+
+  /**
+   * The plan is built before earlier commands of the same arr finish, which
+   * can take minutes. A person may pause or force targets meanwhile: a paused
+   * target must not be searched, and a forced one belongs to the follow-up
+   * manual cycle, not to this scheduled command. Re-plans the remaining
+   * targets after the current entry and returns true when this entry changed.
+   */
+  private replanChangedTargets(
+    plan: { cmd: PlannedCommand; trigger: SearchTrigger }[],
+    planIndex: number,
+  ): boolean {
+    const { cmd, trigger } = plan[planIndex];
+    const live = this.stillPlanned(cmd.covered, this.isImmediateTrigger(trigger));
+    if (live.length === cmd.covered.length) return false;
+    const regrouped = groupCommands(live, trigger === "forced" ? {} : { episodeIdsOnly: true });
+    plan.splice(planIndex + 1, 0, ...regrouped.map((next) => ({ cmd: next, trigger })));
+    return true;
+  }
+
+  /** The covered targets whose current row still matches the query that planned them. */
+  private stillPlanned(covered: HuntCandidate[], immediate: boolean): HuntCandidate[] {
+    const rows = new Map(
+      this.db
+        .select()
+        .from(huntState)
+        .where(
+          inArray(
+            huntState.id,
+            covered.map((candidate) => candidate.huntStateId),
+          ),
+        )
+        .all()
+        .map((row) => [row.id, row]),
+    );
+    return covered.filter((candidate) => {
+      const row = rows.get(candidate.huntStateId);
+      if (!row || NEVER_SEARCH_STATES.includes(row.state)) return false;
+      if (immediate) return row.manualPriority > 0;
+      return (
+        HUNTABLE_STATES.includes(row.state) &&
+        !row.userPaused &&
+        row.manualPriority === 0 &&
+        row.awaitingImportSince == null
+      );
+    });
   }
 
   // ============ dispatch + polling ============

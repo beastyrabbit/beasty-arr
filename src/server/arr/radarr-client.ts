@@ -623,7 +623,12 @@ export class RadarrClient {
     };
   }
 
-  async verifyImportApplied(queueItem: QueueItem, result: ApplyResult): Promise<ApplyResult> {
+  /** Radarr imports have no leftover cleanup, so the mutation gate is unused. */
+  async verifyImportApplied(
+    queueItem: QueueItem,
+    result: ApplyResult,
+    _mayMutate?: () => boolean,
+  ): Promise<ApplyResult> {
     return verifyManualImport({
       serviceName: "Radarr",
       commandId: result.commandId,

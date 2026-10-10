@@ -50,7 +50,11 @@ class FakeArrClient {
   applyCalls: Array<{ queueItem: QueueItem; proposal: ResolutionProposal }> = [];
   removeCalls: Array<{ queueItemId: number; options: QueueRemovalOptions }> = [];
   preflightResult: ApplyResult = { ok: true, message: "preflight passed" };
-  verifyImportApplied?: (queueItem: QueueItem, result: ApplyResult) => Promise<ApplyResult>;
+  verifyImportApplied?: (
+    queueItem: QueueItem,
+    result: ApplyResult,
+    mayMutate?: () => boolean,
+  ) => Promise<ApplyResult>;
   episodes: SonarrEpisodeRecord[] = [];
   async listQueue(): Promise<QueueItem[]> {
     return this.queue;
@@ -810,6 +814,42 @@ describe("FixerService apply", () => {
     expect(result).toMatchObject({ ok: false, message: "ManualImport failed." });
     expect((await svc.getQueue()).items).toHaveLength(1);
     expect(svc.listHistory().items[0]?.result).toBe("error");
+  });
+
+  it("refuses a second apply of the same download while the first one runs", async () => {
+    const { svc, sonarr, settings, analysisId } = await analyzedHarness();
+    settings.update({ dryRun: false });
+    let finish: () => void = () => undefined;
+    sonarr.verifyImportApplied = (_queueItem, result) =>
+      new Promise((resolve) => {
+        finish = () => resolve(result);
+      });
+
+    const first = svc.apply(analysisId);
+    await vi.waitFor(() => expect(sonarr.applyCalls).toHaveLength(1));
+    const second = await svc.apply(analysisId);
+    finish();
+
+    expect(second).toMatchObject({ ok: false, busy: true });
+    expect((await first).ok).toBe(true);
+    expect(sonarr.applyCalls).toHaveLength(1);
+    expect(svc.listHistory().items).toHaveLength(1);
+  });
+
+  it("gives import verification the live dry-run gate for leftover cleanup", async () => {
+    const { svc, sonarr, settings, analysisId } = await analyzedHarness();
+    settings.update({ dryRun: false });
+    let gate: (() => boolean) | undefined;
+    sonarr.verifyImportApplied = async (_queueItem, result, mayMutate) => {
+      gate = mayMutate;
+      return result;
+    };
+
+    await svc.apply(analysisId);
+
+    expect(gate?.()).toBe(true);
+    settings.update({ dryRun: true });
+    expect(gate?.()).toBe(false);
   });
 
   it("drops every cached queue row belonging to the applied season-pack download", async () => {

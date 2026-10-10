@@ -1016,7 +1016,11 @@ export class SonarrClient {
     return true;
   }
 
-  async verifyImportApplied(queueItem: QueueItem, result: ApplyResult): Promise<ApplyResult> {
+  async verifyImportApplied(
+    queueItem: QueueItem,
+    result: ApplyResult,
+    mayMutate: () => boolean = () => true,
+  ): Promise<ApplyResult> {
     const downloadId = queueItem.downloadId;
     const leftover = result.leftover ?? "none";
     return verifyManualImport({
@@ -1025,6 +1029,7 @@ export class SonarrClient {
       downloadId,
       getCommand: (id) => this.getCommand(id),
       getQueueDownloadIds: () => this.getQueueDownloadIds(),
+      mayMutate,
       ...(leftover === "none" || !downloadId
         ? {}
         : {

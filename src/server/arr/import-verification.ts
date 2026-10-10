@@ -14,11 +14,22 @@ export interface ImportVerificationInput {
    * accept the import and leave the remaining rows for a human.
    */
   onRemaining?: () => Promise<"removed" | "kept">;
+  /**
+   * Checked right before onRemaining. Dry-run or a disabled auto-apply can be
+   * switched on while the import runs; the leftovers then stay for review.
+   */
+  mayMutate?: () => boolean;
   attempts?: number;
+  /** First poll delay; it doubles per poll up to MAX_INTERVAL_MS. */
   intervalMs?: number;
 }
 
 const TERMINAL_FAILURES = new Set(["aborted", "failed", "unsuccessful"]);
+// 30 polls from 500 ms, capped at 5 s, wait about two minutes: a season pack
+// that is copied or moved across filesystems rarely finishes in ten seconds.
+const DEFAULT_ATTEMPTS = 30;
+const DEFAULT_INTERVAL_MS = 500;
+const MAX_INTERVAL_MS = 5_000;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -66,6 +77,13 @@ async function pollImport(
   }
   if (input.onRemaining && !state.remainingHandled) {
     state.remainingHandled = true;
+    if (input.mayMutate && !input.mayMutate()) {
+      return {
+        ok: true,
+        commandId: input.commandId,
+        message: `${input.serviceName} completed the ManualImport. Dry-run or a disabled auto-apply now blocks changes, so the files that were not selected stay in the queue for review.`,
+      };
+    }
     if ((await input.onRemaining()) === "kept") {
       return {
         ok: true,
@@ -78,8 +96,8 @@ async function pollImport(
 }
 
 export async function verifyManualImport(input: ImportVerificationInput): Promise<ApplyResult> {
-  const attempts = input.attempts ?? 20;
-  const intervalMs = input.intervalMs ?? 500;
+  const attempts = input.attempts ?? DEFAULT_ATTEMPTS;
+  const intervalMs = input.intervalMs ?? DEFAULT_INTERVAL_MS;
   const state: PollState = { remainingHandled: false };
 
   try {
@@ -87,7 +105,7 @@ export async function verifyManualImport(input: ImportVerificationInput): Promis
       const result = await pollImport(input, state);
       if (result) return result;
       if (attempt + 1 < attempts && intervalMs > 0) {
-        await sleep(intervalMs);
+        await sleep(Math.min(MAX_INTERVAL_MS, intervalMs * 2 ** attempt));
       }
     }
   } catch (error) {
@@ -101,6 +119,6 @@ export async function verifyManualImport(input: ImportVerificationInput): Promis
   return {
     ok: false,
     commandId: input.commandId,
-    message: `${input.serviceName} accepted the ManualImport, but it did not complete and leave the queue within the verification window.`,
+    message: `${input.serviceName} accepted the ManualImport, but it did not complete and leave the queue within the verification window; check the ${input.serviceName} queue before retrying.`,
   };
 }

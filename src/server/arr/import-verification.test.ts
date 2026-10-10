@@ -27,6 +27,50 @@ describe("verifyManualImport", () => {
     expect(getQueueDownloadIds).toHaveBeenCalledTimes(2);
   });
 
+  it("keeps the leftovers when dry-run was enabled while the import ran", async () => {
+    const onRemaining = vi.fn(async () => "removed" as const);
+
+    const result = await verifyManualImport({
+      serviceName: "Sonarr",
+      commandId: 9,
+      downloadId: "pack",
+      getCommand: async () => ({ status: "completed" }),
+      getQueueDownloadIds: async () => new Set(["pack"]),
+      onRemaining,
+      mayMutate: () => false,
+      attempts: 1,
+      intervalMs: 0,
+    });
+
+    expect(onRemaining).not.toHaveBeenCalled();
+    expect(result.ok).toBe(true);
+    expect(result.message).toContain("stay in the queue for review");
+  });
+
+  it("backs off between polls up to the interval cap", async () => {
+    vi.useFakeTimers();
+    try {
+      const getCommand = vi.fn(async () => ({ status: "started" }));
+      const done = verifyManualImport({
+        serviceName: "Radarr",
+        commandId: 11,
+        downloadId: "movie",
+        getCommand,
+        getQueueDownloadIds: async () => new Set(["movie"]),
+        attempts: 6,
+        intervalMs: 1_000,
+      });
+      // Delays 1 s, 2 s, 4 s, then 5 s twice (capped): 17 s before the sixth poll.
+      await vi.advanceTimersByTimeAsync(16_999);
+      expect(getCommand).toHaveBeenCalledTimes(5);
+      await vi.advanceTimersByTimeAsync(1);
+      expect((await done).ok).toBe(false);
+      expect(getCommand).toHaveBeenCalledTimes(6);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("reports a failed command instead of treating acceptance as success", async () => {
     const result = await verifyManualImport({
       serviceName: "Radarr",
