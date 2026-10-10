@@ -185,6 +185,7 @@ export function registerFixerRoutes(app: FastifyInstance, ctx: AppContext): void
     if (!b.ok) return;
     if (!ctx.services.fixer.getAnalysis(p.data.id)) return notFound(reply, "analysis not found");
     const outcome = await ctx.services.fixer.apply(p.data.id, b.data.candidateIds);
+    if (outcome.busy) return reply.code(409).send({ error: outcome.message });
     if (outcome.dryRun) {
       if (!outcome.ok) {
         const response: FixerApplyResponse = { ok: false, message: outcome.message };
@@ -219,6 +220,7 @@ export function registerFixerRoutes(app: FastifyInstance, ctx: AppContext): void
     const outcome = await ctx.services.fixer.removeQueueItem(p.data.service, p.data.id, options, {
       sourceKind: "user",
     });
+    if (outcome.busy) return reply.code(409).send({ error: outcome.message });
     if (outcome.dryRun) {
       const response: FixerRemoveResponse = dryRunResult(outcome.message);
       return response;
@@ -234,6 +236,7 @@ export function registerFixerRoutes(app: FastifyInstance, ctx: AppContext): void
     const outcome = await ctx.services.fixer.ignoreQueueItem(p.data.service, p.data.id, {
       sourceKind: "user",
     });
+    if (outcome.busy) return reply.code(409).send({ error: outcome.message });
     if (outcome.dryRun) {
       const response: FixerIgnoreResponse = dryRunResult(outcome.message);
       return response;

@@ -440,6 +440,66 @@ describe("runCycle — dry-run", () => {
   });
 });
 
+describe("runCycle — targets changed while the plan waits", () => {
+  function twoScheduledSeries() {
+    const h = makeHarness();
+    h.settings.update({ dryRun: false });
+    const ids = [1, 2].map((seriesId) => {
+      seedSeries(h.db, { id: seriesId });
+      return seedEpisode(
+        h.db,
+        { id: seriesId * 10 + 1, seriesId, hasFile: true, airDateUtc: T0 - 365 * DAY_MS },
+        { state: "non_german", searchCount: 1, lastSearchAt: T0 - 60 * DAY_MS },
+      );
+    });
+    return { h, first: ids[0], second: ids[1] };
+  }
+
+  /** Runs `change` while the first Sonarr command is still being polled. */
+  function duringFirstCommand(h: ReturnType<typeof makeHarness>, change: () => void): void {
+    const getCommand = h.sonarr.getCommand.bind(h.sonarr);
+    let changed = false;
+    h.sonarr.getCommand = async (id) => {
+      if (!changed) {
+        changed = true;
+        change();
+      }
+      return getCommand(id);
+    };
+  }
+
+  it("does not search a target paused after planning", async () => {
+    const { h, second } = twoScheduledSeries();
+    duringFirstCommand(h, () =>
+      h.engine.pauseSubject({ source: "sonarr", kind: "episode", id: 21 }),
+    );
+
+    await h.engine.runCycle();
+
+    expect(h.sonarr.sent).toHaveLength(1);
+    expect(huntRow(h.db, second).searchCount).toBe(1);
+  });
+
+  it("leaves a target forced after planning to the forced follow-up search", async () => {
+    const { h } = twoScheduledSeries();
+    duringFirstCommand(h, () =>
+      h.engine.forceSubject({ source: "sonarr", kind: "episode", id: 21 }),
+    );
+
+    await h.engine.runCycle();
+    expect(h.sonarr.sent).toHaveLength(1);
+
+    await h.engine.runCycle();
+    const triggers = h.db
+      .select({ trigger: searchAttempts.trigger })
+      .from(searchAttempts)
+      .all()
+      .map((row) => row.trigger);
+    expect(h.sonarr.sent).toHaveLength(2);
+    expect(triggers).toEqual(["scheduled", "forced"]);
+  });
+});
+
 describe("runCycle — live dispatch", () => {
   it("uses AI-first only while daily AI capacity is available", async () => {
     const h = makeHarness();

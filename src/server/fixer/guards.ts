@@ -400,7 +400,11 @@ function removalReviewReasons(
   proposal: ResolutionProposal,
   facts: InspectionFacts,
 ): string[] {
-  const reasons: string[] = [];
+  // Without inspection, an untagged German track looks like no German at all,
+  // so the German-loss and upgrade-loss checks below cannot be trusted.
+  const reasons: string[] = facts.proberAvailable
+    ? []
+    : ["Media inspection is not configured, so the real files could not be checked."];
   const queuedIds = queueItem.service === "radarr" ? [queueItem.movieId] : queueItem.episodeIds;
   const targets = queuedIds.flatMap((id) => {
     const target = id === undefined ? undefined : facts.targets.get(id);

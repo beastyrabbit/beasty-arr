@@ -206,6 +206,17 @@ describe("status + dashboard", () => {
     expect(body.budgetUsedPct).toBe(0);
     expect(body.aiStatus).toBe("unauthenticated");
     expect(typeof body.germanPct).toBe("number");
+    expect(body.fixerPending).toBe(0);
+  });
+
+  it("reports the Fixer count as unknown when an arr queue cannot be read", async () => {
+    vi.spyOn(b.ctx.services.fixer, "getQueue").mockResolvedValue({
+      fetchedAt: 0,
+      items: [],
+      errors: { sonarr: "Sonarr 503" },
+    });
+    const res = await get(b.app, "/api/status");
+    expect(res.json().fixerPending).toBeNull();
   });
 
   it("returns the dashboard summary shape", async () => {
@@ -829,6 +840,17 @@ describe("ai", () => {
     } finally {
       b.ctx.services.oracle.startBulk = original;
     }
+  });
+
+  it("refuses a manual recheck of a title whose check is still running", async () => {
+    const isChecking = vi.spyOn(b.ctx.services.oracle, "isChecking").mockReturnValue(true);
+    const recheck = vi.spyOn(b.ctx.services.oracle, "recheckSubject");
+
+    const res = await post(b.app, "/api/ai/recheck", { subjectKey: "sonarr:1" });
+
+    expect(res.statusCode).toBe(409);
+    expect(isChecking).toHaveBeenCalledWith("sonarr:1");
+    expect(recheck).not.toHaveBeenCalled();
   });
 
   it("drives the codex device-login flow", async () => {

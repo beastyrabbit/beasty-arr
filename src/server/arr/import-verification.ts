@@ -14,14 +14,62 @@ export interface ImportVerificationInput {
    * accept the import and leave the remaining rows for a human.
    */
   onRemaining?: () => Promise<"removed" | "kept">;
+  /**
+   * Checked right before onRemaining. Dry-run or a disabled auto-apply can be
+   * switched on while the import runs; the leftovers then stay for review.
+   */
+  mayMutate?: () => boolean;
+  /** Shutdown: stop polling so the drain does not wait for a slow import. */
+  signal?: AbortSignal;
   attempts?: number;
+  /** First poll delay; it doubles per poll up to MAX_INTERVAL_MS. */
   intervalMs?: number;
 }
 
-const TERMINAL_FAILURES = new Set(["aborted", "failed", "unsuccessful"]);
+/** Options the arr clients pass through to verifyManualImport. */
+export type ImportVerificationOptions = Pick<ImportVerificationInput, "mayMutate" | "signal">;
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+const TERMINAL_FAILURES = new Set(["aborted", "failed", "unsuccessful"]);
+// 30 polls from 500 ms, capped at 5 s, wait about two minutes: a season pack
+// that is copied or moved across filesystems rarely finishes in ten seconds.
+const DEFAULT_ATTEMPTS = 30;
+const DEFAULT_INTERVAL_MS = 500;
+const MAX_INTERVAL_MS = 5_000;
+
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal?.aborted) return resolve();
+    const timer = setTimeout(done, ms);
+    function done() {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", done);
+      resolve();
+    }
+    signal?.addEventListener("abort", done, { once: true });
+  });
+}
+
+/**
+ * Settles with undefined as soon as the signal aborts. An arr request can hang
+ * for its 30 s timeout plus retries; shutdown must not wait for it.
+ */
+function untilAborted<T>(work: Promise<T>, signal?: AbortSignal): Promise<T | undefined> {
+  if (!signal) return work;
+  return new Promise((resolve, reject) => {
+    const stop = () => resolve(undefined);
+    if (signal.aborted) return stop();
+    signal.addEventListener("abort", stop, { once: true });
+    work.then(
+      (value) => {
+        signal.removeEventListener("abort", stop);
+        resolve(value);
+      },
+      (error: unknown) => {
+        signal.removeEventListener("abort", stop);
+        reject(error);
+      },
+    );
+  });
 }
 
 /** The command's failure label when Sonarr/Radarr reports a terminal failure. */
@@ -66,6 +114,13 @@ async function pollImport(
   }
   if (input.onRemaining && !state.remainingHandled) {
     state.remainingHandled = true;
+    if (input.mayMutate && !input.mayMutate()) {
+      return {
+        ok: true,
+        commandId: input.commandId,
+        message: `${input.serviceName} completed the ManualImport. Dry-run or a disabled auto-apply now blocks changes, so the files that were not selected stay in the queue for review.`,
+      };
+    }
     if ((await input.onRemaining()) === "kept") {
       return {
         ok: true,
@@ -78,16 +133,16 @@ async function pollImport(
 }
 
 export async function verifyManualImport(input: ImportVerificationInput): Promise<ApplyResult> {
-  const attempts = input.attempts ?? 20;
-  const intervalMs = input.intervalMs ?? 500;
+  const attempts = input.attempts ?? DEFAULT_ATTEMPTS;
+  const intervalMs = input.intervalMs ?? DEFAULT_INTERVAL_MS;
   const state: PollState = { remainingHandled: false };
 
   try {
-    for (let attempt = 0; attempt < attempts; attempt += 1) {
-      const result = await pollImport(input, state);
+    for (let attempt = 0; attempt < attempts && !input.signal?.aborted; attempt += 1) {
+      const result = await untilAborted(pollImport(input, state), input.signal);
       if (result) return result;
       if (attempt + 1 < attempts && intervalMs > 0) {
-        await sleep(intervalMs);
+        await sleep(Math.min(MAX_INTERVAL_MS, intervalMs * 2 ** attempt), input.signal);
       }
     }
   } catch (error) {
@@ -98,9 +153,12 @@ export async function verifyManualImport(input: ImportVerificationInput): Promis
     };
   }
 
+  const stopped = input.signal?.aborted
+    ? "verification stopped for shutdown"
+    : "it did not complete and leave the queue within the verification window";
   return {
     ok: false,
     commandId: input.commandId,
-    message: `${input.serviceName} accepted the ManualImport, but it did not complete and leave the queue within the verification window.`,
+    message: `${input.serviceName} accepted the ManualImport, but ${stopped}; check the ${input.serviceName} queue before retrying.`,
   };
 }

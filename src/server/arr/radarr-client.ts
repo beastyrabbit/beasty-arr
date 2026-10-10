@@ -14,7 +14,7 @@ import {
   validateProposalForImport,
 } from "../fixer/validation.js";
 import { type ArrClientOptions, type ArrMediaInfo, arrFetch } from "./http-util.js";
-import { verifyManualImport } from "./import-verification.js";
+import { type ImportVerificationOptions, verifyManualImport } from "./import-verification.js";
 import { detectLikelySample } from "./sample.js";
 import {
   type ArrCommandBody,
@@ -623,13 +623,18 @@ export class RadarrClient {
     };
   }
 
-  async verifyImportApplied(queueItem: QueueItem, result: ApplyResult): Promise<ApplyResult> {
+  async verifyImportApplied(
+    queueItem: QueueItem,
+    result: ApplyResult,
+    options: ImportVerificationOptions = {},
+  ): Promise<ApplyResult> {
     return verifyManualImport({
       serviceName: "Radarr",
       commandId: result.commandId,
       downloadId: queueItem.downloadId,
       getCommand: (id) => this.getCommand(id),
       getQueueDownloadIds: () => this.getQueueDownloadIds(),
+      ...options,
     });
   }
 

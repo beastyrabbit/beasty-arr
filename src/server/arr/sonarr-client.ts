@@ -17,7 +17,7 @@ import {
 } from "../fixer/validation.js";
 import { animeTitleConflict } from "./anime-title-match.js";
 import { type ArrClientOptions, type ArrMediaInfo, arrFetch } from "./http-util.js";
-import { verifyManualImport } from "./import-verification.js";
+import { type ImportVerificationOptions, verifyManualImport } from "./import-verification.js";
 import { detectLikelySample, isDiscStreamPath } from "./sample.js";
 import { episodeLabel } from "./sonarr-format.js";
 
@@ -1016,7 +1016,11 @@ export class SonarrClient {
     return true;
   }
 
-  async verifyImportApplied(queueItem: QueueItem, result: ApplyResult): Promise<ApplyResult> {
+  async verifyImportApplied(
+    queueItem: QueueItem,
+    result: ApplyResult,
+    options: ImportVerificationOptions = {},
+  ): Promise<ApplyResult> {
     const downloadId = queueItem.downloadId;
     const leftover = result.leftover ?? "none";
     return verifyManualImport({
@@ -1025,6 +1029,7 @@ export class SonarrClient {
       downloadId,
       getCommand: (id) => this.getCommand(id),
       getQueueDownloadIds: () => this.getQueueDownloadIds(),
+      ...options,
       ...(leftover === "none" || !downloadId
         ? {}
         : {

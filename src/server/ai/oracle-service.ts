@@ -586,13 +586,28 @@ export class OracleService {
     }
     const subject = this.loadSubject(subjectKey);
     if (!subject) throw new Error(`Unknown oracle subject: ${subjectKey}`);
+    // A second check of the same title would pay the provider twice, and the
+    // slower one would supersede the other's verdict.
+    if (this.checksInFlight.has(subjectKey)) {
+      throw new Error(`An AI check for ${subjectKey} is already running.`);
+    }
     const attemptId = this.tryStartAttempt(subject, force);
     if (attemptId === null) {
       throw new Error("Daily AI check budget exhausted — use force to override.");
     }
-    // Keep the last good verdict active until its replacement succeeds. The
-    // insert path supersedes it atomically after a validated result exists.
-    return await this.runTrackedCheck(subject, attemptId);
+    this.checksInFlight.add(subjectKey);
+    try {
+      // Keep the last good verdict active until its replacement succeeds. The
+      // insert path supersedes it atomically after a validated result exists.
+      return await this.runTrackedCheck(subject, attemptId);
+    } finally {
+      this.checksInFlight.delete(subjectKey);
+    }
+  }
+
+  /** Lets a route refuse a duplicate recheck before starting it in the background. */
+  isChecking(subjectKey: string): boolean {
+    return this.checksInFlight.has(subjectKey);
   }
 
   /** Explicit invalidation without replacement; rechecks keep the old row until success. */

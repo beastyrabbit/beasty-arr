@@ -11,6 +11,7 @@ import type {
   QueueRemovalOptions,
   ResolutionProposal,
 } from "../../shared/fixer-types.js";
+import type { ImportVerificationOptions } from "../arr/import-verification.js";
 import type { SonarrEpisodeRecord } from "../arr/sonarr-client.js";
 import { SettingsService } from "../config/settings.js";
 import { createDb } from "../db/index.js";
@@ -50,10 +51,17 @@ class FakeArrClient {
   applyCalls: Array<{ queueItem: QueueItem; proposal: ResolutionProposal }> = [];
   removeCalls: Array<{ queueItemId: number; options: QueueRemovalOptions }> = [];
   preflightResult: ApplyResult = { ok: true, message: "preflight passed" };
-  verifyImportApplied?: (queueItem: QueueItem, result: ApplyResult) => Promise<ApplyResult>;
+  verifyImportApplied?: (
+    queueItem: QueueItem,
+    result: ApplyResult,
+    options?: ImportVerificationOptions,
+  ) => Promise<ApplyResult>;
   episodes: SonarrEpisodeRecord[] = [];
-  async listQueue(): Promise<QueueItem[]> {
-    return this.queue;
+  /** Like the real clients: in-progress rows only when asked for. */
+  async listQueue(options: { includeInProgress?: boolean } = {}): Promise<QueueItem[]> {
+    return options.includeInProgress
+      ? this.queue
+      : this.queue.filter((item) => item.isInProgress !== true);
   }
   async getManualImportCandidates(queueItem: QueueItem): Promise<ManualImportCandidate[]> {
     if (this.failCandidates) {
@@ -211,6 +219,37 @@ const cleanups: (() => void)[] = [];
 afterEach(() => {
   while (cleanups.length > 0) cleanups.pop()?.();
 });
+
+/** Holds verifyImportApplied open until finish() and records the options it got. */
+function holdVerification(sonarr: FakeArrClient, outcome: Partial<ApplyResult> = {}) {
+  const held: { finish: () => void; options?: ImportVerificationOptions } = {
+    finish: () => undefined,
+  };
+  sonarr.verifyImportApplied = (_queueItem, result, options) => {
+    held.options = options;
+    return new Promise((resolve) => {
+      held.finish = () => resolve({ ...result, ...outcome });
+    });
+  };
+  return held;
+}
+
+/** A two-row season pack whose analysed import of row 1 is still being verified. */
+async function runningPackImport() {
+  const harness = makeHarness();
+  harness.sonarr.queue = [
+    makeQueueItem(1, { downloadId: "season-pack" }),
+    makeQueueItem(2, { downloadId: "season-pack", episodeIds: [102] }),
+  ];
+  harness.sonarr.candidatesByItem.set(1, [makeCandidate("candidate_1", [101])]);
+  harness.runnerCtl.setScript(() => importProposal("candidate_1", [101]));
+  const { analysisId } = await harness.svc.analyzeAndWait("sonarr", 1);
+  harness.settings.update({ dryRun: false });
+  const held = holdVerification(harness.sonarr);
+  const applying = harness.svc.apply(analysisId);
+  await vi.waitFor(() => expect(harness.sonarr.applyCalls).toHaveLength(1));
+  return { harness, held, applying };
+}
 
 function makeHarness() {
   const dir = mkdtempSync(path.join(tmpdir(), "beasty-fixer-test-"));
@@ -810,6 +849,113 @@ describe("FixerService apply", () => {
     expect(result).toMatchObject({ ok: false, message: "ManualImport failed." });
     expect((await svc.getQueue()).items).toHaveLength(1);
     expect(svc.listHistory().items[0]?.result).toBe("error");
+  });
+
+  it("refuses a second apply of the same download while the first one runs", async () => {
+    const { svc, sonarr, settings, analysisId } = await analyzedHarness();
+    settings.update({ dryRun: false });
+    const held = holdVerification(sonarr);
+
+    const first = svc.apply(analysisId);
+    await vi.waitFor(() => expect(sonarr.applyCalls).toHaveLength(1));
+    const second = await svc.apply(analysisId);
+    held.finish();
+
+    expect(second).toMatchObject({ ok: false, busy: true });
+    expect((await first).ok).toBe(true);
+    expect(sonarr.applyCalls).toHaveLength(1);
+    expect(svc.listHistory().items).toHaveLength(1);
+  });
+
+  it("refuses removing another queue row of a download whose import is running", async () => {
+    const { harness, held, applying } = await runningPackImport();
+
+    const removal = await harness.svc.removeQueueItem("sonarr", 2);
+    held.finish();
+
+    expect(removal).toMatchObject({ ok: false, busy: true });
+    expect(harness.sonarr.removeCalls).toHaveLength(0);
+    expect((await applying).ok).toBe(true);
+  });
+
+  it("finds a running apply from a cold cache through an in-progress sibling row", async () => {
+    const { harness, held, applying } = await runningPackImport();
+    // Sonarr now reports the sibling as importing, and the cache is gone.
+    harness.sonarr.queue[1] = { ...(harness.sonarr.queue[1] as QueueItem), isInProgress: true };
+    (harness.svc as unknown as { queueCache: null }).queueCache = null;
+
+    const removal = await harness.svc.removeQueueItem("sonarr", 2);
+    held.finish();
+
+    expect(removal).toMatchObject({ ok: false, busy: true });
+    expect(harness.sonarr.removeCalls).toHaveLength(0);
+    await applying;
+  });
+
+  it("refuses a removal whose download cannot be identified", async () => {
+    const harness = makeHarness();
+    harness.sonarr.queue = [makeQueueItem(2, { downloadId: "season-pack" })];
+    harness.settings.update({ dryRun: false });
+    const listQueue = harness.sonarr.listQueue.bind(harness.sonarr);
+    harness.sonarr.listQueue = vi
+      .fn<typeof listQueue>()
+      .mockRejectedValueOnce(new Error("Sonarr 503"))
+      .mockImplementation(listQueue);
+
+    const removal = await harness.svc.removeQueueItem("sonarr", 2);
+
+    expect(removal.ok).toBe(false);
+    expect(removal.message).toContain("Cannot identify the download");
+    expect(harness.sonarr.removeCalls).toHaveLength(0);
+  });
+
+  it("previews a dry-run removal without reading the arr queue", async () => {
+    const harness = makeHarness();
+    const listQueue = vi.fn().mockRejectedValue(new Error("Sonarr 503"));
+    harness.sonarr.listQueue = listQueue;
+
+    const removal = await harness.svc.removeQueueItem("sonarr", 2);
+
+    expect(removal).toMatchObject({ ok: true, dryRun: true });
+    expect(harness.sonarr.removeCalls).toHaveLength(0);
+  });
+
+  it("drains a running apply on shutdown and stops its verification", async () => {
+    const { svc, sonarr, settings, analysisId } = await analyzedHarness();
+    settings.update({ dryRun: false });
+    const held = holdVerification(sonarr, { ok: false, message: "stopped" });
+
+    const applying = svc.apply(analysisId);
+    await vi.waitFor(() => expect(held.options).toBeDefined());
+    svc.cancelAll();
+    expect(held.options?.signal?.aborted).toBe(true);
+    let drained = false;
+    const draining = svc.wait().then(() => {
+      drained = true;
+    });
+    await Promise.resolve();
+    expect(drained).toBe(false);
+    held.finish();
+    await draining;
+
+    expect((await applying).ok).toBe(false);
+    expect(svc.listHistory().items[0]?.result).toBe("error");
+  });
+
+  it("gives import verification the live dry-run gate for leftover cleanup", async () => {
+    const { svc, sonarr, settings, analysisId } = await analyzedHarness();
+    settings.update({ dryRun: false });
+    let gate: (() => boolean) | undefined;
+    sonarr.verifyImportApplied = async (_queueItem, result, options) => {
+      gate = options?.mayMutate;
+      return result;
+    };
+
+    await svc.apply(analysisId);
+
+    expect(gate?.()).toBe(true);
+    settings.update({ dryRun: true });
+    expect(gate?.()).toBe(false);
   });
 
   it("drops every cached queue row belonging to the applied season-pack download", async () => {
