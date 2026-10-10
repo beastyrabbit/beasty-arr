@@ -220,6 +220,37 @@ afterEach(() => {
   while (cleanups.length > 0) cleanups.pop()?.();
 });
 
+/** Holds verifyImportApplied open until finish() and records the options it got. */
+function holdVerification(sonarr: FakeArrClient, outcome: Partial<ApplyResult> = {}) {
+  const held: { finish: () => void; options?: ImportVerificationOptions } = {
+    finish: () => undefined,
+  };
+  sonarr.verifyImportApplied = (_queueItem, result, options) => {
+    held.options = options;
+    return new Promise((resolve) => {
+      held.finish = () => resolve({ ...result, ...outcome });
+    });
+  };
+  return held;
+}
+
+/** A two-row season pack whose analysed import of row 1 is still being verified. */
+async function runningPackImport() {
+  const harness = makeHarness();
+  harness.sonarr.queue = [
+    makeQueueItem(1, { downloadId: "season-pack" }),
+    makeQueueItem(2, { downloadId: "season-pack", episodeIds: [102] }),
+  ];
+  harness.sonarr.candidatesByItem.set(1, [makeCandidate("candidate_1", [101])]);
+  harness.runnerCtl.setScript(() => importProposal("candidate_1", [101]));
+  const { analysisId } = await harness.svc.analyzeAndWait("sonarr", 1);
+  harness.settings.update({ dryRun: false });
+  const held = holdVerification(harness.sonarr);
+  const applying = harness.svc.apply(analysisId);
+  await vi.waitFor(() => expect(harness.sonarr.applyCalls).toHaveLength(1));
+  return { harness, held, applying };
+}
+
 function makeHarness() {
   const dir = mkdtempSync(path.join(tmpdir(), "beasty-fixer-test-"));
   const { db, sqlite } = createDb(dir, {
@@ -823,16 +854,12 @@ describe("FixerService apply", () => {
   it("refuses a second apply of the same download while the first one runs", async () => {
     const { svc, sonarr, settings, analysisId } = await analyzedHarness();
     settings.update({ dryRun: false });
-    let finish: () => void = () => undefined;
-    sonarr.verifyImportApplied = (_queueItem, result) =>
-      new Promise((resolve) => {
-        finish = () => resolve(result);
-      });
+    const held = holdVerification(sonarr);
 
     const first = svc.apply(analysisId);
     await vi.waitFor(() => expect(sonarr.applyCalls).toHaveLength(1));
     const second = await svc.apply(analysisId);
-    finish();
+    held.finish();
 
     expect(second).toMatchObject({ ok: false, busy: true });
     expect((await first).ok).toBe(true);
@@ -841,25 +868,10 @@ describe("FixerService apply", () => {
   });
 
   it("refuses removing another queue row of a download whose import is running", async () => {
-    const harness = makeHarness();
-    harness.sonarr.queue = [
-      makeQueueItem(1, { downloadId: "season-pack" }),
-      makeQueueItem(2, { downloadId: "season-pack", episodeIds: [102] }),
-    ];
-    harness.sonarr.candidatesByItem.set(1, [makeCandidate("candidate_1", [101])]);
-    harness.runnerCtl.setScript(() => importProposal("candidate_1", [101]));
-    const { analysisId } = await harness.svc.analyzeAndWait("sonarr", 1);
-    harness.settings.update({ dryRun: false });
-    let finish: () => void = () => undefined;
-    harness.sonarr.verifyImportApplied = (_queueItem, result) =>
-      new Promise((resolve) => {
-        finish = () => resolve(result);
-      });
+    const { harness, held, applying } = await runningPackImport();
 
-    const applying = harness.svc.apply(analysisId);
-    await vi.waitFor(() => expect(harness.sonarr.applyCalls).toHaveLength(1));
     const removal = await harness.svc.removeQueueItem("sonarr", 2);
-    finish();
+    held.finish();
 
     expect(removal).toMatchObject({ ok: false, busy: true });
     expect(harness.sonarr.removeCalls).toHaveLength(0);
@@ -867,28 +879,13 @@ describe("FixerService apply", () => {
   });
 
   it("finds a running apply from a cold cache through an in-progress sibling row", async () => {
-    const harness = makeHarness();
-    harness.sonarr.queue = [
-      makeQueueItem(1, { downloadId: "season-pack" }),
-      makeQueueItem(2, { downloadId: "season-pack", episodeIds: [102] }),
-    ];
-    harness.sonarr.candidatesByItem.set(1, [makeCandidate("candidate_1", [101])]);
-    harness.runnerCtl.setScript(() => importProposal("candidate_1", [101]));
-    const { analysisId } = await harness.svc.analyzeAndWait("sonarr", 1);
-    harness.settings.update({ dryRun: false });
-    let finish: () => void = () => undefined;
-    harness.sonarr.verifyImportApplied = (_queueItem, result) =>
-      new Promise((resolve) => {
-        finish = () => resolve(result);
-      });
-
-    const applying = harness.svc.apply(analysisId);
-    await vi.waitFor(() => expect(harness.sonarr.applyCalls).toHaveLength(1));
+    const { harness, held, applying } = await runningPackImport();
     // Sonarr now reports the sibling as importing, and the cache is gone.
     harness.sonarr.queue[1] = { ...(harness.sonarr.queue[1] as QueueItem), isInProgress: true };
     (harness.svc as unknown as { queueCache: null }).queueCache = null;
+
     const removal = await harness.svc.removeQueueItem("sonarr", 2);
-    finish();
+    held.finish();
 
     expect(removal).toMatchObject({ ok: false, busy: true });
     expect(harness.sonarr.removeCalls).toHaveLength(0);
@@ -926,26 +923,19 @@ describe("FixerService apply", () => {
   it("drains a running apply on shutdown and stops its verification", async () => {
     const { svc, sonarr, settings, analysisId } = await analyzedHarness();
     settings.update({ dryRun: false });
-    let signal: AbortSignal | undefined;
-    let finish: () => void = () => undefined;
-    sonarr.verifyImportApplied = (_queueItem, result, options) => {
-      signal = options?.signal;
-      return new Promise((resolve) => {
-        finish = () => resolve({ ...result, ok: false, message: "stopped" });
-      });
-    };
+    const held = holdVerification(sonarr, { ok: false, message: "stopped" });
 
     const applying = svc.apply(analysisId);
-    await vi.waitFor(() => expect(signal).toBeDefined());
+    await vi.waitFor(() => expect(held.options).toBeDefined());
     svc.cancelAll();
-    expect(signal?.aborted).toBe(true);
+    expect(held.options?.signal?.aborted).toBe(true);
     let drained = false;
     const draining = svc.wait().then(() => {
       drained = true;
     });
     await Promise.resolve();
     expect(drained).toBe(false);
-    finish();
+    held.finish();
     await draining;
 
     expect((await applying).ok).toBe(false);

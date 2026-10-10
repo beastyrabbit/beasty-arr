@@ -1507,11 +1507,7 @@ export class FixerService {
         message: "Download is no longer in the queue. Removal options were not sent.",
       };
       if (current) {
-        if (this.settings.get().dryRun)
-          throw new Error("Dry-run was enabled before removal; no change made.");
-        if (this.autoApplyDisabled(opts))
-          throw new Error("Auto-apply was disabled; no change made.");
-        if (this.stopping.signal.aborted) throw new Error("Shutting down; no change made.");
+        this.assertMayRemove(opts);
         result = await this.removeCurrentItem(client, current, options);
       }
       const historyId = recordFixerHistory(this.db, {
@@ -1539,6 +1535,14 @@ export class FixerService {
   }
 
   // ============ history ============
+
+  /** Rechecked right before the arr request: these can change while a removal waits. */
+  private assertMayRemove(opts: FixerActionOpts): void {
+    if (this.settings.get().dryRun)
+      throw new Error("Dry-run was enabled before removal; no change made.");
+    if (this.autoApplyDisabled(opts)) throw new Error("Auto-apply was disabled; no change made.");
+    if (this.stopping.signal.aborted) throw new Error("Shutting down; no change made.");
+  }
 
   private autoApplyDisabled(opts: FixerActionOpts): boolean {
     return opts.sourceKind === "ai_auto" && !this.settings.get().fixerAutoApply;

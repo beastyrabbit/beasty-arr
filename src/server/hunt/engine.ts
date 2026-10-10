@@ -495,20 +495,7 @@ export class HuntEngine {
           await chains.get(cmd.source);
           if (signal?.aborted) break;
           const current = this.settings.get();
-          if (this.replanChangedTargets(plan, planIndex)) continue;
-          if (!this.isImmediateTrigger(trigger)) {
-            if (isEnginePaused(this.db)) {
-              this.setHold("automatic hunting is paused", { logActivity: false });
-              continue;
-            }
-            if (!accountingAvailable) {
-              this.setHold(
-                "budget observation unavailable; retry accounting before automatic searches",
-                { type: "budget", level: "warn" },
-              );
-              continue;
-            }
-          }
+          if (this.skipPlanEntry(plan, planIndex, accountingAvailable)) continue;
           let estimates: Map<number, number> | null = null;
           if (this.budget) {
             estimates = this.budget.estimateCommand({
@@ -568,6 +555,32 @@ export class HuntEngine {
       this.lastCycleAt = cycleStart;
       this.cycleRunning = false;
     }
+  }
+
+  /**
+   * Checks a plan entry right before dispatch: re-plans changed targets, then
+   * holds automatic work while hunting is paused or accounting is unavailable.
+   * Returns true when this entry must not be dispatched now.
+   */
+  private skipPlanEntry(
+    plan: { cmd: PlannedCommand; trigger: SearchTrigger }[],
+    planIndex: number,
+    accountingAvailable: boolean,
+  ): boolean {
+    if (this.replanChangedTargets(plan, planIndex)) return true;
+    if (this.isImmediateTrigger(plan[planIndex].trigger)) return false;
+    if (isEnginePaused(this.db)) {
+      this.setHold("automatic hunting is paused", { logActivity: false });
+      return true;
+    }
+    if (!accountingAvailable) {
+      this.setHold("budget observation unavailable; retry accounting before automatic searches", {
+        type: "budget",
+        level: "warn",
+      });
+      return true;
+    }
+    return false;
   }
 
   /**
