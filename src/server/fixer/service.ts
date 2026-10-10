@@ -1148,19 +1148,35 @@ export class FixerService {
 
   /**
    * The download id of a queue row from the live queue, in-progress rows
-   * included. When the queue cannot be read, the removal itself fails its own
-   * queue check before sending anything, so no lock alias is needed.
+   * included. Throws when the queue cannot be read: locking only the row id
+   * could miss a running apply of the same download.
    */
   private async liveDownloadId(
     service: MediaService,
     queueItemId: number,
   ): Promise<string | undefined> {
+    const rows = await this.requireClient(service).listQueue({ includeInProgress: true });
+    return rows.find((row) => row.id === queueItemId)?.downloadId;
+  }
+
+  /** Locks a removal or ignore; refuses it when its download cannot be identified. */
+  private async exclusiveRemoval(
+    service: MediaService,
+    queueItemId: number,
+    opts: FixerActionOpts,
+    run: () => Promise<FixerApplyOutcome>,
+  ): Promise<FixerApplyOutcome> {
+    let keys: string[];
     try {
-      const rows = await this.requireClient(service).listQueue({ includeInProgress: true });
-      return rows.find((row) => row.id === queueItemId)?.downloadId;
-    } catch {
-      return undefined;
+      keys = await this.removalLockKeys(service, queueItemId, opts);
+    } catch (error) {
+      return {
+        ok: false,
+        dryRun: false,
+        message: `Cannot identify the download in the ${serviceName(service)} queue: ${errorMessage(error)}`,
+      };
     }
+    return this.exclusive(keys, run);
   }
 
   async apply(
@@ -1409,8 +1425,9 @@ export class FixerService {
     options: QueueRemovalOptions = manualRemovalOptions,
     opts: FixerActionOpts = {},
   ): Promise<FixerApplyOutcome> {
-    const keys = await this.removalLockKeys(service, queueItemId, opts);
-    return this.exclusive(keys, () => this.removeUnlocked(service, queueItemId, options, opts));
+    return this.exclusiveRemoval(service, queueItemId, opts, () =>
+      this.removeUnlocked(service, queueItemId, options, opts),
+    );
   }
 
   private async removeUnlocked(
@@ -1430,8 +1447,7 @@ export class FixerService {
     queueItemId: number,
     opts: FixerActionOpts = {},
   ): Promise<FixerApplyOutcome> {
-    const keys = await this.removalLockKeys(service, queueItemId, opts);
-    return this.exclusive(keys, () =>
+    return this.exclusiveRemoval(service, queueItemId, opts, () =>
       this.removal(service, queueItemId, ignoreRemovalOptions, "ignore", opts),
     );
   }

@@ -895,6 +895,23 @@ describe("FixerService apply", () => {
     await applying;
   });
 
+  it("refuses a removal whose download cannot be identified", async () => {
+    const harness = makeHarness();
+    harness.sonarr.queue = [makeQueueItem(2, { downloadId: "season-pack" })];
+    harness.settings.update({ dryRun: false });
+    const listQueue = harness.sonarr.listQueue.bind(harness.sonarr);
+    harness.sonarr.listQueue = vi
+      .fn<typeof listQueue>()
+      .mockRejectedValueOnce(new Error("Sonarr 503"))
+      .mockImplementation(listQueue);
+
+    const removal = await harness.svc.removeQueueItem("sonarr", 2);
+
+    expect(removal.ok).toBe(false);
+    expect(removal.message).toContain("Cannot identify the download");
+    expect(harness.sonarr.removeCalls).toHaveLength(0);
+  });
+
   it("drains a running apply on shutdown and stops its verification", async () => {
     const { svc, sonarr, settings, analysisId } = await analyzedHarness();
     settings.update({ dryRun: false });
