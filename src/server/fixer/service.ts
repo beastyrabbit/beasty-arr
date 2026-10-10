@@ -315,6 +315,17 @@ function serviceName(service: MediaService): string {
   return service === "radarr" ? "Radarr" : "Sonarr";
 }
 
+/** Mutation lock names of a download: its queue row and, when known, its download id. */
+function lockKeys(
+  service: MediaService,
+  queueItemId: number,
+  downloadId: string | null | undefined,
+): string[] {
+  const keys = [`${service}:id:${queueItemId}`];
+  if (downloadId) keys.push(`${service}:dl:${downloadId}`);
+  return keys;
+}
+
 /** One analysis lock per download, so sibling rows of a pack never run twice. */
 function unitKey(item: Pick<QueueItem, "service" | "id" | "downloadId">): string {
   return item.downloadId
@@ -371,6 +382,10 @@ export class FixerService {
   private readonly running = new Map<string, Promise<FixerRunOutcome>>();
   /** Downloads with an apply, removal or ignore in flight; overlapping requests are refused. */
   private readonly mutating = new Set<string>();
+  /** The in-flight mutations themselves, so shutdown drains them before closing SQLite. */
+  private readonly mutations = new Set<Promise<FixerApplyOutcome>>();
+  /** Aborted on shutdown: no new arr change starts and import verification stops polling. */
+  private readonly stopping = new AbortController();
   private readonly now: () => number;
   private readonly makeId: () => string;
   private readonly prober: MediaProber | undefined;
@@ -841,10 +856,12 @@ export class FixerService {
   }
 
   async wait(): Promise<void> {
-    await Promise.allSettled(this.running.values());
+    await Promise.allSettled([...this.running.values(), ...this.mutations]);
   }
 
+  /** Shutdown only: cancels analyses and stops changes that have not reached the arr yet. */
   cancelAll(): number {
+    this.stopping.abort();
     let count = 0;
     for (const active of this.activeByItem.values()) {
       active.controller.abort();
@@ -1087,10 +1104,10 @@ export class FixerService {
    * ManualImport or blocklist request before the first one finishes.
    */
   private async exclusive(
-    key: string,
+    keys: string[],
     run: () => Promise<FixerApplyOutcome>,
   ): Promise<FixerApplyOutcome> {
-    if (this.mutating.has(key)) {
+    if (keys.some((key) => this.mutating.has(key))) {
       return {
         ok: false,
         dryRun: false,
@@ -1098,19 +1115,31 @@ export class FixerService {
         message: "Another change for this download is still running. Refresh and try again.",
       };
     }
-    this.mutating.add(key);
+    for (const key of keys) this.mutating.add(key);
+    const task = run();
+    this.mutations.add(task);
     try {
-      return await run();
+      return await task;
     } finally {
-      this.mutating.delete(key);
+      for (const key of keys) this.mutating.delete(key);
+      this.mutations.delete(task);
     }
   }
 
-  private queueUnitKey(service: MediaService, queueItemId: number): string {
-    const cached = this.queueCache?.items.find(
-      (item) => item.service === service && item.id === queueItemId,
-    );
-    return unitKey(cached ?? { service, id: queueItemId });
+  /**
+   * Removals arrive with a queue row id, applies with the analysis' row and
+   * download id. Both are locked so either identity finds the other.
+   */
+  private async removalLockKeys(
+    service: MediaService,
+    queueItemId: number,
+    opts: FixerActionOpts,
+  ): Promise<string[]> {
+    const analysis = opts.analysisId ? this.getAnalysis(opts.analysisId) : undefined;
+    const queueItem = analysis?.downloadId
+      ? undefined
+      : await this.findQueueItem(service, queueItemId);
+    return lockKeys(service, queueItemId, analysis?.downloadId ?? queueItem?.downloadId);
   }
 
   async apply(
@@ -1119,14 +1148,10 @@ export class FixerService {
     opts: FixerActionOpts = {},
   ): Promise<FixerApplyOutcome> {
     const row = this.getAnalysis(analysisId);
-    const key = row
-      ? unitKey({
-          service: row.service,
-          id: row.queueItemId,
-          downloadId: row.downloadId ?? undefined,
-        })
-      : `analysis:${analysisId}`;
-    return this.exclusive(key, () => this.applyAndRecord(analysisId, candidateIds, opts));
+    const keys = row
+      ? lockKeys(row.service, row.queueItemId, row.downloadId)
+      : [`analysis:${analysisId}`];
+    return this.exclusive(keys, () => this.applyAndRecord(analysisId, candidateIds, opts));
   }
 
   private async applyAndRecord(
@@ -1311,12 +1336,14 @@ export class FixerService {
     base: ImportHistoryBase,
     opts: FixerActionOpts,
   ): Promise<FixerApplyOutcome> {
-    const mayMutate = () => !this.settings.get().dryRun && !this.autoApplyDisabled(opts);
+    const signal = this.stopping.signal;
+    const mayMutate = () =>
+      !signal.aborted && !this.settings.get().dryRun && !this.autoApplyDisabled(opts);
     try {
       const started = await client.applyImportProposal(queueItem, candidates, effective, mayMutate);
       const result =
         started.ok && client.verifyImportApplied
-          ? await client.verifyImportApplied(queueItem, started, mayMutate)
+          ? await client.verifyImportApplied(queueItem, started, { mayMutate, signal })
           : started;
       const historyId = recordFixerHistory(this.db, {
         ...base,
@@ -1361,9 +1388,8 @@ export class FixerService {
     options: QueueRemovalOptions = manualRemovalOptions,
     opts: FixerActionOpts = {},
   ): Promise<FixerApplyOutcome> {
-    return this.exclusive(this.queueUnitKey(service, queueItemId), () =>
-      this.removeUnlocked(service, queueItemId, options, opts),
-    );
+    const keys = await this.removalLockKeys(service, queueItemId, opts);
+    return this.exclusive(keys, () => this.removeUnlocked(service, queueItemId, options, opts));
   }
 
   private async removeUnlocked(
@@ -1383,7 +1409,8 @@ export class FixerService {
     queueItemId: number,
     opts: FixerActionOpts = {},
   ): Promise<FixerApplyOutcome> {
-    return this.exclusive(this.queueUnitKey(service, queueItemId), () =>
+    const keys = await this.removalLockKeys(service, queueItemId, opts);
+    return this.exclusive(keys, () =>
       this.removal(service, queueItemId, ignoreRemovalOptions, "ignore", opts),
     );
   }
@@ -1447,6 +1474,7 @@ export class FixerService {
           throw new Error("Dry-run was enabled before removal; no change made.");
         if (this.autoApplyDisabled(opts))
           throw new Error("Auto-apply was disabled; no change made.");
+        if (this.stopping.signal.aborted) throw new Error("Shutting down; no change made.");
         result = await this.removeCurrentItem(client, current, options);
       }
       const historyId = recordFixerHistory(this.db, {

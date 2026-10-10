@@ -109,6 +109,9 @@ export function registerAiRoutes(app: FastifyInstance, ctx: AppContext): void {
       request.body,
     );
     if (!body.ok) return;
+    if (ctx.services.oracle.isChecking(body.data.subjectKey)) {
+      return reply.code(409).send({ error: "An AI check for this title is already running." });
+    }
     // A human-triggered check overrides dry-run suppression and the daily cap.
     void ctx.services.oracle
       .recheckSubject(body.data.subjectKey, true)

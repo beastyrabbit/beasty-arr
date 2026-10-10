@@ -605,6 +605,11 @@ export class OracleService {
     }
   }
 
+  /** Lets a route refuse a duplicate recheck before starting it in the background. */
+  isChecking(subjectKey: string): boolean {
+    return this.checksInFlight.has(subjectKey);
+  }
+
   /** Explicit invalidation without replacement; rechecks keep the old row until success. */
   invalidateVerdicts(subjectKey: string): void {
     this.db

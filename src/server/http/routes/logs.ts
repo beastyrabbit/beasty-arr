@@ -163,6 +163,9 @@ export function registerLogRoutes(app: FastifyInstance, ctx: AppContext): void {
     const row = ctx.db.select().from(aiVerdicts).where(eq(aiVerdicts.id, p.data.id)).get();
     if (!row) return notFound(reply, "verdict not found");
     if (q.data.recheck) {
+      if (ctx.services.oracle.isChecking(row.subjectKey)) {
+        return reply.code(409).send({ error: "An AI check for this title is already running." });
+      }
       // Explicit user re-check; runs live (even in dry-run) so do it in the
       // background — the SSE ai.check.completed event refreshes the GUI.
       void ctx.services.oracle

@@ -19,10 +19,15 @@ export interface ImportVerificationInput {
    * switched on while the import runs; the leftovers then stay for review.
    */
   mayMutate?: () => boolean;
+  /** Shutdown: stop polling so the drain does not wait for a slow import. */
+  signal?: AbortSignal;
   attempts?: number;
   /** First poll delay; it doubles per poll up to MAX_INTERVAL_MS. */
   intervalMs?: number;
 }
+
+/** Options the arr clients pass through to verifyManualImport. */
+export type ImportVerificationOptions = Pick<ImportVerificationInput, "mayMutate" | "signal">;
 
 const TERMINAL_FAILURES = new Set(["aborted", "failed", "unsuccessful"]);
 // 30 polls from 500 ms, capped at 5 s, wait about two minutes: a season pack
@@ -31,8 +36,17 @@ const DEFAULT_ATTEMPTS = 30;
 const DEFAULT_INTERVAL_MS = 500;
 const MAX_INTERVAL_MS = 5_000;
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal?.aborted) return resolve();
+    const timer = setTimeout(done, ms);
+    function done() {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", done);
+      resolve();
+    }
+    signal?.addEventListener("abort", done, { once: true });
+  });
 }
 
 /** The command's failure label when Sonarr/Radarr reports a terminal failure. */
@@ -101,11 +115,11 @@ export async function verifyManualImport(input: ImportVerificationInput): Promis
   const state: PollState = { remainingHandled: false };
 
   try {
-    for (let attempt = 0; attempt < attempts; attempt += 1) {
+    for (let attempt = 0; attempt < attempts && !input.signal?.aborted; attempt += 1) {
       const result = await pollImport(input, state);
       if (result) return result;
       if (attempt + 1 < attempts && intervalMs > 0) {
-        await sleep(Math.min(MAX_INTERVAL_MS, intervalMs * 2 ** attempt));
+        await sleep(Math.min(MAX_INTERVAL_MS, intervalMs * 2 ** attempt), input.signal);
       }
     }
   } catch (error) {
@@ -116,9 +130,12 @@ export async function verifyManualImport(input: ImportVerificationInput): Promis
     };
   }
 
+  const stopped = input.signal?.aborted
+    ? "verification stopped for shutdown"
+    : "it did not complete and leave the queue within the verification window";
   return {
     ok: false,
     commandId: input.commandId,
-    message: `${input.serviceName} accepted the ManualImport, but it did not complete and leave the queue within the verification window; check the ${input.serviceName} queue before retrying.`,
+    message: `${input.serviceName} accepted the ManualImport, but ${stopped}; check the ${input.serviceName} queue before retrying.`,
   };
 }

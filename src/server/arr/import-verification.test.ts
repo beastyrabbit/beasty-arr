@@ -47,6 +47,29 @@ describe("verifyManualImport", () => {
     expect(result.message).toContain("stay in the queue for review");
   });
 
+  it("stops polling when shutdown aborts the verification", async () => {
+    const controller = new AbortController();
+    const getCommand = vi.fn(async () => {
+      controller.abort();
+      return { status: "started" };
+    });
+
+    const result = await verifyManualImport({
+      serviceName: "Sonarr",
+      commandId: 12,
+      downloadId: "pack",
+      getCommand,
+      getQueueDownloadIds: async () => new Set(["pack"]),
+      signal: controller.signal,
+      attempts: 30,
+      intervalMs: 60_000,
+    });
+
+    expect(getCommand).toHaveBeenCalledOnce();
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("stopped for shutdown");
+  });
+
   it("backs off between polls up to the interval cap", async () => {
     vi.useFakeTimers();
     try {

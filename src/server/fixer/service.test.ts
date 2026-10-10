@@ -11,6 +11,7 @@ import type {
   QueueRemovalOptions,
   ResolutionProposal,
 } from "../../shared/fixer-types.js";
+import type { ImportVerificationOptions } from "../arr/import-verification.js";
 import type { SonarrEpisodeRecord } from "../arr/sonarr-client.js";
 import { SettingsService } from "../config/settings.js";
 import { createDb } from "../db/index.js";
@@ -53,7 +54,7 @@ class FakeArrClient {
   verifyImportApplied?: (
     queueItem: QueueItem,
     result: ApplyResult,
-    mayMutate?: () => boolean,
+    options?: ImportVerificationOptions,
   ) => Promise<ApplyResult>;
   episodes: SonarrEpisodeRecord[] = [];
   async listQueue(): Promise<QueueItem[]> {
@@ -836,12 +837,67 @@ describe("FixerService apply", () => {
     expect(svc.listHistory().items).toHaveLength(1);
   });
 
+  it("refuses removing another queue row of a download whose import is running", async () => {
+    const harness = makeHarness();
+    harness.sonarr.queue = [
+      makeQueueItem(1, { downloadId: "season-pack" }),
+      makeQueueItem(2, { downloadId: "season-pack", episodeIds: [102] }),
+    ];
+    harness.sonarr.candidatesByItem.set(1, [makeCandidate("candidate_1", [101])]);
+    harness.runnerCtl.setScript(() => importProposal("candidate_1", [101]));
+    const { analysisId } = await harness.svc.analyzeAndWait("sonarr", 1);
+    harness.settings.update({ dryRun: false });
+    let finish: () => void = () => undefined;
+    harness.sonarr.verifyImportApplied = (_queueItem, result) =>
+      new Promise((resolve) => {
+        finish = () => resolve(result);
+      });
+
+    const applying = harness.svc.apply(analysisId);
+    await vi.waitFor(() => expect(harness.sonarr.applyCalls).toHaveLength(1));
+    const removal = await harness.svc.removeQueueItem("sonarr", 2);
+    finish();
+
+    expect(removal).toMatchObject({ ok: false, busy: true });
+    expect(harness.sonarr.removeCalls).toHaveLength(0);
+    expect((await applying).ok).toBe(true);
+  });
+
+  it("drains a running apply on shutdown and stops its verification", async () => {
+    const { svc, sonarr, settings, analysisId } = await analyzedHarness();
+    settings.update({ dryRun: false });
+    let signal: AbortSignal | undefined;
+    let finish: () => void = () => undefined;
+    sonarr.verifyImportApplied = (_queueItem, result, options) => {
+      signal = options?.signal;
+      return new Promise((resolve) => {
+        finish = () => resolve({ ...result, ok: false, message: "stopped" });
+      });
+    };
+
+    const applying = svc.apply(analysisId);
+    await vi.waitFor(() => expect(signal).toBeDefined());
+    svc.cancelAll();
+    expect(signal?.aborted).toBe(true);
+    let drained = false;
+    const draining = svc.wait().then(() => {
+      drained = true;
+    });
+    await Promise.resolve();
+    expect(drained).toBe(false);
+    finish();
+    await draining;
+
+    expect((await applying).ok).toBe(false);
+    expect(svc.listHistory().items[0]?.result).toBe("error");
+  });
+
   it("gives import verification the live dry-run gate for leftover cleanup", async () => {
     const { svc, sonarr, settings, analysisId } = await analyzedHarness();
     settings.update({ dryRun: false });
     let gate: (() => boolean) | undefined;
-    sonarr.verifyImportApplied = async (_queueItem, result, mayMutate) => {
-      gate = mayMutate;
+    sonarr.verifyImportApplied = async (_queueItem, result, options) => {
+      gate = options?.mayMutate;
       return result;
     };
 

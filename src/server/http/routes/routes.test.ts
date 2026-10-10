@@ -842,6 +842,17 @@ describe("ai", () => {
     }
   });
 
+  it("refuses a manual recheck of a title whose check is still running", async () => {
+    const isChecking = vi.spyOn(b.ctx.services.oracle, "isChecking").mockReturnValue(true);
+    const recheck = vi.spyOn(b.ctx.services.oracle, "recheckSubject");
+
+    const res = await post(b.app, "/api/ai/recheck", { subjectKey: "sonarr:1" });
+
+    expect(res.statusCode).toBe(409);
+    expect(isChecking).toHaveBeenCalledWith("sonarr:1");
+    expect(recheck).not.toHaveBeenCalled();
+  });
+
   it("drives the codex device-login flow", async () => {
     b.ctx.services.codexLogin = {
       startCodexLogin: () => ({ loginId: "login-1" }),
