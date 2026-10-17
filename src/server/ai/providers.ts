@@ -203,8 +203,17 @@ export class ProviderStallError extends Error {
 
 const TERMINAL_PROVIDER_ERROR =
   /(?:usage limit|insufficient[_ -]?quota|out of budget|quota exceeded|billing|unauthori[sz]ed|forbidden|invalid api key|authentication|configuration)/i;
-const RETRYABLE_PROVIDER_ERROR =
-  /(?:\b408\b|\b429\b|\b5\d\d\b|rate.?limit|too many requests|service.?unavailable|server.?error|internal.?error|network.?error|connection.?error|connection.?refused|connection.?lost|fetch failed|upstream.?connect|reset before headers|socket hang up|websocket|timed? out|timeout|terminated|overloaded|over capacity|try again later|an error occurred while processing your request|you can retry your request)/i;
+const RETRYABLE_PROVIDER_ERRORS = [
+  /\b408\b|\b429\b|\b5\d\d\b|rate.?limit|too many requests|service.?unavailable/i,
+  /server.?error|internal.?error|network.?error|connection.?(?:error|refused|lost)/i,
+  /fetch failed|upstream.?connect|reset before headers|socket hang up|websocket/i,
+  /timed? out|timeout|terminated|overloaded|over capacity|try again later/i,
+  /an error occurred while processing your request|you can retry your request/i,
+];
+
+function isRetryableProviderMessage(message: string): boolean {
+  return RETRYABLE_PROVIDER_ERRORS.some((pattern) => pattern.test(message));
+}
 
 export function isRetryableProviderError(error: unknown): boolean {
   if (error instanceof ProviderStallError) return true;
@@ -230,7 +239,7 @@ export function isRetryableProviderError(error: unknown): boolean {
     return status === 408 || status === 429 || status >= 500;
   }
   const message = error instanceof Error ? error.message : String(error);
-  return !TERMINAL_PROVIDER_ERROR.test(message) && RETRYABLE_PROVIDER_ERROR.test(message);
+  return !TERMINAL_PROVIDER_ERROR.test(message) && isRetryableProviderMessage(message);
 }
 
 // Codex drops requests with a generic server error in bursts lasting minutes,

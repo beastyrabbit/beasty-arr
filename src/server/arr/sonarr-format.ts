@@ -25,7 +25,8 @@ function qualityRevision(quality: unknown): { version: number; isRepack?: true }
     ?.revision;
   const version = Number(revision?.version);
   const isRepack = revision?.isRepack === true;
-  if (!(version > 1) && !isRepack) return undefined;
+  const laterVersion = version > 1;
+  if (!laterVersion && !isRepack) return undefined;
   return { version: Number.isFinite(version) ? version : 1, ...(isRepack ? { isRepack } : {}) };
 }
 

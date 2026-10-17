@@ -130,11 +130,11 @@ function seriesYearReason(facts: InspectionFacts, file: SelectedFile): string | 
 /** Lowercase letters and digits only, so "DAN DA DAN" and "Dandadan" compare equal. */
 function compactTitle(title: string): string {
   return title
-    .replace(/&/g, " and ")
+    .replaceAll("&", " and ")
     .normalize("NFKD")
-    .replace(/\p{Diacritic}/gu, "")
+    .replaceAll(/\p{Diacritic}/gu, "")
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "");
+    .replaceAll(/[^a-z0-9]+/g, "");
 }
 
 const GERMAN_LETTERS: Record<string, string> = { ä: "ae", ö: "oe", ü: "ue", ß: "ss" };
@@ -143,7 +143,7 @@ const GERMAN_LETTERS: Record<string, string> = { ä: "ae", ö: "oe", ü: "ue", �
 function titleForms(title: string): string[] {
   const spelled = title
     .toLowerCase()
-    .replace(/[äöüß]/g, (letter) => GERMAN_LETTERS[letter] ?? letter);
+    .replaceAll(/[äöüß]/g, (letter) => GERMAN_LETTERS[letter] ?? letter);
   return [...new Set([compactTitle(title), compactTitle(spelled)])].filter(Boolean);
 }
 
@@ -429,7 +429,7 @@ const QUALITY_RESOLUTION = /(\d{3,4})p\b/i;
 function arrQuality(name: string | undefined): { tier: number; resolution?: number } | undefined {
   if (!name) return undefined;
   const tier = SOURCE_TIERS.find(([pattern]) => pattern.test(name))?.[1] ?? 0;
-  return { tier, resolution: Number(name.match(QUALITY_RESOLUTION)?.[1]) || undefined };
+  return { tier, resolution: Number(QUALITY_RESOLUTION.exec(name)?.[1]) || undefined };
 }
 
 /**
