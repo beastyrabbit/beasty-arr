@@ -213,7 +213,7 @@ const minutes = (value: number) => value * 60;
 describe("resolveQueueItem", () => {
   it("returns a needs_review fallback without running Pi when there are no candidates", async () => {
     const { result, calls } = await analyze(
-      { queueItem: makeQueueItem(), candidates: [] },
+      { queueItem: makeQueueItem({ statusMessages: [] }), candidates: [] },
       undefined,
     );
     expect(calls).toHaveLength(0);
@@ -221,6 +221,23 @@ describe("resolveQueueItem", () => {
     expect(result.proposal.confidence).toBe(0);
     expect(result.proposal.reason).toBe("Sonarr returned no manual import candidates.");
     expect(result.validation.ok).toBe(true);
+  });
+
+  it("names the queue status when there are no candidates (Law & Order SVU S13E01, an unextracted archive)", async () => {
+    const { result } = await analyze(
+      {
+        queueItem: makeQueueItem({
+          statusMessages: ["Found archive file, might need to be extracted"],
+        }),
+        candidates: [],
+      },
+      undefined,
+    );
+    const reason =
+      "Sonarr returned no manual import candidates. Queue status: Found archive file, might need to be extracted.";
+    expect(result.status).toBe("needs_review");
+    expect(result.proposal.reason).toBe(reason);
+    expect(result.proposal.issueSummary).toBe(reason);
   });
 
   it("shows the AI the target episode's synopsis to check dialogue against", async () => {
@@ -546,6 +563,115 @@ describe("resolveQueueItem", () => {
     );
     expect(request?.systemPrompt).toContain(
       "Do not apply this to announced, unlikely, unknown, expired or low-confidence verdicts.",
+    );
+    // The Portable Door was re-grabbed 4 times in 8 days: searching over an
+    // existing library file brings back the release Sonarr already prefers.
+    expect(request?.systemPrompt).toContain(
+      "Search again (skipRedownload=false) only when the queued episode has no library file at all; when a library file exists, a non-German duplicate, non-upgrade or upgrade is removed with skipRedownload=true even though the Oracle says German exists",
+    );
+    expect(request?.systemPrompt).toContain(
+      "| Dub Oracle exists > 0.6 and the candidate (not the wrong work) has no German audio | false only when the queued episode has no library file at all; otherwise true |",
+    );
+  });
+
+  it("states the removal, profile and language-marker rules once", async () => {
+    const { request } = await analyze(
+      { queueItem: makeQueueItem(), candidates: [makeCandidate("candidate_1")] },
+      importProposal("candidate_1"),
+    );
+    const system = request?.systemPrompt ?? "";
+
+    // MacGyver: an unwanted duplicate stayed at needs_review for want of identity.
+    expect(system).toContain(
+      "A candidate that would not be imported even if it were the queued episode (it adds no German the library lacks and is not an upgrade) may be removed as a non-upgrade with blocklist=true and skipRedownload=true; its identity may stay uncertain.",
+    );
+    // ER S10E14 and Force of Nature were proposed twice and refused twice by the preflight.
+    expect(system).toContain(
+      "A quality the series' quality profile does not allow cannot be imported by the fixer, even when it adds German audio: the import preflight refuses it. Do not propose such an import; use needs_review and name the profile and the quality.",
+    );
+    expect(system).toContain(
+      "Removal options table: removeFromClient=true, blocklist=true and changeCategory=false always; skipRedownload decides whether Sonarr searches again.",
+    );
+    expect(system).toContain(
+      "| Wrong episode or unusable release (wrong work, wrong episode, sample, no usable video, disc structure only) | false, so Sonarr searches again; true when the queued episode already has a German file that needs no upgrade |",
+    );
+    expect(system).toContain(
+      "| Duplicate of the library file or not an upgrade over it | true; blocklisting stops the same release from being grabbed again, no new search is needed |",
+    );
+    expect(system).toContain(
+      "| The library file already has German audio and the candidate does not | true |",
+    );
+    // The options are spelled out in the table only.
+    expect(system.match(/skipRedownload=false, changeCategory=false/g)).toBeNull();
+    expect(system).toContain(
+      "In German scene names DL and ML mean German plus the original audio; DUAL and MULTi name two or more languages that need not include German (Turkish releases often tag the second track und); the inspected streams decide.",
+    );
+  });
+
+  it("names the movie's profile in the Radarr profile rule", async () => {
+    const { request } = await analyze(
+      {
+        queueItem: realDevilsRejectsQueueItem(),
+        candidates: [realDevilsRejectsCandidate()],
+      },
+      importProposal("candidate_1"),
+    );
+    expect(request?.systemPrompt).toContain(
+      "A quality the movie's quality profile does not allow cannot be imported by the fixer",
+    );
+    expect(request?.systemPrompt).toContain(
+      "only when the queued movie has no library file at all",
+    );
+  });
+
+  it("shows the series year, alternate titles, air year and quality revision upfront", async () => {
+    // queue_context was called 115 times in 21 days, mostly for these facts.
+    const client = new FakeArrClient();
+    const series = {
+      id: 5,
+      title: "Show",
+      year: 2019,
+      alternateTitles: [{ title: "Die Show" }, { title: "Show (2019)" }],
+    };
+    client.episodes = [
+      { id: 101, seasonNumber: 1, episodeNumber: 1, airDate: "2021-03-04", series },
+      { id: 102, seasonNumber: 1, episodeNumber: 2, airDate: "2021-03-11", series },
+    ];
+    const { request } = await analyze(
+      {
+        queueItem: makeQueueItem({ episodeIds: [101, 102] }),
+        candidates: [
+          makeCandidate("candidate_1", {
+            quality: {
+              quality: { id: 3, name: "WEBDL-1080p" },
+              revision: { version: 2, real: 0, isRepack: true },
+            },
+            qualityLabel: "WEBDL-1080p",
+          }),
+        ],
+        client,
+      },
+      importProposal("candidate_1"),
+    );
+    const prompt = request?.prompt ?? "";
+    const inspection = JSON.parse(
+      prompt.slice(
+        prompt.indexOf("{", prompt.indexOf("The fixer's own observations")),
+        prompt.indexOf("\n\nActive Dub Oracle"),
+      ),
+    ) as { targets: Array<Record<string, unknown>> };
+
+    expect(inspection.targets[0]).toMatchObject({
+      year: 2021,
+      seriesYear: 2019,
+      titles: ["Show", "Die Show", "Show (2019)"],
+    });
+    // A season pack shows its series' year and titles once.
+    expect(inspection.targets[1]).toMatchObject({ id: 102, year: 2021 });
+    expect(inspection.targets[1]).not.toHaveProperty("titles");
+    expect(inspection.targets[1]).not.toHaveProperty("seriesYear");
+    expect(prompt).toContain(
+      '"qualityRevision": {\n      "version": 2,\n      "isRepack": true\n    }',
     );
   });
 
@@ -1028,7 +1154,7 @@ describe("deterministic guards on the real 2026-10-03 failures", () => {
     ]);
   });
 
-  it("holds the Sky Captain search for German when the library file already has an untagged German track", async () => {
+  it("turns off the Sky Captain search for German when the library file already has an untagged German track", async () => {
     const client = new FakeArrClient();
     client.moviesById.set(4711, {
       id: 4711,
@@ -1066,9 +1192,11 @@ describe("deterministic guards on the real 2026-10-03 failures", () => {
         changeCategory: false,
       }),
     );
-    expect(result.status).toBe("needs_review");
-    expect(result.proposal.reviewReasons).toContain(
-      "The removal asks for a new search although the library file already has German audio.",
+    expect(result.status).toBe("proposal");
+    expect(result.proposal.action).toBe("remove_queue_item");
+    expect(result.proposal.queueRemovalOptions?.skipRedownload).toBe(true);
+    expect(result.proposal.warnings).toContain(
+      "The removal asked for a new search although the library file already has German audio; the fixer turned the search off.",
     );
   });
 
@@ -1517,5 +1645,384 @@ describe("deterministic guards on the real 2026-10-08 failures", () => {
     });
     expect(result.status).toBe("proposal");
     expect(result.proposal.action).toBe("remove_queue_item");
+  });
+});
+
+describe("deterministic guards on the live 2026-10-17 findings", () => {
+  const blocklistAndSearch = {
+    removeFromClient: true,
+    blocklist: true,
+    skipRedownload: false,
+    changeCategory: false,
+  };
+  const blocklistOnly = { ...blocklistAndSearch, skipRedownload: true };
+  const contradicted = (actualWork: string) => ({
+    identity: { verdict: "contradicted" as const, actualWork, evidence: ["Subtitle dialogue."] },
+  });
+  const fullHd = { width: 1920, height: 1080 };
+  const quality = (name: string) => ({ quality: { id: 1, name } });
+
+  it.each([
+    ["Remux-1080p", "proposal"],
+    ["WEBDL-1080p", "needs_review"],
+    ["WEBRip-1080p", "needs_review"],
+  ])(
+    "removes a German WEBDL-1080p Radarr scores higher over a %s library file only when the library is the better source (A Nightmare on Elm Street 4)",
+    async (libraryQuality, status) => {
+      const client = new FakeArrClient();
+      client.moviesById.set(955, {
+        id: 955,
+        title: "A Nightmare on Elm Street 4: The Dream Master",
+        year: 1988,
+        movieFile: {
+          id: 9550,
+          path: "/lib/Nightmare 4.mkv",
+          quality: quality(libraryQuality),
+          languages: [{ id: 4, name: "German" }],
+        },
+      });
+      client.getMovieFile = async () => ({ customFormatScore: 11700 });
+      const release = "A.Nightmare.on.Elm.Street.4.1988.MULTi.German.EAC3.1080p.WEB-DL.H264-GRP";
+      const { result } = await analyze(
+        {
+          queueItem: makeQueueItem({
+            service: "radarr",
+            movieId: 955,
+            episodeIds: [],
+            title: release,
+          }),
+          candidates: [
+            makeCandidate("candidate_1", {
+              service: "radarr",
+              movieId: 955,
+              episodeIds: [],
+              folderName: release,
+              quality: quality("WEBDL-1080p"),
+              qualityLabel: "WEBDL-1080p",
+              customFormatScore: 13450,
+            }),
+          ],
+          client,
+          prober: fakeProber({
+            "/downloads/candidate_1.mkv": {
+              video: fullHd,
+              audio: [germanAudio()],
+              hasGermanAudio: true,
+            },
+            "/lib/Nightmare 4.mkv": { video: fullHd, audio: [germanAudio()], hasGermanAudio: true },
+          }),
+        },
+        removeProposal(blocklistOnly),
+      );
+      expect(result.status).toBe(status);
+    },
+  );
+
+  it("removes a German WEBDL-1080p over a German Bluray-1080p Sonarr scores lower (Band of Brothers S01E09)", async () => {
+    const client = new FakeArrClient();
+    client.episodes = [
+      {
+        id: 101,
+        hasFile: true,
+        seasonNumber: 1,
+        episodeNumber: 9,
+        title: "Why We Fight",
+        episodeFile: {
+          path: "/lib/Band of Brothers S01E09.mkv",
+          quality: quality("Bluray-1080p"),
+          languages: [],
+          customFormatScore: 11050,
+        },
+      },
+    ];
+    const { result } = await analyze(
+      {
+        queueItem: makeQueueItem({ title: "Band.of.Brothers.S01E09.German.DL.1080p.WEB.h264-GRP" }),
+        candidates: [
+          makeCandidate("candidate_1", {
+            quality: quality("WEBDL-1080p"),
+            qualityLabel: "WEBDL-1080p",
+            customFormatScore: 11700,
+          }),
+        ],
+        client,
+        prober: fakeProber({
+          "/downloads/candidate_1.mkv": {
+            video: fullHd,
+            audio: [germanAudio()],
+            hasGermanAudio: true,
+          },
+          "/lib/Band of Brothers S01E09.mkv": {
+            video: fullHd,
+            audio: [germanAudio()],
+            hasGermanAudio: true,
+          },
+        }),
+      },
+      removeProposal(blocklistOnly),
+    );
+    expect(result.status).toBe("proposal");
+    expect(result.proposal.action).toBe("remove_queue_item");
+  });
+
+  /** DAN DA DAN S01E02 without a library file, grabbed as a Dandivine release. */
+  async function dandivine(input: { parsedTitle: string; parsedYear?: number; airDate?: string }) {
+    const client = new FakeArrClient();
+    client.episodes = [
+      {
+        id: 101,
+        hasFile: false,
+        seasonNumber: 1,
+        episodeNumber: 2,
+        title: "That's a Space Alien, Isn't It?",
+        airDate: input.airDate ?? "2024-10-10",
+        series: {
+          id: 5,
+          title: "DAN DA DAN",
+          year: 2024,
+          alternateTitles: [{ title: "Dandadan" }],
+        },
+      },
+    ];
+    client.parseResult = {
+      parsedEpisodeInfo: {
+        seriesTitle: input.parsedTitle,
+        seriesTitleInfo: { year: input.parsedYear },
+        seasonNumber: 1,
+        episodeNumbers: [2],
+      },
+    };
+    const { result } = await analyze(
+      {
+        queueItem: makeQueueItem({
+          title: "Dandivine.2006.S01E02.German.Subbed.1080p.WEB.h264-GRP",
+          seriesTitle: "DAN DA DAN",
+        }),
+        candidates: [makeCandidate("candidate_1")],
+        client,
+        prober: fakeProber({
+          "/downloads/candidate_1.mkv": {
+            audio: [{ index: 1, codec: "aac", language: "jpn", inferredLanguage: "jpn" }],
+          },
+        }),
+      },
+      removeProposal(blocklistAndSearch, contradicted("Dandivine (2006) S01E02")),
+    );
+    return result;
+  }
+
+  it.each([
+    ["its year and an unrelated title", "Dandivine 2006", 2006],
+    ["an unrelated title alone", "Dandivine", undefined],
+    ["a series year older than the queued series alone", "Dan Da Dan", 2006],
+  ])(
+    "blocklists and searches again for a Dandivine release backed by %s (DAN DA DAN S01E02)",
+    async (_name, parsedTitle, parsedYear) => {
+      const result = await dandivine({ parsedTitle, parsedYear });
+      expect(result.status).toBe("proposal");
+      expect(result.proposal.queueRemovalOptions?.skipRedownload).toBe(false);
+    },
+  );
+
+  it.each([
+    ["names an alternate title of the queued series", "Dandadan", undefined, undefined],
+    // Release names keep the year a show started; a later season airs after it.
+    [
+      "carries the series' own first year for a later season",
+      "Dan Da Dan 2024",
+      2024,
+      "2026-07-03",
+    ],
+  ])(
+    "still holds a wrong-work removal of a target without a file when the parse %s",
+    async (_name, parsedTitle, parsedYear, airDate) => {
+      const result = await dandivine({ parsedTitle, parsedYear, airDate });
+      expect(result.status).toBe("needs_review");
+      expect(result.proposal.reviewReasons?.[0]).toContain(
+        "judged the download to be a different work",
+      );
+    },
+  );
+
+  it("does not count a parsed title that contains the queued title as another work (Montana Story)", async () => {
+    const client = new FakeArrClient();
+    client.moviesById.set(31, { id: 31, title: "Montana Story", year: 2021, runtime: 114 });
+    client.parseResult = {
+      parsedMovieInfo: { movieTitles: ["Montana Story Montanaya Donus"], year: 2021 },
+    };
+    const release = "Montana.Story.Montanaya.Donus.2021.TURKISH.1080p.WEB-DL.H264-GRP";
+    const { result } = await analyze(
+      {
+        queueItem: makeQueueItem({
+          service: "radarr",
+          movieId: 31,
+          movieTitle: "Montana Story",
+          episodeIds: [],
+          title: release,
+        }),
+        candidates: [
+          makeCandidate("candidate_1", {
+            service: "radarr",
+            movieId: 31,
+            episodeIds: [],
+            folderName: release,
+            languages: [{ id: 17, name: "Turkish" }],
+            languageLabels: ["Turkish"],
+          }),
+        ],
+        client,
+      },
+      removeProposal(blocklistAndSearch, contradicted("another film")),
+    );
+    expect(result.status).toBe("needs_review");
+  });
+
+  it("removes a different episode that loses nothing without year, runtime or parse backing (Paw Patrol S03E03-04)", async () => {
+    const client = new FakeArrClient();
+    client.episodes = [101, 102].map((id) => ({
+      id,
+      hasFile: true,
+      seasonNumber: 3,
+      episodeNumber: id - 98,
+      episodeFile: { path: `/lib/Paw Patrol ${id}.mkv`, languages: [] },
+    }));
+    client.parseResult = { series: { id: 5, title: "Paw Patrol" } };
+    const { result } = await analyze(
+      {
+        queueItem: makeQueueItem({
+          title: "Paw.Patrol.S03E03-E04.720p.WEB.h264-GRP",
+          seriesTitle: "Paw Patrol",
+          episodeIds: [101, 102],
+        }),
+        candidates: [
+          makeCandidate("candidate_1", {
+            episodeIds: [101, 102],
+            languages: [{ id: 1, name: "English" }],
+            languageLabels: ["English"],
+          }),
+        ],
+        client,
+        prober: fakeProber({
+          "/downloads/candidate_1.mkv": {
+            video: { width: 1280, height: 720 },
+            audio: [englishAudio()],
+          },
+          "/lib/Paw Patrol 101.mkv": { video: fullHd, audio: [englishAudio()] },
+          "/lib/Paw Patrol 102.mkv": { video: fullHd, audio: [englishAudio()] },
+        }),
+      },
+      removeProposal(
+        blocklistAndSearch,
+        contradicted("Paw Patrol S03E05 Pups Save the Soccer Game + S03E06"),
+      ),
+    );
+    expect(result.status).toBe("proposal");
+    expect(result.proposal.action).toBe("remove_queue_item");
+  });
+
+  it.each([
+    ["a confirmed duplicate", undefined],
+    ["a contradicted work", contradicted("another episode").identity],
+    [
+      "a non-upgrade of uncertain identity",
+      { verdict: "uncertain" as const, actualWork: "unclear", evidence: [] },
+    ],
+  ])(
+    "removes %s without a new search when the library file already has German (Clevatess S02E12)",
+    async (_name, identity) => {
+      const client = new FakeArrClient();
+      client.episodes = [
+        {
+          id: 101,
+          hasFile: true,
+          episodeFile: { path: "/lib/Clevatess S02E12.mkv", languages: [] },
+        },
+      ];
+      const { result } = await analyze(
+        {
+          queueItem: makeQueueItem({ title: "Clevatess.S02E12.German.DL.1080p.WEB.h264-GRP" }),
+          candidates: [
+            makeCandidate("candidate_1", {
+              rejections: ["Not a Custom Format upgrade for existing episode file(s)."],
+            }),
+          ],
+          client,
+          prober: fakeProber({
+            "/downloads/candidate_1.mkv": { audio: [germanAudio()], hasGermanAudio: true },
+            "/lib/Clevatess S02E12.mkv": { audio: [germanAudio()], hasGermanAudio: true },
+          }),
+        },
+        removeProposal(blocklistAndSearch, identity ? { identity } : {}),
+      );
+      expect(result.status).toBe("proposal");
+      expect(result.proposal.queueRemovalOptions).toEqual(blocklistOnly);
+      expect(result.proposal.warnings).toContain(
+        "The removal asked for a new search although the library file already has German audio; the fixer turned the search off.",
+      );
+    },
+  );
+
+  it("keeps the search when a queued episode is missing from Sonarr's episode response", async () => {
+    // Episode 102 is queued but not loaded, so it may be the one that needs the search.
+    const client = new FakeArrClient();
+    client.episodes = [
+      { id: 101, hasFile: true, episodeFile: { path: "/lib/Clevatess S02E12.mkv", languages: [] } },
+    ];
+    const { result } = await analyze(
+      {
+        queueItem: makeQueueItem({
+          title: "Clevatess.S02E12-E13.German.DL.1080p.WEB.h264-GRP",
+          episodeIds: [101, 102],
+        }),
+        candidates: [
+          makeCandidate("candidate_1", {
+            rejections: ["Not a Custom Format upgrade for existing episode file(s)."],
+          }),
+        ],
+        client,
+        prober: fakeProber({
+          "/downloads/candidate_1.mkv": { audio: [germanAudio()], hasGermanAudio: true },
+          "/lib/Clevatess S02E12.mkv": { audio: [germanAudio()], hasGermanAudio: true },
+        }),
+      },
+      removeProposal(blocklistAndSearch),
+    );
+    expect(result.proposal.queueRemovalOptions?.skipRedownload).toBe(false);
+    expect(result.proposal.warnings).toEqual([]);
+  });
+
+  /** Full Metal Panic! S04E03 without a library file; its download fails ffprobe. */
+  function fullMetalPanic(invalid: boolean) {
+    const client = new FakeArrClient();
+    client.episodes = [{ id: 101, hasFile: false, seasonNumber: 4, episodeNumber: 3 }];
+    const reason = "ffprobe failed: 0x00 at pos 0 invalid as first byte of an EBML number";
+    return analyze(
+      {
+        queueItem: makeQueueItem({ title: "Full.Metal.Panic.S04E03.German.DL.1080p.BluRay-GRP" }),
+        candidates: [makeCandidate("candidate_1")],
+        client,
+        prober: fakeProber({
+          "/downloads/candidate_1.mkv": invalid
+            ? { ok: false, reason, invalid: true }
+            : { ok: false, reason: "ffprobe timed out after 30s." },
+        }),
+      },
+      removeProposal(blocklistAndSearch),
+    );
+  }
+
+  it("removes a download ffprobe rejects as invalid data and shows the AI it is invalid (Full Metal Panic! S04E03)", async () => {
+    const { result, request } = await fullMetalPanic(true);
+    expect(result.status).toBe("proposal");
+    expect(result.proposal.action).toBe("remove_queue_item");
+    expect(request?.prompt).toContain('"invalidMedia": true');
+  });
+
+  it("still holds a removal whose file could not be inspected, without claiming it has German", async () => {
+    const { result } = await fullMetalPanic(false);
+    expect(result.status).toBe("needs_review");
+    expect(result.proposal.reviewReasons).toEqual([
+      "candidate_1.mkv could not be inspected (ffprobe timed out after 30s.) and may have German audio that the library copy of S04E03 lacks or could not be checked for; removing it could throw that away.",
+    ]);
   });
 });

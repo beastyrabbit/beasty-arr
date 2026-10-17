@@ -2,13 +2,14 @@ import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { hasGermanAudio, hasKnownLanguageMetadata } from "../../shared/domain.js";
 import type { ManualImportCandidate, QueueItem, ResolverEvent } from "../../shared/fixer-types.js";
-import type {
-  RadarrClient,
-  RadarrCustomFormatRecord,
-  RadarrMovieFileRecord,
-  RadarrMovieRecord,
-  RadarrQualityProfileItem,
-  RadarrQualityProfileRecord,
+import {
+  getMovieWithFileScore,
+  type RadarrClient,
+  type RadarrCustomFormatRecord,
+  type RadarrMovieFileRecord,
+  type RadarrMovieRecord,
+  type RadarrQualityProfileItem,
+  type RadarrQualityProfileRecord,
 } from "../arr/radarr-client.js";
 import { compactCandidate } from "../arr/sonarr-format.js";
 import { assessCandidateUpgrade } from "./upgrade.js";
@@ -159,7 +160,8 @@ async function safeGetMovie(client: RadarrClient, movieId?: number) {
     return undefined;
   }
   try {
-    return await client.getMovie(movieId);
+    // With the file's real custom-format score, which /movie/{id} omits.
+    return await getMovieWithFileScore(client, movieId);
   } catch {
     return undefined;
   }

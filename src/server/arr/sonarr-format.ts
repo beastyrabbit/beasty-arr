@@ -19,6 +19,16 @@ export function episodeLabel(episode: SonarrEpisodeRecord): string {
   );
 }
 
+/** The quality revision when it is more than a plain v1, so "v2"/PROPER/REPACK is visible. */
+function qualityRevision(quality: unknown): { version: number; isRepack?: true } | undefined {
+  const revision = (quality as { revision?: { version?: unknown; isRepack?: unknown } } | undefined)
+    ?.revision;
+  const version = Number(revision?.version);
+  const isRepack = revision?.isRepack === true;
+  if (!(version > 1) && !isRepack) return undefined;
+  return { version: Number.isFinite(version) ? version : 1, ...(isRepack ? { isRepack } : {}) };
+}
+
 export function compactCandidate(candidate: ManualImportCandidate) {
   return {
     id: candidate.id,
@@ -39,6 +49,7 @@ export function compactCandidate(candidate: ManualImportCandidate) {
     absoluteEpisodeNumbers: candidate.absoluteEpisodeNumbers,
     episodeLabels: candidate.episodeLabels,
     quality: candidate.qualityLabel,
+    qualityRevision: qualityRevision(candidate.quality),
     // Parsed from the release name by the arr; the inspected streams are authoritative.
     arrLanguageLabels: candidate.languageLabels,
     arrLabelsKnown: hasKnownLanguageMetadata(candidate.languages),

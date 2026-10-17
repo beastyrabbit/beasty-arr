@@ -109,6 +109,25 @@ export type RadarrMovieRecord = {
   added?: string;
 };
 
+/**
+ * Loads a movie with its file's custom-format score. /movie/{id} omits
+ * movieFile.customFormatScore, so an upgrade check against it would compare
+ * with 0; /moviefile/{id} carries the score and is merged in when missing.
+ */
+export async function getMovieWithFileScore(
+  client: Pick<RadarrClient, "getMovie" | "getMovieFile">,
+  movieId: number,
+): Promise<RadarrMovieRecord> {
+  const movie = await client.getMovie(movieId);
+  const file = movie.movieFile;
+  const fileId = file?.id ?? movie.movieFileId;
+  if (!file || file.customFormatScore !== undefined || !fileId) return movie;
+  const { customFormatScore } = await client.getMovieFile(fileId);
+  return customFormatScore === undefined
+    ? movie
+    : { ...movie, movieFile: { ...file, customFormatScore } };
+}
+
 export type RadarrHistoryRecord = {
   id: number;
   movieId?: number;
@@ -688,7 +707,7 @@ export class RadarrClient {
       const movieId =
         resolveImportMovieId(proposal, selectedImport.candidateId) ?? candidate?.movieId;
       if (!candidate || !movieId) continue;
-      const movie = await this.getMovie(movieId);
+      const movie = await getMovieWithFileScore(this, movieId);
       const assessment = assessCandidateUpgrade({
         candidate,
         episode: { id: movie.id, hasFile: movie.hasFile, episodeFile: movie.movieFile },

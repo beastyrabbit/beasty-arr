@@ -41,6 +41,10 @@ export interface TargetFacts {
   label: string;
   /** Movie release year, or the year an episode first aired. */
   year?: number;
+  /** The year the episode's series first aired (Sonarr); release names carry this year. */
+  seriesYear?: number;
+  /** The movie's or series' title with its original and alternate titles. */
+  titles: string[];
   /** Runtime in minutes from TMDb/TVDB metadata. */
   expectedRuntimeMinutes?: number;
   /** Plot synopsis, so dialogue can confirm the target by content. */
@@ -148,6 +152,10 @@ async function probeOnce(
   facts.probes.set(path, result);
 }
 
+function knownTitles(titles: Array<string | undefined>): string[] {
+  return [...new Set(titles.filter((title): title is string => Boolean(title)))];
+}
+
 function movieTarget(
   movie: RadarrMovieRecord,
   fileScore: number | undefined,
@@ -158,6 +166,11 @@ function movieTarget(
     id: movie.id,
     label: titleWithYear(movie.title ?? "movie", movie.year),
     year: movie.year,
+    titles: knownTitles([
+      movie.title,
+      movie.originalTitle,
+      ...(movie.alternateTitles ?? []).map((alternate) => alternate.title),
+    ]),
     expectedRuntimeMinutes: movie.runtime || undefined,
     synopsis: movie.overview?.slice(0, 300),
     currentFile: file
@@ -179,6 +192,11 @@ function episodeTarget(episode: SonarrEpisodeRecord): TargetFacts | undefined {
     id: episode.id,
     label: [episodeCode(episode), episode.title].filter(Boolean).join(" "),
     year: Number((episode.airDate ?? episode.airDateUtc)?.slice(0, 4)) || undefined,
+    seriesYear: episode.series?.year || undefined,
+    titles: knownTitles([
+      episode.series?.title,
+      ...(episode.series?.alternateTitles ?? []).map((alternate) => alternate.title),
+    ]),
     expectedRuntimeMinutes: episode.runtime || undefined,
     synopsis: episode.overview?.slice(0, 300),
     currentFile:
@@ -259,7 +277,7 @@ async function fetchTargets(
     );
   }
   const episodes = await (client as SonarrInspectionClient)
-    .getEpisodes({ episodeIds: ids, includeEpisodeFile: true })
+    .getEpisodes({ episodeIds: ids, includeSeries: true, includeEpisodeFile: true })
     .catch(() => []);
   return episodes.map(episodeTarget);
 }
@@ -372,7 +390,14 @@ function subtitleLabel(stream: ProbeSubtitleStream): string {
 
 /** Compact, model-facing summary of one probe. */
 export function summarizeProbe(probe: MediaProbeResult) {
-  if (!probe.ok) return { path: probe.path, inspected: false, reason: probe.reason };
+  if (!probe.ok) {
+    return {
+      path: probe.path,
+      inspected: false,
+      reason: probe.reason,
+      ...(probe.invalid ? { invalidMedia: true } : {}),
+    };
+  }
   return {
     path: probe.path,
     inspected: true,
@@ -400,36 +425,53 @@ export function summarizeProbe(probe: MediaProbeResult) {
   };
 }
 
+/** The library file's path is already on its currentFile entry. */
+function withoutPath<T extends { path: string }>({ path: _path, ...rest }: T): Omit<T, "path"> {
+  return rest;
+}
+
 export function renderInspection(
   facts: InspectionFacts,
   candidates: ManualImportCandidate[],
 ): string {
-  const targets = [...facts.targets.values()].map((target) => ({
-    id: target.id,
-    label: target.label,
-    expectedRuntime:
-      target.expectedRuntimeMinutes !== undefined
-        ? `${target.expectedRuntimeMinutes} min`
-        : "unknown",
-    synopsis: target.synopsis,
-    currentFile: target.currentFile
-      ? {
-          path: target.currentFile.path,
-          arrQuality: target.currentFile.quality,
-          arrLanguages: target.currentFile.languages,
-          arrCustomFormatScore: target.currentFile.customFormatScore ?? "unknown",
-          inspected: target.currentFile.path
-            ? summarizeProbe(
-                facts.probes.get(target.currentFile.path) ?? {
-                  ok: false,
-                  path: target.currentFile.path,
-                  reason: "Not probed.",
-                },
-              )
-            : undefined,
-        }
-      : "none (the target has no library file)",
-  }));
+  // A season pack's targets share one series; its year and titles are shown once.
+  const shownSeries = new Set<string>();
+  const targets = [...facts.targets.values()].map((target) => {
+    const seriesKey = JSON.stringify([target.seriesYear, target.titles]);
+    const firstOfSeries = !shownSeries.has(seriesKey);
+    shownSeries.add(seriesKey);
+    return {
+      id: target.id,
+      label: target.label,
+      year: target.year,
+      ...(firstOfSeries && target.seriesYear ? { seriesYear: target.seriesYear } : {}),
+      ...(firstOfSeries && target.titles.length > 0 ? { titles: target.titles } : {}),
+      expectedRuntime:
+        target.expectedRuntimeMinutes !== undefined
+          ? `${target.expectedRuntimeMinutes} min`
+          : "unknown",
+      synopsis: target.synopsis,
+      currentFile: target.currentFile
+        ? {
+            path: target.currentFile.path,
+            arrQuality: target.currentFile.quality,
+            arrLanguages: target.currentFile.languages,
+            arrCustomFormatScore: target.currentFile.customFormatScore ?? "unknown",
+            inspected: target.currentFile.path
+              ? withoutPath(
+                  summarizeProbe(
+                    facts.probes.get(target.currentFile.path) ?? {
+                      ok: false,
+                      path: target.currentFile.path,
+                      reason: "Not probed.",
+                    },
+                  ),
+                )
+              : undefined,
+          }
+        : "none (the target has no library file)",
+    };
+  });
   const files = candidates.map((candidate) => ({
     candidateId: candidate.id,
     ...summarizeProbe(
