@@ -6,25 +6,40 @@ import { createProposalTool } from "./pi-proposal-tool.js";
 describe("createProposalTool", () => {
   it("repeats the Dub Oracle German-release rule in the terminating tool guidance", () => {
     const tool = createProposalTool(["candidate_1"], () => undefined, "radarr");
-
-    expect(JSON.stringify(tool)).toContain(
-      "active Dub Oracle context says exists with confidence greater than 0.6",
-    );
-    expect(JSON.stringify(tool)).toContain(
-      "blocklist=true, skipRedownload=false, changeCategory=false",
-    );
-  });
-
-  it("distinguishes a satisfied German target from a target that still needs searching", () => {
-    const tool = createProposalTool(["candidate_1"], () => undefined, "sonarr");
     const guidance = JSON.stringify(tool);
 
-    expect(guidance).toContain("current library file has German audio");
-    expect(guidance).toContain("blocklist=true, skipRedownload=true, changeCategory=false");
     expect(guidance).toContain(
       "active Dub Oracle context says exists with confidence greater than 0.6",
     );
-    expect(guidance).toContain("blocklist=true, skipRedownload=false, changeCategory=false");
+    // The Portable Door was re-grabbed 4 times in 8 days: a search over an
+    // existing library file brings back the release the arr already prefers.
+    expect(guidance).toContain(
+      "searching again (skipRedownload=false) only when the queued movie has no library file at all",
+    );
+  });
+
+  it("refers to the system prompt's removal options table instead of restating it", () => {
+    const tool = createProposalTool(["candidate_1"], () => undefined, "sonarr");
+    const guidance = JSON.stringify(tool);
+
+    expect(guidance).toContain("Set queueRemovalOptions from the removal options table");
+    expect(guidance).toContain(
+      "choose the values from the removal options table in the system prompt",
+    );
+    expect(guidance).not.toContain("skipRedownload=false, changeCategory=false");
+    expect(guidance).not.toContain("skipRedownload=true, changeCategory=false");
+  });
+
+  it("lets an unwanted candidate go without identity and forbids profile-disallowed imports", () => {
+    const tool = createProposalTool(["candidate_1"], () => undefined, "sonarr");
+    const guidance = JSON.stringify(tool);
+
+    expect(guidance).toContain(
+      "may be removed as a non-upgrade with blocklist=true and skipRedownload=true while its identity stays uncertain",
+    );
+    expect(guidance).toContain(
+      "Never propose importing a quality the series' quality profile does not allow",
+    );
   });
 
   it("asks the AI to weigh release markers like a manual importer", () => {
@@ -36,6 +51,9 @@ describe("createProposalTool", () => {
       "Subbed, SUB, or GER SUB means German subtitles rather than German audio",
     );
     expect(guidance).toContain("like a person doing a manual import");
+    expect(guidance).toContain(
+      "DL and ML in German scene names mean German plus the original audio; DUAL and MULTi name two or more languages that need not include German",
+    );
   });
 
   it("restricts candidate ids through the TypeBox schema", () => {

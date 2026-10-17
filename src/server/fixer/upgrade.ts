@@ -254,7 +254,9 @@ function sameQuality(a: ParsedQuality, b: ParsedQuality): boolean {
 /**
  * Equal rank means equal quality or two qualities sharing a profile group
  * (e.g. WEB 720p and 1080p). Like Sonarr, a PROPER/REPACK only outranks the
- * exact same quality; across a group the custom-format score decides.
+ * exact same quality; across a group the custom-format score decides. A newer
+ * revision that lowers the custom-format score is not an upgrade either: the
+ * arr rejects it as "Not a Custom Format upgrade", so the score decides then.
  */
 function compareSameQuality(input: Comparison): UpgradeAssessment {
   const { profile, candidate, existing } = input;
@@ -262,7 +264,7 @@ function compareSameQuality(input: Comparison): UpgradeAssessment {
     ? candidate.quality.real - existing.quality.real ||
       candidate.quality.version - existing.quality.version
     : 0;
-  if (revisionDelta > 0) {
+  if (revisionDelta > 0 && candidate.score >= existing.score) {
     return {
       decision: "import",
       reason: `${describeFile(candidate)} is a revision upgrade over the existing ${describeFile(existing)}.`,

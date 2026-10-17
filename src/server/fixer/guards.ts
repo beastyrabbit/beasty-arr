@@ -11,8 +11,9 @@ import type { InspectionFacts, TargetFacts } from "./inspection.js";
 /**
  * Deterministic checks that run after the AI proposed an action. They never
  * make an action happen; they only stop one (turn it into needs_review) when
- * the fixer's own observations contradict it or cannot support it. The AI's
- * confidence is not trusted for this.
+ * the fixer's own observations contradict it or cannot support it, or make a
+ * removal skip a pointless new search. The AI's confidence is not trusted for
+ * this.
  */
 
 const RELEASE_YEAR = /(?<!\d)(?:19|20)\d{2}(?!\d)/g;
@@ -107,14 +108,66 @@ type SelectedFile = {
 /**
  * A series cannot start after its episode aired: a release whose series title
  * carries a later year (Monster.The.Lizzie.Borden.Story.2026 for a 2022
- * episode) is a newer show or season, whatever the arr mapped it to.
+ * episode) is a newer show or season, whatever the arr mapped it to. Nor can
+ * it be older than the queued series (Dandivine.2006 for DAN DA DAN, 2024).
+ * That side compares with the series' first year, not the episode's: release
+ * names of long-running shows keep the year they started (Doctor.Who.2005).
  */
 function seriesYearReason(facts: InspectionFacts, file: SelectedFile): string | undefined {
   const seriesYear = facts.parse?.parsedYear;
   if (!seriesYear) return undefined;
   const aired = file.targets.find((target) => target.year && seriesYear > target.year + 1);
-  if (!aired) return undefined;
-  return `The release names a series from ${seriesYear}, but ${aired.label} aired in ${aired.year}.`;
+  if (aired) {
+    return `The release names a series from ${seriesYear}, but ${aired.label} aired in ${aired.year}.`;
+  }
+  const newer = file.targets.find(
+    (target) => target.seriesYear && seriesYear < target.seriesYear - 1,
+  );
+  if (!newer) return undefined;
+  return `The release names a series from ${seriesYear}, but the series of ${newer.label} first aired in ${newer.seriesYear}.`;
+}
+
+/** Lowercase letters and digits only, so "DAN DA DAN" and "Dandadan" compare equal. */
+function compactTitle(title: string): string {
+  return title
+    .replaceAll("&", " and ")
+    .normalize("NFKD")
+    .replaceAll(/\p{Diacritic}/gu, "")
+    .toLowerCase()
+    .replaceAll(/[^a-z0-9]+/g, "");
+}
+
+const GERMAN_LETTERS: Record<string, string> = { ä: "ae", ö: "oe", ü: "ue", ß: "ss" };
+
+/** A title as written and with German umlauts spelled out (Blümchen, Bluemchen). */
+function titleForms(title: string): string[] {
+  const spelled = title
+    .toLowerCase()
+    .replaceAll(/[äöüß]/g, (letter) => GERMAN_LETTERS[letter] ?? letter);
+  return [...new Set([compactTitle(title), compactTitle(spelled)])].filter(Boolean);
+}
+
+/**
+ * The arr's parse matched no library work and its title shares nothing with
+ * the queued work's titles (Dandivine for DAN DA DAN). Containment either way
+ * counts as shared: "Montana Story Montanaya Donus" is still Montana Story.
+ */
+function unrelatedParsedTitle(
+  queueItem: QueueItem,
+  targets: TargetFacts[],
+  facts: InspectionFacts,
+): boolean {
+  const parsedTitle = facts.parse?.parsedTitle;
+  if (!parsedTitle || facts.parse?.matchedId !== undefined) return false;
+  const queuedTitle = queueItem.service === "radarr" ? queueItem.movieTitle : queueItem.seriesTitle;
+  const queued = [queuedTitle, ...targets.flatMap((target) => target.titles)].flatMap((title) =>
+    title ? titleForms(title) : [],
+  );
+  const parsed = titleForms(parsedTitle);
+  if (queued.length === 0 || parsed.length === 0) return false;
+  return !queued.some((title) =>
+    parsed.some((name) => name.includes(title) || title.includes(name)),
+  );
 }
 
 function yearReason(
@@ -272,12 +325,14 @@ function targetsOfCandidate(
 
 /**
  * Whether a candidate may carry German audio. An inspected file answers it;
- * a file that could not be read counts as possibly German; without media
- * inspection the arr's labels are all there is.
+ * a file ffprobe rejected as invalid data (Full Metal Panic!'s broken EBML)
+ * holds nothing importable; a file that could not be read counts as possibly
+ * German; without media inspection the arr's labels are all there is.
  */
 function mayHaveGerman(facts: InspectionFacts, candidate: ManualImportCandidate): boolean {
   const probe = facts.probes.get(candidate.path);
   if (probe?.ok) return probe.hasGermanAudio;
+  if (probe?.invalid) return false;
   return facts.proberAvailable || hasGermanAudio(candidate.languages);
 }
 
@@ -300,8 +355,14 @@ function germanLossReasons(
     );
     if (lacking.length === 0) return [];
     const labels = lacking.map((target) => target.label).join(", ");
+    const name = fileName(candidate.path);
+    if (facts.proberAvailable && !probeOf(facts, candidate.path)) {
+      return [
+        `${name} could not be inspected (${probeFailure(facts, candidate.path)}) and may have German audio that the library copy of ${labels} lacks or could not be checked for; removing it could throw that away.`,
+      ];
+    }
     return [
-      `${fileName(candidate.path)} has German audio that the library copy of ${labels} lacks or could not be checked for; removing it would throw that away.`,
+      `${name} has German audio that the library copy of ${labels} lacks or could not be checked for; removing it would throw that away.`,
     ];
   });
 }
@@ -312,10 +373,11 @@ function isFeatureFile(candidate: ManualImportCandidate): boolean {
 
 /**
  * "It is a different work" must be backed by more than the AI's reading: the
- * release year, the runtime, or the arr's own parse naming another title.
- * Mary (2024) checked against Maria (2024) had none of them, and two correct
- * releases were blocklisted. A parse naming the namesake the queue mapped the
- * download to is no evidence: the two works share the title.
+ * release year, the runtime, or the arr's own parse naming another title or a
+ * title unrelated to the queued one. Mary (2024) checked against Maria (2024)
+ * had none of them, and two correct releases were blocklisted. A parse naming
+ * the namesake the queue mapped the download to is no evidence: the two works
+ * share the title.
  */
 function wrongWorkReasons(
   queueItem: QueueItem,
@@ -326,6 +388,7 @@ function wrongWorkReasons(
   const parsedNamesake =
     queueItem.queueMappedId !== undefined && facts.parse?.matchedId === queueItem.queueMappedId;
   if (!parsedNamesake && parseReason(queueItem, facts)) return [];
+  if (unrelatedParsedTitle(queueItem, targets, facts)) return [];
   const backed = candidates.filter(isFeatureFile).some((candidate) => {
     const file: SelectedFile = {
       name: fileName(candidate.path),
@@ -352,12 +415,49 @@ function wrongWorkReasons(
 const NOT_AN_UPGRADE =
   /\bnot an? (?:(?:custom format|quality revision|quality|revision) )?upgrade\b/i;
 
+/** Sources in the arrs' quality order within one resolution, best first; anything else ranks last. */
+const SOURCE_TIERS: Array<[RegExp, number]> = [
+  [/remux/i, 5],
+  [/blu-?ray|bdrip|brrip/i, 4],
+  [/web-?dl/i, 3],
+  [/webrip/i, 2],
+  [/hdtv|raw-hd/i, 1],
+];
+const QUALITY_RESOLUTION = /(\d{3,4})p\b/i;
+
+/** Source tier and resolution of an arr quality name ("Remux-1080p", "WEBDL-720p", "SDTV"). */
+function arrQuality(name: string | undefined): { tier: number; resolution?: number } | undefined {
+  if (!name) return undefined;
+  const tier = SOURCE_TIERS.find(([pattern]) => pattern.test(name))?.[1] ?? 0;
+  return { tier, resolution: Number(QUALITY_RESOLUTION.exec(name)?.[1]) || undefined };
+}
+
+/**
+ * The candidate's arr quality is a lower source than the library file's at the
+ * same resolution (WEBDL-1080p against Remux-1080p). Neither arr upgrades to a
+ * lower quality on custom-format score alone, so its score proves nothing.
+ */
+function lowerSourceThanLibrary(
+  candidate: ManualImportCandidate,
+  target: TargetFacts,
+  after: number | undefined,
+  before: number | undefined,
+): boolean {
+  const next = arrQuality(candidate.qualityLabel);
+  const now = arrQuality(target.currentFile?.quality);
+  if (!next || !now || next.tier >= now.tier) return false;
+  const resolution = next.resolution ?? after;
+  return resolution !== undefined && resolution === (now.resolution ?? before);
+}
+
 /**
  * A removal must not throw away a German file that may be an upgrade: the arr
  * scores it higher than the library file (Benjamin Blümchen S01E03: 11700
  * against -23300), or its labels missed the German track, so its scores and
  * rejections were computed without it. The arr's own "not an upgrade" counts
- * only when its labels saw the German track; a lower resolution never upgrades.
+ * only when its labels saw the German track; a lower resolution never upgrades,
+ * and neither does a lower source at the same resolution (A Nightmare on Elm
+ * Street 4: WEBDL-1080p at 13450 against a Remux-1080p at 11700).
  */
 function upgradeLossReasons(
   queueItem: QueueItem,
@@ -374,7 +474,8 @@ function upgradeLossReasons(
     const comparable = targetsOfCandidate(queueItem, candidate, targets).filter((target) => {
       if (!target.currentFile) return false;
       const before = resolutionClass(currentFrameSize(facts, target));
-      return !(before && after && after < before);
+      if (before && after && after < before) return false;
+      return !lowerSourceThanLibrary(candidate, target, after, before);
     });
     if (comparable.length === 0) return [];
     if (candidate.germanFromInspection) {
@@ -405,47 +506,81 @@ function removalReviewReasons(
   const reasons: string[] = facts.proberAvailable
     ? []
     : ["Media inspection is not configured, so the real files could not be checked."];
+  const targets = queuedTargets(queueItem, facts);
+  const lossReasons = [
+    ...germanLossReasons(queueItem, candidates, targets, facts),
+    ...upgradeLossReasons(queueItem, candidates, targets, facts),
+  ];
+  if (proposal.identity?.verdict !== "contradicted") return [...reasons, ...lossReasons];
+  // "A different work" needs backing only when the removal could lose
+  // something: German or an upgrade for a target, or a target's only file.
+  // Removing an English 720p copy over a 1080p library file (Paw Patrol)
+  // loses nothing, whatever the download really is.
+  const canLose =
+    lossReasons.length > 0 || targets.length === 0 || targets.some((target) => !target.currentFile);
+  return canLose
+    ? [...reasons, ...wrongWorkReasons(queueItem, candidates, targets, facts)]
+    : reasons;
+}
+
+function queuedTargets(queueItem: QueueItem, facts: InspectionFacts): TargetFacts[] {
   const queuedIds = queueItem.service === "radarr" ? [queueItem.movieId] : queueItem.episodeIds;
-  const targets = queuedIds.flatMap((id) => {
+  return queuedIds.flatMap((id) => {
     const target = id === undefined ? undefined : facts.targets.get(id);
     return target ? [target] : [];
   });
-  const libraryHasGerman =
-    targets.length > 0 && targets.every((target) => currentHasGerman(facts, target) === true);
-
-  if (proposal.identity?.verdict === "contradicted") {
-    reasons.push(...wrongWorkReasons(queueItem, candidates, targets, facts));
-  } else {
-    reasons.push(
-      ...germanLossReasons(queueItem, candidates, targets, facts),
-      ...upgradeLossReasons(queueItem, candidates, targets, facts),
-    );
-  }
-  if (
-    libraryHasGerman &&
-    proposal.identity?.verdict === "confirmed" &&
-    proposal.queueRemovalOptions &&
-    !proposal.queueRemovalOptions.skipRedownload
-  ) {
-    reasons.push(
-      "The removal asks for a new search although the library file already has German audio.",
-    );
-  }
-  return reasons;
 }
 
-/** Applies the guards; a blocked proposal becomes needs_review with reviewReasons. */
+/**
+ * A new search cannot bring German audio the library files of every queued
+ * target already have, so a removal asking for one goes ahead without it
+ * (Clevatess S02E12) instead of waiting for a person, whatever the AI's
+ * identity verdict.
+ */
+function withoutNeedlessSearch(
+  queueItem: QueueItem,
+  proposal: ResolutionProposal,
+  facts: InspectionFacts,
+): ResolutionProposal {
+  const options = proposal.queueRemovalOptions;
+  if (!options || options.skipRedownload) return proposal;
+  // Every queued target must be loaded: a target missing from the facts may
+  // be the one that still needs the search.
+  const queuedIds = queueItem.service === "radarr" ? [queueItem.movieId] : queueItem.episodeIds;
+  const targets = queuedTargets(queueItem, facts);
+  const libraryHasGerman =
+    targets.length > 0 &&
+    targets.length === queuedIds.length &&
+    targets.every((target) => currentHasGerman(facts, target) === true);
+  if (!libraryHasGerman) return proposal;
+  return {
+    ...proposal,
+    queueRemovalOptions: { ...options, skipRedownload: true },
+    warnings: [
+      ...proposal.warnings,
+      "The removal asked for a new search although the library file already has German audio; the fixer turned the search off.",
+    ],
+  };
+}
+
+/**
+ * Applies the guards; a blocked proposal becomes needs_review with reviewReasons.
+ * The one correction they make, turning off a needless search, only makes a
+ * removal less aggressive.
+ */
 export function applyGuards(input: {
   queueItem: QueueItem;
   candidates: ManualImportCandidate[];
   proposal: ResolutionProposal;
   facts: InspectionFacts;
 }): ResolutionProposal {
-  const { queueItem, candidates, proposal, facts } = input;
+  const { queueItem, candidates, facts } = input;
+  let proposal = input.proposal;
   let reasons: string[] = [];
   if (proposal.action === "import_candidates") {
     reasons = importReviewReasons(queueItem, candidates, proposal, facts);
   } else if (proposal.action === "remove_queue_item") {
+    proposal = withoutNeedlessSearch(queueItem, proposal, facts);
     reasons = removalReviewReasons(queueItem, candidates, proposal, facts);
   }
   if (reasons.length === 0) return proposal;

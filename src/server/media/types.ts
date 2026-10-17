@@ -71,6 +71,11 @@ export interface MediaProbeFailure {
   ok: false;
   path: string;
   reason: string;
+  /**
+   * ffprobe read the file and rejected its data (a corrupt or truncated
+   * container), as opposed to the file being unreachable or ffprobe not running.
+   */
+  invalid?: true;
 }
 
 export type MediaProbeResult = MediaProbeOk | MediaProbeFailure;

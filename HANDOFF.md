@@ -62,6 +62,31 @@ needs_review when those observations contradict it; the AI's confidence is not
 used for that. Duplicates and non-upgrades are removed with blocklist and no
 replacement search, which ends the regrab loops seen on 2026-10-03.
 
+After 0.6.9 (review of 1265 applied actions and 360 traced analyses): the removal
+guards held correct AI decisions more often than they stopped wrong ones. A removal
+is no longer held when the candidate's arr quality is a lower source than the
+library file at the same resolution (WEBDL-1080p against Remux-1080p), even if its
+custom-format score is higher. A "different work" removal is backed when the release
+year is earlier than the series' first year, or when the arr's parse matched no
+library work and names an unrelated title; backing is only required when the
+removal could lose German audio, an upgrade, or a target's only file. A removal that
+asks for a new search although every queued target already has German is corrected
+to skipRedownload=true with a warning instead of waiting for a person. Files that
+ffprobe rejects as invalid data no longer count as possibly German. A PROPER/REPACK
+of the same quality is an upgrade only when its custom-format score is not lower,
+and the Radarr upgrade check and preflight now load the library file's real score
+(/movie/{id} omits it). The AI prompt tells the Fixer that a profile-disallowed
+quality can never be imported, that a non-upgrade may be removed with an uncertain
+identity, and that a Dub Oracle "exists" verdict triggers a new search only when the
+target has no library file (the arr's own search re-grabbed the same duplicate
+repeatedly). Codex "overloaded" errors are retried and an attempt with no session
+event for PI_STALL_TIMEOUT_MS (default five minutes) is aborted and retried.
+
+Both arrs have Media Management "Propers and Repacks" set to prefer and upgrade, so
+they grab PROPER/REPACK releases they then refuse to import as custom-format
+downgrades; most "Not a Custom Format upgrade" queue items come from that. Setting it
+to "do not prefer" in Sonarr and Radarr is an operator decision outside this repo.
+
 Operator steps for 0.6.0: mount the media PVC read-only in the beasty-arr pod and
 set FIXER_MEDIA_PATH_MAP (kub-homelab). Sonarr and Radarr keep replaced files in
 /data/recycle/{sonarr,radarr} for 30 days (set 2026-10-03).

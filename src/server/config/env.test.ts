@@ -36,6 +36,19 @@ it("starts from the distributed template without integrations", () => {
   expect(env.FIXER_MEDIA_PATH_MAP).toBeUndefined();
 });
 
+describe("loadEnv PI_STALL_TIMEOUT_MS", () => {
+  it("defaults to three minutes and coerces overrides", () => {
+    expect(loadEnv({ NODE_ENV: "test" }).PI_STALL_TIMEOUT_MS).toBe(300_000);
+    expect(loadEnv({ NODE_ENV: "test", PI_STALL_TIMEOUT_MS: "60000" }).PI_STALL_TIMEOUT_MS).toBe(
+      60_000,
+    );
+  });
+
+  it.each(["0", "-1", "1.5", "soon"])("rejects %s", (PI_STALL_TIMEOUT_MS) => {
+    expect(() => loadEnv({ NODE_ENV: "test", PI_STALL_TIMEOUT_MS })).toThrow("Invalid environment");
+  });
+});
+
 it("passes the fixer media path map through as a raw string", () => {
   expect(
     loadEnv({ NODE_ENV: "test", FIXER_MEDIA_PATH_MAP: "/data=/arr-data" }).FIXER_MEDIA_PATH_MAP,

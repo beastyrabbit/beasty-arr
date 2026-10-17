@@ -432,18 +432,33 @@ export function createSonarrLookupTools({
     name: "sonarr_get_upgrade_context",
     label: "Get Upgrade Context",
     description:
-      "Read the current episode files (Sonarr's labels and media info), quality profile scoring, custom formats, and an upgradeAssessment (import/skip/blocked/unverified) per candidate against the episodes Sonarr mapped it to. Pass episodeIds to compare against the episodes a file really is.",
+      "Read the current episode files (Sonarr's labels and media info), quality profile scoring, custom formats, and an upgradeAssessment (import/skip/blocked/unverified) per candidate. Each candidate is assessed against the episodes Sonarr mapped it to, unless mappings gives the episodes it really is. episodeIds only adds episodes to the listing.",
     promptSnippet:
       "Use sonarr_get_upgrade_context to compare candidates with the current episode files and the quality profile.",
     promptGuidelines: [
-      "Call this before proposing a resolution; pass episodeIds when you remapped a file.",
+      "Call this before proposing a resolution; when you remapped a file, pass mappings with its candidateId and the episodeIds it really is, so its upgradeAssessment compares against those episodes.",
       "upgradeAssessment compares Sonarr's quality and score labels only. The import preflight refuses files it marks skip or blocked, but it cannot see real resolution or untagged German tracks — check those with inspect_media_files.",
       "Custom-format scores express the user's quality preferences; German audio the library lacks outweighs them.",
     ],
     parameters: Type.Object({
       episodeIds: Type.Optional(
         Type.Array(
-          Type.Number({ description: "Exact Sonarr episode ids. Defaults to queue target ids." }),
+          Type.Number({
+            description:
+              "Exact Sonarr episode ids to list. Defaults to queue target ids. Does not change upgradeAssessment.",
+          }),
+        ),
+      ),
+      mappings: Type.Optional(
+        Type.Array(
+          Type.Object({
+            candidateId: Type.String({ minLength: 1 }),
+            episodeIds: Type.Array(Type.Number(), { minItems: 1 }),
+          }),
+          {
+            description:
+              "Assess these candidates against the episodes they really are; other candidates keep Sonarr's mapping.",
+          },
         ),
       ),
       includeCustomFormatDefinitions: Type.Optional(
@@ -456,10 +471,18 @@ export function createSonarrLookupTools({
     executionMode: "parallel" as const,
     async execute(_toolCallId, params) {
       const candidatesNow = getCandidates();
+      const mapped = new Map(
+        (params.mappings ?? []).map((mapping) => [mapping.candidateId, mapping.episodeIds]),
+      );
+      const imports = candidatesNow.map((candidate) => ({
+        candidateId: candidate.id,
+        episodeIds: mapped.get(candidate.id) ?? candidate.episodeIds,
+      }));
       const episodeIds = [
         ...new Set([
           ...(params.episodeIds?.length ? params.episodeIds : queueItem.episodeIds),
           ...candidatesNow.flatMap((candidate) => candidate.episodeIds),
+          ...imports.flatMap((entry) => entry.episodeIds),
         ]),
       ];
       const [episodes, qualityProfiles, customFormats] = await Promise.all([
@@ -504,10 +527,7 @@ export function createSonarrLookupTools({
         ),
       );
       const upgradeAssessment = assessImportMappings({
-        imports: candidatesNow.map((candidate) => ({
-          candidateId: candidate.id,
-          episodeIds: candidate.episodeIds,
-        })),
+        imports,
         candidatesById: new Map(candidatesNow.map((candidate) => [candidate.id, candidate])),
         episodesById,
         profilesById,
@@ -540,7 +560,13 @@ export function createSonarrLookupTools({
             : undefined,
           currentFile: compactEpisodeFile(episode.episodeFile),
         })),
-        candidates: getCandidates().map(compactCandidate),
+        // The prompt already has the full candidates; these are the facts the assessment used.
+        candidates: candidatesNow.map((candidate) => ({
+          candidateId: candidate.id,
+          qualityLabel: candidate.qualityLabel,
+          score: candidate.customFormatScore,
+          languages: candidate.languageLabels,
+        })),
         qualityProfiles: qualityProfiles
           .filter((profile) => profile.id && profileIds.has(profile.id))
           .map(compactQualityProfile),

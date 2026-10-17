@@ -385,6 +385,82 @@ describe("RadarrClient", () => {
     });
   });
 
+  it("compares against the /moviefile score that /movie/{id} omits", async () => {
+    // He's All That (2021) from the prod queue: a WEBDL-1080p REPACK at score
+    // 805 against a library WEBDL-1080p at 3050. /movie/{id} has no score, so
+    // the check used to compare with 0 and let the revision through.
+    const profile = {
+      id: 7,
+      name: "HD-1080p",
+      upgradeAllowed: true,
+      cutoff: 3,
+      cutoffFormatScore: 10_000,
+      items: [{ quality: { id: 3, name: "WEBDL-1080p" }, allowed: true }],
+    };
+    const libraryFile = {
+      id: 900,
+      movieId: 77,
+      quality: { quality: { id: 3, name: "WEBDL-1080p" }, revision: { version: 1, real: 0 } },
+      languages: [{ id: 1, name: "English" }],
+    };
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.endsWith("/api/v3/movie/77")) {
+        return jsonResponse({
+          id: 77,
+          title: "He's All That",
+          hasFile: true,
+          movieFileId: 900,
+          qualityProfileId: 7,
+          movieFile: libraryFile,
+        });
+      }
+      if (url.endsWith("/api/v3/moviefile/900")) {
+        return jsonResponse({ ...libraryFile, customFormatScore: 3050 });
+      }
+      if (url.endsWith("/api/v3/qualityprofile")) return jsonResponse([profile]);
+      return new Response("not found", { status: 404, statusText: "Not Found" });
+    });
+
+    const result = await client(fetchMock).preflightImportProposal(
+      queueItem({ title: "Hes.All.That.2021.REPACK.1080p.WEB", movieId: 77, episodeIds: [77] }),
+      [
+        {
+          id: "candidate_1",
+          service: "radarr",
+          path: "/downloads/Hes.All.That.2021.REPACK.1080p.WEB/Hes.All.That.mkv",
+          movieId: 77,
+          episodeIds: [],
+          absoluteEpisodeNumbers: [],
+          episodeLabels: [],
+          quality: {
+            quality: { id: 3, name: "WEBDL-1080p" },
+            revision: { version: 2, real: 0, isRepack: true },
+          },
+          languages: [{ id: 1, name: "English" }],
+          languageLabels: ["English"],
+          customFormatScore: 805,
+          rejections: [],
+          isLikelySample: false,
+        },
+      ],
+      {
+        action: "import_candidates",
+        confidence: 0.98,
+        selectedCandidateIds: ["candidate_1"],
+        selectedImports: [{ candidateId: "candidate_1", episodeIds: [], movieId: 77 }],
+        sampleCandidateIds: [],
+        reason: "REPACK.",
+        issueSummary: "Manual import warning.",
+        evidence: [],
+        warnings: [],
+      },
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("not importable (skip)");
+    expect(result.message).toContain("score 3050");
+  });
+
   // ---- hunt-engine read methods ----
 
   it("loads the full movie list with availability fields", async () => {

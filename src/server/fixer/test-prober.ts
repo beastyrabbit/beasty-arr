@@ -6,7 +6,7 @@ import type { MediaProbeOk, MediaProbeResult, MediaProber } from "../media/types
  * neutral; pass per-path overrides to describe specific files.
  */
 export function fakeProber(
-  files: Record<string, Partial<MediaProbeOk> | { ok: false; reason: string }> = {},
+  files: Record<string, Partial<MediaProbeOk> | { ok: false; reason: string; invalid?: true }> = {},
 ): MediaProber & { calls: string[] } {
   const calls: string[] = [];
   return {
@@ -16,7 +16,12 @@ export function fakeProber(
       calls.push(path);
       const override = files[path];
       if (override && "ok" in override && override.ok === false) {
-        return { ok: false, path, reason: override.reason };
+        return {
+          ok: false,
+          path,
+          reason: override.reason,
+          ...(override.invalid ? { invalid: true as const } : {}),
+        };
       }
       return {
         ok: true,

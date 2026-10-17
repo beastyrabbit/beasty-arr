@@ -35,6 +35,7 @@ const envSchema = z.object({
   AIBOX_URL: z.url().optional(),
   SEARXNG_URL: z.url().optional(),
   PI_INFERENCE_TIMEOUT_MS: z.coerce.number().int().positive().default(900_000),
+  PI_STALL_TIMEOUT_MS: z.coerce.number().int().positive().default(300_000),
   FIXER_MEDIA_PATH_MAP: z.string().optional(),
 });
 

@@ -170,6 +170,20 @@ describe("assessCandidateUpgrade", () => {
     expect(result.reason).toContain("revision");
   });
 
+  it("does not import a PROPER that lowers the custom-format score", () => {
+    // The Office S02E06-E12: WEBDL-1080p v2 at score 57 against the PCOK
+    // WEBDL-1080p v1 at 575; Sonarr rejected these as "Not a Custom Format upgrade".
+    const result = assessCandidateUpgrade({
+      candidate: candidate({ quality: quality(3, "WEBDL-1080p", 2), customFormatScore: 57 }),
+      episode: episode({
+        episodeFile: { quality: quality(3, "WEBDL-1080p"), customFormatScore: 575 },
+      }),
+      profile,
+    });
+    expect(result).toMatchObject({ decision: "skip" });
+    expect(result.reason).toContain("not an upgrade");
+  });
+
   it("lets a proper outrank only the exact same quality, not a grouped sibling", () => {
     // Real 24 S09E12 case: a WEBDL-720p PROPER replaced a 1080p file because
     // the profile groups 720p with 1080p and the revision won the comparison.

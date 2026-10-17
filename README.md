@@ -37,8 +37,12 @@ when a "different work" verdict has no backing from the release year, runtime, o
 parse, or when they would search for German the library already has. Downloads are checked against
 the movie or series they were grabbed for, not the one the arr's queue re-maps them to by title;
 when the two differ, an import waits for review. An audio track counts as German when its language tag or its title says so; when the two disagree,
-the Fixer weighs the release name and other observations before deciding whether an import is safe. Each analysis keeps its tool results
-and the model's reasoning in the AI trace.
+the Fixer weighs the release name and other observations before deciding whether an import is safe. A removal is not held when the
+candidate is a lower source than the library file at the same resolution (a WEB-DL against a remux), a file ffprobe rejects as invalid
+does not count as possibly German, and a removal that asks for a new search although the library already has German is corrected
+instead of held. A PROPER or REPACK counts as an upgrade only when it does not lower the custom-format score. Each analysis keeps its
+tool results and the model's reasoning in the AI trace. An AI attempt that produces no output for `PI_STALL_TIMEOUT_MS` (default five
+minutes) is aborted and retried within the inference time limit.
 
 File inspection needs `FIXER_MEDIA_PATH_MAP` (for example `/data=/arr-data`) and the media share
 mounted read-only at the mapped path. Without it, every import and removal waits for review.

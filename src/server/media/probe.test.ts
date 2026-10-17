@@ -566,6 +566,48 @@ describe("ffprobe mapping", () => {
     expectFailure(await prober.probe(MOVIE_ARR), reason);
   });
 
+  it.each([
+    [
+      "a corrupt Matroska file (Full Metal Panic! S04E03)",
+      {
+        code: 1,
+        stderr: "[matroska,webm @ 0x55] 0x00 at pos 0 invalid as first byte of an EBML number\n",
+      },
+      true,
+    ],
+    ["a timeout", { killed: true, signal: "SIGKILL" }, false],
+    ["a missing ffprobe", { code: "ENOENT" }, false],
+    [
+      "a file ffprobe may not open",
+      { code: 1, stderr: "/arr-data/x.mkv: Permission denied\n" },
+      false,
+    ],
+    ["a vanished file", { code: 1, stderr: "/arr-data/x.mkv: No such file or directory\n" }, false],
+  ])("flags only rejected file data as invalid: %s", async (_name, fields, invalid) => {
+    const prober = createMediaProber({
+      pathMap: parseMediaPathMap("/data=/arr-data"),
+      exec: scriptedExec({ ffprobe: () => Object.assign(new Error("Command failed"), fields) }),
+      fs: movieFs(),
+    });
+    const result = await prober.probe(MOVIE_ARR);
+    expect(result.ok).toBe(false);
+    expect(!result.ok && result.invalid).toBe(invalid ? true : undefined);
+  });
+
+  it("does not flag a path outside every mapping as invalid", async () => {
+    const prober = createMediaProber({
+      pathMap: parseMediaPathMap("/data=/arr-data"),
+      exec: scriptedExec({}),
+      fs: movieFs(),
+    });
+    const result = await prober.probe("/elsewhere/x.mkv");
+    expect(result).toEqual({
+      ok: false,
+      path: "/elsewhere/x.mkv",
+      reason: "Path is outside every configured media mapping.",
+    });
+  });
+
   it("uses custom binary paths", async () => {
     const exec = scriptedExec({ ffprobe: probeJson(germanRemux), ffmpeg: () => "1\nHi\n" });
     const prober = createMediaProber({

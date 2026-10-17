@@ -33,7 +33,16 @@ export type AiSettingsPort = { get(): AiSettingsSnapshot };
 export type PiRunnerEnv = {
   AIBOX_URL?: string;
   PI_INFERENCE_TIMEOUT_MS: number;
+  /** Defaults to DEFAULT_PI_STALL_TIMEOUT_MS. */
+  PI_STALL_TIMEOUT_MS?: number;
 };
+
+/**
+ * Longest silence allowed inside one attempt. Model output arrives every few
+ * seconds, but a single media-inspection tool call can run about 3 minutes
+ * without events; the longest successful prod run took 5.4 minutes in total.
+ */
+export const DEFAULT_PI_STALL_TIMEOUT_MS = 300_000;
 
 // ============ auth storage (persistent, DATA_DIR/pi/auth.json) ============
 
@@ -184,12 +193,30 @@ export class InferenceTimeoutError extends Error {
   }
 }
 
+/** One attempt saw no session event for the stall timeout; a fresh attempt may still succeed. */
+export class ProviderStallError extends Error {
+  override name = "ProviderStallError";
+  constructor(readonly stallTimeoutMs: number) {
+    super(`Provider stalled: no model output for ${Math.round(stallTimeoutMs / 1_000)} s.`);
+  }
+}
+
 const TERMINAL_PROVIDER_ERROR =
   /(?:usage limit|insufficient[_ -]?quota|out of budget|quota exceeded|billing|unauthori[sz]ed|forbidden|invalid api key|authentication|configuration)/i;
-const RETRYABLE_PROVIDER_ERROR =
-  /(?:\b408\b|\b429\b|\b5\d\d\b|rate.?limit|too many requests|service.?unavailable|server.?error|internal.?error|network.?error|connection.?error|connection.?refused|connection.?lost|fetch failed|upstream.?connect|reset before headers|socket hang up|websocket|timed? out|timeout|terminated|an error occurred while processing your request|you can retry your request)/i;
+const RETRYABLE_PROVIDER_ERRORS = [
+  /\b408\b|\b429\b|\b5\d\d\b|rate.?limit|too many requests|service.?unavailable/i,
+  /server.?error|internal.?error|network.?error|connection.?(?:error|refused|lost)/i,
+  /fetch failed|upstream.?connect|reset before headers|socket hang up|websocket/i,
+  /timed? out|timeout|terminated|overloaded|over capacity|try again later/i,
+  /an error occurred while processing your request|you can retry your request/i,
+];
+
+function isRetryableProviderMessage(message: string): boolean {
+  return RETRYABLE_PROVIDER_ERRORS.some((pattern) => pattern.test(message));
+}
 
 export function isRetryableProviderError(error: unknown): boolean {
+  if (error instanceof ProviderStallError) return true;
   if (
     error instanceof InferenceTimeoutError ||
     (error instanceof DOMException && error.name === "AbortError")
@@ -212,7 +239,7 @@ export function isRetryableProviderError(error: unknown): boolean {
     return status === 408 || status === 429 || status >= 500;
   }
   const message = error instanceof Error ? error.message : String(error);
-  return !TERMINAL_PROVIDER_ERROR.test(message) && RETRYABLE_PROVIDER_ERROR.test(message);
+  return !TERMINAL_PROVIDER_ERROR.test(message) && isRetryableProviderMessage(message);
 }
 
 // Codex drops requests with a generic server error in bursts lasting minutes,
@@ -458,7 +485,13 @@ function recordToolEnd(
   });
 }
 
-function finalAssistantMessage(session: AgentSession): AssistantMessage | undefined {
+/** The slice of a Pi AgentSession the runner drives; tests pass a scripted fake. */
+export type PiSessionHandle = Pick<
+  AgentSession,
+  "messages" | "subscribe" | "prompt" | "abort" | "dispose"
+>;
+
+function finalAssistantMessage(session: PiSessionHandle): AssistantMessage | undefined {
   return [...session.messages].reverse().find((entry) => entry.role === "assistant") as
     | AssistantMessage
     | undefined;
@@ -470,7 +503,7 @@ function finalAssistantMessage(session: AgentSession): AssistantMessage | undefi
  * caller can classify timeouts and aborts first.
  */
 async function promptUntilTerminated(
-  session: AgentSession,
+  session: PiSessionHandle,
   request: PiSessionRequest,
   tracker: { terminated: boolean },
   signal: AbortSignal,
@@ -548,24 +581,133 @@ async function createPiSession(
   return session;
 }
 
+/** Everything one runner call needs besides the request; `createSession` is the test seam. */
+export type PiSessionPlan = {
+  provider: ProviderId;
+  modelId: string;
+  /** One inference limit shared by every attempt. */
+  timeoutMs: number;
+  /** An attempt that sees no session event for this long is aborted and retried. */
+  stallTimeoutMs: number;
+  createSession: () => Promise<PiSessionHandle>;
+};
+
+/**
+ * Aborts its signal with a ProviderStallError once `stallTimeoutMs` passes
+ * without `touch()`. Armed on creation; `stop()` clears the timer for good.
+ */
+function startStallWatch(stallTimeoutMs: number) {
+  const controller = new AbortController();
+  let stopped = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const arm = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      controller.abort(new ProviderStallError(stallTimeoutMs));
+    }, stallTimeoutMs);
+  };
+  arm();
+  return {
+    signal: controller.signal,
+    touch: () => {
+      if (!stopped && !controller.signal.aborted) arm();
+    },
+    stop: () => {
+      stopped = true;
+      clearTimeout(timer);
+    },
+  };
+}
+
+/**
+ * Settles with `promise` unless `signal` aborts first; a value that arrives
+ * after the abort is handed to `onLate` so it can be released.
+ */
+function untilAborted<T>(
+  promise: Promise<T>,
+  signal: AbortSignal,
+  onLate: (value: T) => void,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const abort = () => {
+      promise.then(onLate, () => {});
+      reject(signal.reason);
+    };
+    if (signal.aborted) return abort();
+    signal.addEventListener("abort", abort, { once: true });
+    promise.then(
+      (value) => {
+        signal.removeEventListener("abort", abort);
+        resolve(value);
+      },
+      (error: unknown) => {
+        signal.removeEventListener("abort", abort);
+        reject(error);
+      },
+    );
+  });
+}
+
+/** Abort state of one attempt: user cancel, shared deadline, and stall watch. */
+type AttemptGuard = {
+  deadline: number;
+  signal: AbortSignal;
+  stall: ReturnType<typeof startStallWatch>;
+  /** Throws the classified abort error (timeout, cancel, stall) if any fired. */
+  throwIfAborted: () => void;
+};
+
 async function runPiSessionAttempt(
-  deps: PiRunnerDeps,
   request: PiSessionRequest,
-  provider: ProviderId,
-  modelId: string,
-  limit: { timeoutMs: number; deadline: number },
+  plan: PiSessionPlan,
+  deadline: number,
 ): Promise<PiSessionResult> {
-  if (Date.now() >= limit.deadline) throw new InferenceTimeoutError(limit.timeoutMs);
-  const session = await createPiSession(deps, request, provider, modelId);
+  const { timeoutMs } = plan;
+  if (Date.now() >= deadline) throw new InferenceTimeoutError(timeoutMs);
+  // Armed before session creation so a hung model/session setup also counts as a stall.
+  const stall = startStallWatch(plan.stallTimeoutMs);
+  const timeoutSignal = AbortSignal.timeout(Math.max(0, deadline - Date.now()));
+  const guard: AttemptGuard = {
+    deadline,
+    stall,
+    signal: AbortSignal.any(
+      request.signal
+        ? [request.signal, timeoutSignal, stall.signal]
+        : [timeoutSignal, stall.signal],
+    ),
+    throwIfAborted: () => {
+      if (timeoutSignal.aborted && !request.signal?.aborted) {
+        throw new InferenceTimeoutError(timeoutMs);
+      }
+      request.signal?.throwIfAborted();
+      if (stall.signal.aborted) throw stall.signal.reason;
+    },
+  };
+  let session: PiSessionHandle;
+  try {
+    session = await untilAborted(plan.createSession(), guard.signal, (late) => late.dispose());
+  } catch (error) {
+    stall.stop();
+    guard.throwIfAborted();
+    throw error;
+  }
+  return await promptPiSession(session, request, plan, guard);
+}
+
+async function promptPiSession(
+  session: PiSessionHandle,
+  request: PiSessionRequest,
+  plan: PiSessionPlan,
+  guard: AttemptGuard,
+): Promise<PiSessionResult> {
+  const { provider, modelId, timeoutMs } = plan;
+  const { stall, signal: combinedSignal } = guard;
   const tracker = createSessionTracker(request);
   const { toolCalls, usage } = tracker;
-  const unsubscribe = session.subscribe(tracker.listener);
-
-  const timeoutMs = limit.timeoutMs;
-  const timeoutSignal = AbortSignal.timeout(Math.max(0, limit.deadline - Date.now()));
-  const combinedSignal = request.signal
-    ? AbortSignal.any([request.signal, timeoutSignal])
-    : timeoutSignal;
+  const unsubscribe = session.subscribe((event) => {
+    stall.touch();
+    tracker.listener(event);
+  });
   const abortSession = () => {
     void session.abort().catch(() => {});
   };
@@ -574,12 +716,9 @@ async function runPiSessionAttempt(
 
   try {
     // Session setup can itself outlast the deadline; never start prompting past it.
-    if (Date.now() >= limit.deadline) throw new InferenceTimeoutError(timeoutMs);
+    if (Date.now() >= guard.deadline) throw new InferenceTimeoutError(timeoutMs);
     const promptError = await promptUntilTerminated(session, request, tracker, combinedSignal);
-    if (timeoutSignal.aborted && !request.signal?.aborted) {
-      throw new InferenceTimeoutError(timeoutMs);
-    }
-    request.signal?.throwIfAborted();
+    guard.throwIfAborted();
     if (promptError) throw promptError;
 
     const message = finalAssistantMessage(session);
@@ -609,8 +748,33 @@ async function runPiSessionAttempt(
   } finally {
     combinedSignal.removeEventListener("abort", abortSession);
     unsubscribe();
+    stall.stop();
     session.dispose();
   }
+}
+
+/**
+ * Runs fresh session attempts under one shared deadline, retrying transient
+ * provider errors and stalls. Exported so tests can drive it with fake sessions.
+ */
+export async function runPiSession(
+  request: PiSessionRequest,
+  plan: PiSessionPlan,
+): Promise<PiSessionResult> {
+  // One inference limit across all attempts so retries cannot stack fresh limits.
+  const deadline = Date.now() + plan.timeoutMs;
+  return await withProviderRetries(() => runPiSessionAttempt(request, plan, deadline), {
+    signal: request.signal,
+    deadline,
+    onRetry: (attempt, error, delayMs) => {
+      const reason = error instanceof Error ? error.message : String(error);
+      request.onEvent?.({
+        type: "provider_retry",
+        message: `Retrying provider request in ${Math.round(delayMs / 1_000)}s after a transient error (${attempt}/${DEFAULT_PROVIDER_RETRY_DELAYS_MS.length}).`,
+        data: { attempt, delayMs, reason },
+      });
+    },
+  });
 }
 
 /**
@@ -620,25 +784,21 @@ async function runPiSessionAttempt(
 export function createPiRunner(deps: PiRunnerDeps): PiRunner {
   return async (request) => {
     assertLiveAiAllowed();
-    const snapshot = deps.settings.get();
-    const provider = request.provider ?? snapshot.aiProvider;
-    if (provider === "off") throw new Error("AI provider is disabled (aiProvider=off).");
-    const modelId = request.model ?? snapshot.aiModel;
-    // One inference limit across all attempts so retries cannot stack fresh limits.
-    const timeoutMs = request.timeoutMs ?? deps.env.PI_INFERENCE_TIMEOUT_MS;
-    const limit = { timeoutMs, deadline: Date.now() + timeoutMs };
-    const runAttempt = () => runPiSessionAttempt(deps, request, provider, modelId, limit);
-    return await withProviderRetries(runAttempt, {
-      signal: request.signal,
-      deadline: limit.deadline,
-      onRetry: (attempt, error, delayMs) => {
-        const reason = error instanceof Error ? error.message : String(error);
-        request.onEvent?.({
-          type: "provider_retry",
-          message: `Retrying provider request in ${Math.round(delayMs / 1_000)}s after a transient error (${attempt}/${DEFAULT_PROVIDER_RETRY_DELAYS_MS.length}).`,
-          data: { attempt, delayMs, reason },
-        });
-      },
-    });
+    return await runPiSession(request, piSessionPlan(deps, request));
+  };
+}
+
+/** Resolves provider, model and limits for one request from settings and env. */
+export function piSessionPlan(deps: PiRunnerDeps, request: PiSessionRequest): PiSessionPlan {
+  const snapshot = deps.settings.get();
+  const provider = request.provider ?? snapshot.aiProvider;
+  if (provider === "off") throw new Error("AI provider is disabled (aiProvider=off).");
+  const modelId = request.model ?? snapshot.aiModel;
+  return {
+    provider,
+    modelId,
+    timeoutMs: request.timeoutMs ?? deps.env.PI_INFERENCE_TIMEOUT_MS,
+    stallTimeoutMs: deps.env.PI_STALL_TIMEOUT_MS ?? DEFAULT_PI_STALL_TIMEOUT_MS,
+    createSession: () => createPiSession(deps, request, provider, modelId),
   };
 }

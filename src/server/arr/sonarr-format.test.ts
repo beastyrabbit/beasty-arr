@@ -67,6 +67,30 @@ describe("compactCandidate", () => {
     expect(unknown).toMatchObject({ arrLabelsKnown: false, arrLabelsSayGerman: false });
   });
 
+  it("shows a v2/REPACK quality revision and omits a plain v1", () => {
+    // The Mentalist S01E23 REPACK: without the revision the model only saw "WEBDL-1080p".
+    const repack = compactCandidate({
+      ...candidate,
+      quality: {
+        quality: { id: 3, name: "WEBDL-1080p" },
+        revision: { version: 2, real: 0, isRepack: true },
+      },
+    });
+    const proper = compactCandidate({
+      ...candidate,
+      quality: { quality: { id: 3, name: "WEBDL-1080p" }, revision: { version: 2, real: 0 } },
+    });
+    const plain = compactCandidate({
+      ...candidate,
+      quality: { quality: { id: 3, name: "WEBDL-1080p" }, revision: { version: 1, real: 0 } },
+    });
+
+    expect(repack.qualityRevision).toEqual({ version: 2, isRepack: true });
+    expect(proper.qualityRevision).toEqual({ version: 2 });
+    expect(plain.qualityRevision).toBeUndefined();
+    expect(compactCandidate(candidate).qualityRevision).toBeUndefined();
+  });
+
   it("treats ARR's id=0 Unknown sentinel as missing metadata", () => {
     const unknown = compactCandidate({
       ...candidate,

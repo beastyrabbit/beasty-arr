@@ -531,7 +531,32 @@ function execReason(tool: string, error: unknown, timeoutMs: number): string {
   return detail ? `${tool} failed: ${detail}` : `${tool} failed.`;
 }
 
-class ProbeError extends Error {}
+/** ffprobe errors that mean it never reached the data, not that the data is bad. */
+const UNREACHABLE_INPUT =
+  /permission denied|operation not permitted|no such file|input\/output error/i;
+
+/**
+ * Whether ffprobe ran, exited non-zero and rejected the file's data ("invalid
+ * as first byte of an EBML number"). Timeouts, a missing binary and files it
+ * could not open are not that: the file may still be fine.
+ */
+function ffprobeRejectedData(error: unknown): boolean {
+  if (typeof errorField(error, "code") !== "number" || errorField(error, "killed") === true) {
+    return false;
+  }
+  const stderr = errorField(error, "stderr");
+  return !(typeof stderr === "string" && UNREACHABLE_INPUT.test(stderr));
+}
+
+class ProbeError extends Error {
+  /** The file was read and its data is invalid (MediaProbeFailure.invalid). */
+  readonly invalid: boolean;
+
+  constructor(message: string, invalid = false) {
+    super(message);
+    this.invalid = invalid;
+  }
+}
 
 function compareByName(a: FsDirent, b: FsDirent): number {
   if (a.name === b.name) return 0;
@@ -618,7 +643,10 @@ export function createMediaProber(options: MediaProberOptions): MediaProber {
         { timeoutMs: probeTimeoutMs, maxBuffer: MAX_BUFFER_BYTES },
       ));
     } catch (error) {
-      throw new ProbeError(execReason("ffprobe", error, probeTimeoutMs));
+      throw new ProbeError(
+        execReason("ffprobe", error, probeTimeoutMs),
+        ffprobeRejectedData(error),
+      );
     }
     let parsed: unknown;
     try {
@@ -762,7 +790,12 @@ export function createMediaProber(options: MediaProberOptions): MediaProber {
     try {
       return await probeFile(arrPath, probeOptions);
     } catch (error) {
-      return { ok: false, path: arrPath, reason: failureReason(error) } satisfies MediaProbeFailure;
+      return {
+        ok: false,
+        path: arrPath,
+        reason: failureReason(error),
+        ...(error instanceof ProbeError && error.invalid ? { invalid: true as const } : {}),
+      } satisfies MediaProbeFailure;
     }
   }
 
