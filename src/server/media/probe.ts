@@ -535,17 +535,24 @@ function execReason(tool: string, error: unknown, timeoutMs: number): string {
 const UNREACHABLE_INPUT =
   /permission denied|operation not permitted|no such file|input\/output error/i;
 
+/** ffprobe messages that mean it read the file and found no usable media data. */
+const REJECTED_DATA =
+  /invalid data found when processing input|invalid as first byte of an ebml number|moov atom not found|error reading header/i;
+
 /**
  * Whether ffprobe ran, exited non-zero and rejected the file's data ("invalid
- * as first byte of an EBML number"). Timeouts, a missing binary and files it
- * could not open are not that: the file may still be fine.
+ * as first byte of an EBML number"). Timeouts, a missing binary, files it
+ * could not open and any other failure without a data-rejection message are
+ * not that: the file may still be fine.
  */
 function ffprobeRejectedData(error: unknown): boolean {
   if (typeof errorField(error, "code") !== "number" || errorField(error, "killed") === true) {
     return false;
   }
   const stderr = errorField(error, "stderr");
-  return !(typeof stderr === "string" && UNREACHABLE_INPUT.test(stderr));
+  return (
+    typeof stderr === "string" && REJECTED_DATA.test(stderr) && !UNREACHABLE_INPUT.test(stderr)
+  );
 }
 
 class ProbeError extends Error {

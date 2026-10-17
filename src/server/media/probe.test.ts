@@ -583,6 +583,24 @@ describe("ffprobe mapping", () => {
       false,
     ],
     ["a vanished file", { code: 1, stderr: "/arr-data/x.mkv: No such file or directory\n" }, false],
+    [
+      "an ffprobe invocation error",
+      {
+        code: 1,
+        stderr: "Unrecognized option 'show_chapterz'.\nError splitting the argument list\n",
+      },
+      false,
+    ],
+    ["a loader failure without stderr", { code: 127 }, false],
+    [
+      "a truncated MP4",
+      {
+        code: 1,
+        stderr:
+          "[mov,mp4,m4a @ 0x55] moov atom not found\n/arr-data/x.mp4: Invalid data found when processing input\n",
+      },
+      true,
+    ],
   ])("flags only rejected file data as invalid: %s", async (_name, fields, invalid) => {
     const prober = createMediaProber({
       pathMap: parseMediaPathMap("/data=/arr-data"),
