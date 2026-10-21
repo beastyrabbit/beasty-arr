@@ -9,7 +9,7 @@ const version = (
 ).version;
 export const RELEASE = `beasty-arr@${version}`;
 const DOMAIN = /^[a-z\d.-]+$/;
-const PROJECT_PATH = /^\/\d+$/;
+const PROJECT_PATH = /^\/(?:[^/]+\/)*\d+$/;
 const TRAILING_SLASH = /\/$/;
 
 export function ignoreIncomingRequest(urlPath: string): boolean {

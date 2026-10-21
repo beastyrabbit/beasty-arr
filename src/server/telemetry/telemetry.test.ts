@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createTelemetryScrubber } from "../../shared/telemetry.js";
 import { buildApp } from "../app.js";
 import { registerTelemetryRoutes } from "../http/routes/telemetry.js";
+import { drainWithin } from "../lifecycle.js";
 import { Scheduler } from "../scheduler/index.js";
 import { ignoreIncomingRequest, RELEASE, telemetryConfig } from "./config.js";
 import { reportError, setupErrorHandler } from "./report.js";
@@ -26,6 +27,31 @@ afterEach(async () => {
 });
 
 describe("runtime config", () => {
+  it.each([
+    "https://public@errors.example/1",
+    "https://public@errors.example/glitchtip/1",
+    "http://public@errors.example/tools/glitchtip/42",
+  ])("accepts a DSN with a numeric project id: %s", (dsn) => {
+    expect(telemetryConfig({ ...env, GLITCHTIP_DSN: dsn }).glitchtip?.dsn).toBe(dsn);
+  });
+
+  it.each([
+    "invalid",
+    "ftp://public@errors.example/glitchtip/1",
+    "https://errors.example/glitchtip/1",
+    "https://public:password@errors.example/glitchtip/1",
+    "https://public@errors.example/",
+    "https://public@errors.example/glitchtip",
+    "https://public@errors.example/glitchtip/project",
+    "https://public@errors.example/glitchtip/1/",
+    "https://public@errors.example//1",
+    "https://public@errors.example/glitchtip//1",
+    "https://public@errors.example/glitchtip/1?query=1",
+    "https://public@errors.example/glitchtip/1#fragment",
+  ])("disables error reporting for an invalid DSN: %s", (dsn) => {
+    expect(telemetryConfig({ ...env, GLITCHTIP_DSN: dsn }).glitchtip).toBeNull();
+  });
+
   it("is disabled by default, in development with inherited production values, and with invalid config", () => {
     expect(telemetryConfig({})).toEqual({ umami: null, glitchtip: null });
     expect(telemetryConfig({ ...env, NODE_ENV: "development" })).toEqual({
@@ -105,6 +131,20 @@ function captureReports() {
   });
   return capture;
 }
+
+it("reports shutdown drain timeouts while ignoring expected in-flight cancellations", async () => {
+  const capture = captureReports();
+  await drainWithin(new Promise(() => {}), 1).catch((error) => {
+    reportError(error, { job: "shutdown" });
+  });
+  reportError(new Error("Service is shutting down"), { job: "fixture.cancelled" });
+  reportError(new DOMException("Operation aborted", "AbortError"), { job: "fixture.aborted" });
+  await Sentry.flush(1000);
+  expect(capture).toHaveBeenCalledOnce();
+  const serialized = JSON.stringify(capture.mock.calls);
+  expect(serialized).toContain("Background work did not drain before shutdown deadline");
+  expect(serialized).toContain('"job":"shutdown"');
+});
 
 it("limits fresh errors by job and scrubbed signature for one hour", async () => {
   const capture = captureReports();

@@ -44,8 +44,10 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
         await flushErrors();
         process.exit(0);
       },
-      (error) => {
+      async (error) => {
+        reportError(error, { job: "shutdown" });
         app.log.error(error, "shutdown drain failed");
+        await flushErrors();
         process.exit(1);
       },
     );
