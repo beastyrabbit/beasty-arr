@@ -229,7 +229,7 @@ function verdictColor(verdict: string) {
   return undefined;
 }
 
-function AiRows({ verdicts }: { verdicts: ReturnType<typeof useVerdicts> }) {
+function AiRows({ verdicts }: Readonly<{ verdicts: ReturnType<typeof useVerdicts> }>) {
   if (verdicts.isError && !verdicts.data) return null;
   if (verdicts.isPending) return <SkeletonRows rows={8} cols={6} />;
   if (verdicts.data && verdicts.data.items.length > 0)
