@@ -183,7 +183,7 @@ ${operatorAddress("Germany")}
 <p>Umami erfasst bei der angemeldeten Nutzung der Anwendung Seitenaufrufe, Interaktionen und Leistungswerte sowie Sitzungsaufzeichnungen und Heatmaps. Texte und Eingaben werden maskiert; sensible Ansichten sind von Sitzungsaufzeichnungen ausgeschlossen. Umami setzt keine Cookies und berücksichtigt das Do-Not-Track-Signal des Browsers. Die IP-Adresse dient nur zur Ableitung einer pseudonymen Sitzung und eines ungefähren Standorts und wird von Umami nicht gespeichert.</p>
 <p>GlitchTip erhält Fehlerberichte aus Server und Browser mit technischen Angaben wie Fehlermeldung, Stacktrace, Anwendungsversion, Browser, Betriebssystem und Seitenpfad sowie eine Stichprobe von Leistungsdaten. Zugangsdaten, Tokens und E-Mail-Adressen werden vor dem Versand entfernt. GlitchTip anonymisiert IP-Adressen standardmäßig.</p>
 <p>Die Verarbeitung dient dem Betrieb und der Verbesserung der Anwendung sowie dem Erkennen und Beheben von Fehlern. Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO. Das berechtigte Interesse liegt in einer stabilen Anwendung, die laufend verbessert wird.</p>
-<p>Umami-Daten werden bis zu 10 Jahre gespeichert. Fehlerdaten in GlitchTip werden 90 Tage aufbewahrt, Leistungsdaten kürzer.</p>`,
+<p>Umami-Analysedaten werden 25 Monate gespeichert, Sitzungsaufzeichnungen und Heatmaps 30 Tage. Fehlerereignisse in GlitchTip werden 90 Tage aufbewahrt.</p>`,
     },
     en: {
       heading: "Usage statistics and error analysis (Umami and GlitchTip)",
@@ -191,7 +191,7 @@ ${operatorAddress("Germany")}
 <p>Umami collects page views, interactions and performance values during signed-in use of the application, as well as session recordings and heatmaps. Text and inputs are masked; sensitive views are excluded from session recordings. Umami sets no cookies and respects the browser's Do Not Track signal. The IP address is used only to derive a pseudonymous session and an approximate location and is not stored by Umami.</p>
 <p>GlitchTip receives error reports from the server and browser with technical details such as the error message, stack trace, application version, browser, operating system and page path, along with a sample of performance data. Credentials, tokens and e-mail addresses are removed before sending. GlitchTip anonymises IP addresses by default.</p>
 <p>The processing serves to operate and improve the application and to find and fix errors. The legal basis is Art. 6(1)(f) GDPR. The legitimate interest is a stable application that is continually improved.</p>
-<p>Umami data is stored for up to 10 years. GlitchTip error data is retained for 90 days, and performance data for a shorter period.</p>`,
+<p>Umami analytics data is stored for 25 months, session recordings and heatmaps for 30 days. GlitchTip error events are retained for 90 days.</p>`,
     },
   },
   posters: {
