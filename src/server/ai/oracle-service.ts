@@ -17,6 +17,7 @@ import {
 } from "../db/schema.js";
 import type { EventBus } from "../events/bus.js";
 import { AI_PAUSE_MIN_MS } from "../hunt/state.js";
+import { reportError } from "../telemetry/report.js";
 import {
   type DubCatalogEvidence,
   type DubCatalogLookupResult,
@@ -264,6 +265,7 @@ export class OracleService {
         await this.prepareBulkSubjects(catalogCandidates, signal ?? new AbortController().signal);
       } catch (error) {
         this.log.warn({ err: error }, "nightly dub catalog lookup failed; continuing with AI");
+        if (!signal?.aborted) reportError(error, { job: "oracle.catalog" });
       }
     }
 
@@ -537,6 +539,7 @@ export class OracleService {
           { err: message, subjectKeys },
           "automatic dub oracle state refresh failed — skipping AI checks",
         );
+        reportError(error, { job: "oracle.refresh" });
         return {
           selected: 0,
           checked: 0,
@@ -755,6 +758,7 @@ export class OracleService {
       if (!signal.aborted) {
         const message = error instanceof Error ? error.message : String(error);
         this.log.warn({ err: message }, "AI bulk catalog prefilter failed; continuing with AI");
+        reportError(error, { job: "oracle.catalog" });
         await this.runSubjects(subjects, signal, hooks);
       }
     } finally {
@@ -932,6 +936,7 @@ export class OracleService {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.finishAttempt(attemptId, signal?.aborted ? "cancelled" : "failed", message);
+      if (!signal?.aborted) reportError(error, { job: "oracle.analysis" });
       throw error;
     }
   }

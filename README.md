@@ -101,6 +101,116 @@ connection URLs.
 Container publication uses the encrypted `GHCR_PUBLISH_TOKEN` repository secret when present,
 falling back to `GITHUB_TOKEN` for packages that grant the repository Actions access.
 
+## Telemetry
+
+Umami 3 and GlitchTip are optional and enabled only with `NODE_ENV=production`.
+`pnpm dev` never initializes telemetry, even if Infisical supplies production values.
+Set `UMAMI_URL`, `UMAMI_WEBSITE_ID`, and `UMAMI_DOMAINS` together for analytics,
+and `GLITCHTIP_DSN` for errors.
+`GLITCHTIP_ENVIRONMENT` defaults to `production`. Each integration stays off when
+its configuration is absent or invalid. The application assigns no user identity.
+The bilingual privacy policy describes usage statistics, error analysis and cookies/local storage; the absence
+of cookies alone does not establish an exemption under Section 25 TDDDG.
+
+The server supplies only public values through uncached `GET /api/client-config`.
+This keeps the image independent of its deployment and lets the browser fetch its
+configuration without rewriting HTML. `UMAMI_DOMAINS` is a required comma-separated
+hostname allowlist used by Umami's `data-domains`. The app never infers domains from
+request headers. Analytics stays disabled if any of the three Umami values is missing.
+Use an explicit loopback allowlist for local fixture tests.
+Browser automation is excluded unless a loopback fixture sets
+`window.__BEASTY_TELEMETRY_TEST__ = true`. Umami also honors Do Not Track; keep its
+server bot filtering enabled.
+
+Umami receives pageviews, SPA navigation, built-in LCP/INP/CLS/FCP/TTFB performance
+measurements, and small events about completed actions. Its inspected `script.js`
+supports `data-website-id`, `data-domains`, `data-exclude-search`, `data-exclude-hash`,
+`data-performance`, `data-before-send`, and `data-do-not-track`. The saved public scripts
+in `test/fixtures` are the evidence for these attributes. History hooks track TanStack
+Router navigation automatically; the browser test verifies two pageviews without
+manual duplicate tracking. For pageviews and events, page titles are fixed to
+`beasty-arr`, dynamic IDs are replaced with route placeholders, and query strings,
+fragments and referrers' search terms are removed. Outbound-link events contain only
+the destination hostname.
+
+Replay and heatmaps use the Umami website settings. Website `beasty-arr` has both
+enabled at 100% sampling, `maskLevel: strict`, a 300000 ms maximum duration, and
+`blockSelector: [data-telemetry-block]`. Keep those settings when recreating the website.
+`recorder.js` loads from `UMAMI_URL` and sends settings requests and recordings directly
+there, preserving the browser's client context. It bypasses `beforeSend`: replay Meta
+`href` and heatmap click/scroll `url` fields include the app route's path and query,
+including media search terms and title IDs. The app's browser routes carry no secrets,
+so these route URLs contain no credentials. There is no recorder relay to scrub them.
+Settings, portaled dialogs, Fixer analysis/history, AI evidence, external Arr links
+and poster URLs are blocked with
+`data-telemetry-block`. Settings also retains `rr-block`, which the saved rrweb fixture
+honors. Strict masking covers other text and inputs; it does not sanitize arbitrary
+DOM attributes. Mark new regions that can show credentials or internal URLs as blocked.
+The block selector excludes replay contents; heatmaps can still collect click and
+scroll positions in those regions, including Settings and Fixer.
+The app does not call recorder admin APIs. Analytics `script.js` keeps its client-side
+`beforeSend` scrubber.
+
+GlitchTip uses the official Sentry Node and browser SDKs. Node preloads instrumentation
+before Fastify, captures unhandled exceptions/rejections and server failures, and samples
+10% of server traces. Caught scheduler, hunt, sync, Fixer, Oracle, budget, backup and
+webhook failures have stable job tags. Provider usage-limit pauses, cancellation and
+ordinary business refusals are excluded. Node does not capture console or Pino output;
+explicit reports avoid duplicating logs. AI prompt/tool and subprocess integrations are
+not enabled. The browser loads its SDK in a separate chunk only when configured, buffers
+up to 20 startup errors, and captures console errors, React root errors and router
+error boundaries. Browser tracing is off to avoid extra navigation instrumentation
+for this internal SPA.
+
+Both runtimes scrub error events, breadcrumbs and transactions: API-key/authorization/
+cookie/token fields, request bodies, URL credentials and query strings, emails, bearer
+tokens and webhook capability tokens. The server also redacts exact secret environment
+values. Arr and Prowlarr send keys in `X-Api-Key`; outgoing HTTP telemetry crosses the
+same scrubber. Umami pageviews and events exclude API keys, titles, IDs, input text and
+full outbound URLs. Replay receives masked DOM content, but replay and heatmap route
+URLs retain search terms and IDs as described above. These services still receive normal
+network metadata such as the connecting IP; no identity or IP is explicitly attached
+by the SDK. GlitchTip can add a routable client IP at ingestion and anonymises it by
+default; SDK-side scrubbing alone does not prevent this. The SPA has no CSP; the
+public legal pages retain their strict CSP and load no telemetry scripts.
+
+Every release is `beasty-arr@<package.json version>`. Vite injects browser debug IDs
+without uploading or running a CLI binary during the build. `pnpm build` moves browser
+maps and exact JS to `dist/sourcemaps`; separate `.map` files never remain in served
+`dist/web`. Node maps are embedded in its private server JS so `--enable-source-maps`
+works without separate runtime map files. Docker's `sourcemaps` export stage contains
+only browser artifacts; the runtime stage copies neither exports nor map files.
+Tag CI asserts the tag version, smoke-tests the image, exports the cached build,
+fetches the Infisical `/ci` upload token, creates the release, uploads maps with debug
+IDs and release/URL matching, and finalizes before publishing. An upload failure
+blocks the release image. No upload token is passed into an image build.
+
+CI and local verification both run `bash scripts/upload-sourcemaps.sh <export-directory>`
+with `SENTRY_RELEASE` and an Infisical-injected `GLITCHTIP_AUTH_TOKEN`. The script starts
+`scripts/glitchtip-upload-proxy.mjs` on an ephemeral loopback port and stops it with a
+shell trap. The script defaults `GLITCHTIP_UPLOAD_TARGET` to `http://192.168.60.68:8000`;
+the proxy requires that variable. It streams requests there, replaces Authorization
+with the injected bearer token, and rewrites the chunk-options URL to loopback.
+This bypasses GlitchTip's advertised
+public chunk URL behind Pangolin SSO without changing either service. It logs neither
+auth headers nor request bodies. Treat the proxy as a short-lived CI tool.
+
+The digest-pinned sentry-cli 2.58.5 container uses `--network host` to reach the runner's
+loopback proxy. It supports GlitchTip 6.2.6 artifact bundles; a 3.x migration is not
+needed. Uploads use `--strict --validate` so upload and assembly errors stop publication.
+GlitchTip 6.2.6 always returns `created` from its artifact-bundle assembly endpoint,
+so `--wait` would time out even after the artifacts are available. Check the release's
+file listing to confirm background processing; CLI success confirms acceptance.
+Server maps are private inline maps handled by Node's `--enable-source-maps`; they
+are neither exported nor uploaded.
+
+Run `pnpm check`, `pnpm audit:prod`, and after building,
+`pnpm test:browser:telemetry`. The browser check uses local Umami/GlitchTip stubs and
+never sends live telemetry. See [test/README.md](test/README.md) for browser prerequisites,
+event details and storage behavior. On the deployment, verify a pageview, an SPA route
+change and an action in Umami, then a controlled error with the expected release in
+GlitchTip. Keep source-map upload credentials in CI only.
+
 ## Live preview
 
 The live dashboard shows coverage, indexer budgets, automation status, and recent German-language wins.

@@ -176,6 +176,24 @@ ${operatorAddress("Germany")}
 <p>This data is stored for up to 10 years.</p>`,
     },
   },
+  telemetry: {
+    de: {
+      heading: "Nutzungsstatistik und Fehleranalyse (Umami und GlitchTip)",
+      body: `<p>Der Verantwortliche betreibt Umami unter umami.heerlab.com für Nutzungsstatistiken und GlitchTip unter glitchtip.heerlab.com für die Fehleranalyse selbst im eigenen Homelab in Deutschland. Externe Analysedienstleister werden nicht eingesetzt.</p>
+<p>Umami erfasst bei der angemeldeten Nutzung der Anwendung Seitenaufrufe, Interaktionen und Leistungswerte sowie Sitzungsaufzeichnungen und Heatmaps. Texte und Eingaben werden maskiert; sensible Ansichten sind von Sitzungsaufzeichnungen ausgeschlossen. Umami setzt keine Cookies und berücksichtigt das Do-Not-Track-Signal des Browsers. Die IP-Adresse dient nur zur Ableitung einer pseudonymen Sitzung und eines ungefähren Standorts und wird von Umami nicht gespeichert.</p>
+<p>GlitchTip erhält Fehlerberichte aus Server und Browser mit technischen Angaben wie Fehlermeldung, Stacktrace, Anwendungsversion, Browser, Betriebssystem und Seitenpfad sowie eine Stichprobe von Leistungsdaten. Zugangsdaten, Tokens und E-Mail-Adressen werden vor dem Versand entfernt. GlitchTip anonymisiert IP-Adressen standardmäßig.</p>
+<p>Die Verarbeitung dient dem Betrieb und der Verbesserung der Anwendung sowie dem Erkennen und Beheben von Fehlern. Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO. Das berechtigte Interesse liegt in einer stabilen Anwendung, die laufend verbessert wird.</p>
+<p>Umami-Daten werden bis zu 10 Jahre gespeichert. Fehlerdaten in GlitchTip werden 90 Tage aufbewahrt, Leistungsdaten kürzer.</p>`,
+    },
+    en: {
+      heading: "Usage statistics and error analysis (Umami and GlitchTip)",
+      body: `<p>The controller self-hosts Umami at umami.heerlab.com for usage statistics and GlitchTip at glitchtip.heerlab.com for error analysis in the controller's own homelab in Germany. No external analytics providers are used.</p>
+<p>Umami collects page views, interactions and performance values during signed-in use of the application, as well as session recordings and heatmaps. Text and inputs are masked; sensitive views are excluded from session recordings. Umami sets no cookies and respects the browser's Do Not Track signal. The IP address is used only to derive a pseudonymous session and an approximate location and is not stored by Umami.</p>
+<p>GlitchTip receives error reports from the server and browser with technical details such as the error message, stack trace, application version, browser, operating system and page path, along with a sample of performance data. Credentials, tokens and e-mail addresses are removed before sending. GlitchTip anonymises IP addresses by default.</p>
+<p>The processing serves to operate and improve the application and to find and fix errors. The legal basis is Art. 6(1)(f) GDPR. The legitimate interest is a stable application that is continually improved.</p>
+<p>Umami data is stored for up to 10 years. GlitchTip error data is retained for 90 days, and performance data for a shorter period.</p>`,
+    },
+  },
   posters: {
     de: {
       heading: "Vorschaubilder (TheTVDB und TMDB)",
@@ -223,11 +241,11 @@ ${operatorAddress("Germany")}
   cookies: {
     de: {
       heading: "Cookies und lokale Speicherung",
-      body: `<p>Nach der Anmeldung setzt Pangolin ein technisch notwendiges Sitzungs-Cookie, das für die Dauer der Anmeldesitzung gültig ist (§ 25 Abs. 2 Nr. 2 TDDDG). Die Anwendung speichert außerdem die vom Nutzer gewünschte Einstellung der Seitenleiste in localStorage (ba.sidebar), bis diese gelöscht wird. Auch diese Speicherung ist technisch notwendig (§ 25 Abs. 2 Nr. 2 TDDDG). Die rechtlichen Seiten selbst setzen keine Cookies und speichern nichts im Browser.</p>`,
+      body: `<p>Nach der Anmeldung setzt Pangolin ein technisch notwendiges Sitzungs-Cookie, das für die Dauer der Anmeldesitzung gültig ist (§ 25 Abs. 2 Nr. 2 TDDDG). Die Anwendung speichert außerdem die vom Nutzer gewünschte Einstellung der Seitenleiste in localStorage (ba.sidebar), bis diese gelöscht wird. Auch diese Speicherung ist technisch notwendig (§ 25 Abs. 2 Nr. 2 TDDDG). Umami und die GlitchTip-Anbindung setzen keine zusätzlichen Cookies und schreiben nichts in localStorage oder sessionStorage. Umami liest die optionale Abschaltpräferenz umami.disabled aus localStorage. Die rechtlichen Seiten selbst setzen keine Cookies und speichern nichts im Browser.</p>`,
     },
     en: {
       heading: "Cookies and local storage",
-      body: `<p>After sign-in, Pangolin sets a technically necessary session cookie, valid for the duration of the sign-in session (Section 25(2) no. 2 TDDDG). The application also stores the user's preferred sidebar setting in localStorage (ba.sidebar) until cleared. This storage is also technically necessary (Section 25(2) no. 2 TDDDG). The legal pages themselves set no cookies and store nothing in the browser.</p>`,
+      body: `<p>After sign-in, Pangolin sets a technically necessary session cookie, valid for the duration of the sign-in session (Section 25(2) no. 2 TDDDG). The application also stores the user's preferred sidebar setting in localStorage (ba.sidebar) until cleared. This storage is also technically necessary (Section 25(2) no. 2 TDDDG). Umami and the GlitchTip integration set no additional cookies and write nothing to localStorage or sessionStorage. Umami reads the optional umami.disabled opt-out preference from localStorage. The legal pages themselves set no cookies and store nothing in the browser.</p>`,
     },
   },
   rights: {

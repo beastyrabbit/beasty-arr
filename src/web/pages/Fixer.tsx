@@ -206,7 +206,7 @@ export function FixerPage() {
   };
 
   return (
-    <div className="mx-auto flex max-w-[1500px] flex-col gap-3">
+    <div data-telemetry-block className="mx-auto flex max-w-[1500px] flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
         <h1 className="text-[15px] font-semibold text-ink">Fixer</h1>
         <Link

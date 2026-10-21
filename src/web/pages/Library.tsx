@@ -259,6 +259,7 @@ function SortTh({ children, onClick }: { children: ReactNode; onClick: () => voi
 function PosterThumb({ url, title }: { url: string | null; title: string }) {
   return url ? (
     <img
+      data-telemetry-block
       src={url}
       alt=""
       loading="lazy"
@@ -356,6 +357,7 @@ function RowActions({
       ) : null}
       {arrUrl ? (
         <a
+          data-telemetry-block
           href={arrUrl}
           target="_blank"
           rel="noreferrer"

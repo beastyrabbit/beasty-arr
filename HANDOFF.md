@@ -97,6 +97,42 @@ No automated test calls a live AI provider.
 
 ## Setup and operations
 
+Telemetry deployment: kub-homelab supplies `UMAMI_URL`, `UMAMI_WEBSITE_ID`,
+`UMAMI_DOMAINS=beasty-arr.heerlab.com`, `GLITCHTIP_DSN`, and optionally
+`GLITCHTIP_ENVIRONMENT` on the existing deployment. No image rebuild is required
+when these change. All three Umami values are required; request Host headers never
+supply a domain fallback. Website `beasty-arr` has replay and heatmaps enabled at
+100% sampling, strict masking, max duration 300000 ms, and block selector
+`[data-telemetry-block]`. Preserve those website settings. The recorder connects
+directly to Umami. Settings, portaled dialogs and other private regions use that
+selector; no user identification is sent. Pageviews and events scrub query strings
+and title IDs. The recorder bypasses `beforeSend`, so replay Meta `href` and heatmap
+click/scroll `url` include the app route's path and query, including media search
+terms and title IDs. The app's browser routes carry no secrets or credentials.
+There is no recorder relay to scrub these URLs; strict masking applies to DOM content.
+
+Release CI needs `GLITCHTIP_AUTH_TOKEN` in Infisical project `beasty-arr`, environment
+`prod`, path `/ci`, with permission to create/finalize releases and upload source maps
+for organization `beasty-rabbit`, project `beasty-arr`, with `project:releases` scope.
+The project slug is provisioned. Configure repository variable
+`INFISICAL_GITHUB_ACTIONS_IDENTITY_ID` for the OIDC identity, authorize the tag workflow
+to read only that path, and keep the token out of runtime env and Docker build args.
+The pinned Infisical action connects to `http://192.168.60.11:8080`; sentry-cli uses
+a loopback upload proxy targeting LAN GlitchTip at `http://192.168.60.68:8000`.
+The shared `scripts/upload-sourcemaps.sh` owns proxy readiness, Docker host networking,
+upload and finalization, and trap cleanup. The proxy rewrites the advertised absolute
+chunk URL and injects bearer auth on every upstream request. The ARC runner must reach
+both. These are CI endpoints, not baked-in runtime telemetry destinations.
+
+Tag publication now fails before image push if the version differs from package.json,
+the export fails, the upload fails, or finalization fails. CI exports the same cached
+build inputs used for the smoke image and final image. Browser maps carry debug IDs
+and also use release/URL matching with the pinned sentry-cli 2.58.5. Only browser maps
+are exported and uploaded. GlitchTip 6.2.6 supports artifact bundles. Validate the first
+release's symbolication against the provisioned GlitchTip version; this implementation
+does not create projects/websites or call their admin APIs. The runtime has no separate
+map files; Node's private inline maps still map server stacks. There is no CSP to update.
+
 Copy .env.example for an unconfigured local startup, then supply each integration's
 URL and key together through your secret manager. The existing pnpm dev command
 still uses Infisical and the homelab port-forward. For a fixture-free offline start,

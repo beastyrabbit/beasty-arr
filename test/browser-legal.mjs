@@ -1,4 +1,10 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { chromium } from "playwright";
+import { startApp } from "./browser-telemetry.mjs";
 
 const LINKS = [
   ["Impressum", "/impressum", "Impressum", "impressum-beasty-arr@heerlab.com"],
@@ -65,6 +71,11 @@ async function checkLegalDocument(page, link, response) {
   assert.equal(response.headers()["x-robots-tag"], "noindex", `Missing noindex header: ${path}`);
   const text = await page.locator("main").innerText();
   assert.ok(text.includes(content), `Missing content: ${path}`);
+  if (["/datenschutz", "/privacy"].includes(path)) {
+    const telemetry = page.locator('section[aria-labelledby="telemetry"]');
+    assert.match(await telemetry.innerText(), /Umami/);
+    assert.match(await telemetry.innerText(), /GlitchTip/);
+  }
   assert.ok(text.includes("Stettiner Str. 41"), "Missing operator address");
   assert.equal(
     await page.locator("script, img, link[rel=stylesheet]").count(),
@@ -163,6 +174,7 @@ async function checkRenderError(page, run) {
     );
     await errorPage.goto(`${run.baseUrl}/settings/connections`);
     await errorPage.getByText("Could not load this page.", { exact: true }).waitFor();
+    await errorPage.getByRole("button", { name: "Retry", exact: true }).waitFor();
     await checkFooter(errorPage, "Route error boundary footer missing or duplicated");
   } finally {
     await errorPage.close();
@@ -198,3 +210,33 @@ export async function verifyLegalPages(page, baseUrl, evidenceDir) {
     errorFooters: true,
   };
 }
+
+async function run() {
+  const dataDir = await mkdtemp(path.join(tmpdir(), "beasty-legal-data-"));
+  const evidenceDir = await mkdtemp(path.join(tmpdir(), "beasty-legal-evidence-"));
+  let app;
+  let browser;
+  try {
+    app = await startApp(dataDir);
+    browser = await chromium.launch({
+      headless: true,
+      executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || undefined,
+    });
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    const result = await verifyLegalPages(page, app.baseUrl, evidenceDir);
+    process.stdout.write(`${JSON.stringify({ ...result, evidenceDir }, null, 2)}\n`);
+  } finally {
+    await browser?.close();
+    if (app?.child.exitCode === null) {
+      await new Promise((resolve) => {
+        app.child.once("exit", resolve);
+        app.child.kill("SIGTERM");
+      });
+    }
+    await rm(dataDir, { recursive: true, force: true });
+  }
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url))
+  await run();

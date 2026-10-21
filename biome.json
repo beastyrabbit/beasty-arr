@@ -16,7 +16,8 @@
       "!.playwright-mcp",
       "!.mcp.json",
       "!.codex/config.toml",
-      "!.claude/settings.json"
+      "!.claude/settings.json",
+      "!test/fixtures/umami-*.js"
     ]
   },
   "formatter": {

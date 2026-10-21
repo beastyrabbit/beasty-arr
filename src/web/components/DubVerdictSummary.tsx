@@ -57,7 +57,10 @@ export function DubVerdictSummary({ verdict }: { verdict: AiVerdictSummaryValue 
         confidence {verdict.confidence.toFixed(2)} · checked {relTime(verdict.checkedAt)}
       </div>
       {verdict.evidence.length > 0 ? (
-        <details className="mt-2 border-t border-line pt-2 text-[11px] text-muted">
+        <details
+          data-telemetry-block
+          className="mt-2 border-t border-line pt-2 text-[11px] text-muted"
+        >
           <summary className="cursor-pointer select-none text-faint hover:text-muted">
             Source evidence ({verdict.evidence.length})
           </summary>

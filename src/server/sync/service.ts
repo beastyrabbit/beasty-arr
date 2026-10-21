@@ -43,6 +43,7 @@ import {
   isAiVerdictValue,
   reconcileDerivedState,
 } from "../hunt/state.js";
+import { reportError } from "../telemetry/report.js";
 import type {
   ArrHistoryPager,
   ArrHistoryRecordDto,
@@ -171,6 +172,7 @@ export class SyncService {
       } catch (err) {
         firstError = err;
         this.log.error({ err }, "sonarr full reconcile failed");
+        if (!signal?.aborted) reportError(err, { job: "sync.full.sonarr" });
       }
     }
     if (this.radarr) {
@@ -179,6 +181,7 @@ export class SyncService {
       } catch (err) {
         firstError ??= err;
         this.log.error({ err }, "radarr full reconcile failed");
+        if (!signal?.aborted) reportError(err, { job: "sync.full.radarr" });
       }
     }
     this.setSyncStateValue("lastFullSyncAt", String(this.now()));
@@ -294,6 +297,7 @@ export class SyncService {
       } catch (err) {
         firstError = err;
         this.log.error({ err }, "sonarr incremental sync failed");
+        if (!signal?.aborted) reportError(err, { job: "sync.incremental.sonarr" });
       }
     }
     if (this.radarr) {
@@ -302,6 +306,7 @@ export class SyncService {
       } catch (err) {
         firstError ??= err;
         this.log.error({ err }, "radarr incremental sync failed");
+        if (!signal?.aborted) reportError(err, { job: "sync.incremental.radarr" });
       }
     }
     // Clock-driven passes need no arr calls — always run them.
@@ -528,6 +533,7 @@ export class SyncService {
         } catch (error) {
           queueSnapshots.set(source, null);
           this.log.warn({ err: error, source }, "queue lookup failed — retaining import holds");
+          reportError(error, { job: "sync.queue" });
         }
       }),
     );
@@ -585,6 +591,7 @@ export class SyncService {
       files = await this.sonarr.getEpisodeFiles(seriesId);
     } catch (err) {
       this.log.warn({ err, seriesId }, "targeted series refresh failed");
+      reportError(err, { job: "sync.targeted.sonarr" });
       return;
     }
     const ctx = this.loadSourceCtx("sonarr", this.now());
@@ -610,6 +617,7 @@ export class SyncService {
       dto = await this.radarr.getMovie(movieId);
     } catch (err) {
       this.log.warn({ err, movieId }, "targeted movie refresh failed");
+      reportError(err, { job: "sync.targeted.radarr" });
       return;
     }
     const ctx = this.loadSourceCtx("radarr", this.now());

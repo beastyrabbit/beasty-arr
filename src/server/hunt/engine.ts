@@ -28,6 +28,7 @@ import {
   series,
 } from "../db/schema.js";
 import type { EventBus } from "../events/bus.js";
+import { reportError } from "../telemetry/report.js";
 import {
   candidateLabel,
   firstUpgradeBlockedUntil,
@@ -420,6 +421,7 @@ export class HuntEngine {
           reachable.push({ source, client });
         } catch (err) {
           this.log.warn({ err, source }, "arr unreachable — excluded from this hunt cycle");
+          reportError(err, { job: "hunt.connection" });
         }
       }
       if (reachable.length === 0) {
@@ -438,6 +440,7 @@ export class HuntEngine {
         } catch (err) {
           accountingAvailable = false;
           this.log.warn({ err }, "budget refresh failed; holding automatic searches");
+          reportError(err, { job: "budget.refresh" });
         }
       } else if (!this.warnedNoBudget) {
         this.warnedNoBudget = true;
@@ -745,6 +748,7 @@ export class HuntEngine {
         else gated.push(`${source} ${size} > ${threshold}`);
       } catch (err) {
         this.log.warn({ err, source }, "queue stats failed — gating this arr's scheduled hunts");
+        reportError(err, { job: "hunt.queue" });
         gated.push(`${source} queue unavailable`);
       }
     }
@@ -864,6 +868,7 @@ export class HuntEngine {
         sent = await client.sendCommand(cmd.payload);
       } catch (err) {
         this.log.warn({ err, label: cmd.label }, "arr command dispatch failed");
+        reportError(err, { job: "hunt.dispatch" });
         const rejected =
           (err instanceof SonarrRequestError || err instanceof RadarrRequestError) &&
           [400, 401, 403, 404, 405, 422, 429].includes(err.status);
@@ -908,6 +913,7 @@ export class HuntEngine {
   ): Promise<"completed" | "failed" | "timeout"> {
     const deadline = startedAt + this.commandTimeoutMs;
     let markedStarted = false;
+    let lastPollError: unknown;
     while (!signal?.aborted && this.now() < deadline) {
       await this.sleep(this.pollIntervalMs, signal);
       if (signal?.aborted) break;
@@ -916,6 +922,7 @@ export class HuntEngine {
         res = await client.getCommand(arrCommandId);
       } catch (err) {
         this.log.warn({ err, arrCommandId }, "command poll failed — retrying");
+        lastPollError = err;
         continue;
       }
       const status = res.status ?? "";
@@ -930,6 +937,7 @@ export class HuntEngine {
           .run();
       }
     }
+    if (!signal?.aborted && lastPollError) reportError(lastPollError, { job: "hunt.poll" });
     return "timeout";
   }
 
@@ -965,6 +973,7 @@ export class HuntEngine {
         await this.sync.targetedRefreshSeries(seriesId);
       } catch (err) {
         this.log.warn({ err, seriesId }, "post-search series refresh failed");
+        reportError(err, { job: "hunt.refresh.sonarr" });
       }
     }
     for (const movieId of refreshMovieIds) {
@@ -972,6 +981,7 @@ export class HuntEngine {
         await this.sync.targetedRefreshMovie(movieId);
       } catch (err) {
         this.log.warn({ err, movieId }, "post-search movie refresh failed");
+        reportError(err, { job: "hunt.refresh.radarr" });
       }
     }
 

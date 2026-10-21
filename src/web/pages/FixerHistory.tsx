@@ -15,7 +15,7 @@ export function FixerHistoryPage() {
   const history = useFixerHistory({ page, pageSize: PAGE_SIZE });
 
   return (
-    <div className="mx-auto flex max-w-[1100px] flex-col gap-3">
+    <div data-telemetry-block className="mx-auto flex max-w-[1100px] flex-col gap-3">
       <div className="flex items-center gap-2">
         <h1 className="text-[15px] font-semibold text-ink">Fixer history</h1>
         <Link

@@ -441,7 +441,13 @@ function WinTile({ win }: { win: WinItem }) {
     <article className="flex min-w-0 gap-3 bg-surface p-3 lg:flex-col">
       <div className="h-20 w-14 shrink-0 overflow-hidden rounded-[4px] bg-raised lg:h-32 lg:w-full">
         {win.posterUrl ? (
-          <img src={win.posterUrl} alt="" className="h-full w-full object-cover" loading="lazy" />
+          <img
+            data-telemetry-block
+            src={win.posterUrl}
+            alt=""
+            className="h-full w-full object-cover"
+            loading="lazy"
+          />
         ) : (
           <div className="flex h-full items-center justify-center text-faint">
             <Gauge size={18} />

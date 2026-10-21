@@ -41,6 +41,7 @@ function MovieDetailView({ m }: { m: MovieDetail }) {
         <div className="flex gap-4">
           {m.posterUrl ? (
             <img
+              data-telemetry-block
               src={m.posterUrl}
               alt=""
               className="h-36 w-24 shrink-0 rounded-[4px] border border-line object-cover"
@@ -58,6 +59,7 @@ function MovieDetailView({ m }: { m: MovieDetail }) {
               />
               {m.arrUrl ? (
                 <a
+                  data-telemetry-block
                   href={m.arrUrl}
                   target="_blank"
                   rel="noreferrer"

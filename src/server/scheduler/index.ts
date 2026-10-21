@@ -1,4 +1,5 @@
 import type { FastifyBaseLogger } from "fastify";
+import { reportError } from "../telemetry/report.js";
 
 export type JobDefinition = {
   name: string;
@@ -142,6 +143,7 @@ export class Scheduler {
         await state.def.run(this.abort.signal);
         state.lastError = null;
       } catch (error) {
+        if (!this.abort.signal.aborted) reportError(error, { job: state.def.name });
         state.lastError = error instanceof Error ? error.message : String(error);
         this.log.error({ job: state.def.name, err: error }, "scheduled job failed");
       } finally {

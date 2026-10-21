@@ -20,6 +20,7 @@ import { aiVerdicts, fixerAnalyses, fixerHistory } from "../db/schema.js";
 import type { EventBus } from "../events/bus.js";
 import { isAiVerdictValue } from "../hunt/state.js";
 import type { MediaProber } from "../media/types.js";
+import { reportError } from "../telemetry/report.js";
 import type { FixerAnalysisEvent, FixerPiRunner } from "./ai-port.js";
 import { toResolverEvent } from "./events-map.js";
 import {
@@ -434,6 +435,7 @@ export class FixerService {
         } catch (error) {
           errors[service] = errorMessage(error);
           this.log.warn({ err: error, service }, "fixer queue refresh failed");
+          reportError(error, { job: "fixer.queue" });
         }
       }),
     );
@@ -999,6 +1001,7 @@ export class FixerService {
         candidates = await client.getManualImportCandidates(queueItem);
       } catch (error) {
         step("error", "fixer", `Could not load manual import candidates: ${errorMessage(error)}`);
+        reportError(error, { job: "fixer.candidates" });
         return finish("completed", candidateLoadFailure(queueItem, error));
       }
       step("info", "fixer", `Loaded ${candidates.length} manual import candidates.`);
@@ -1030,6 +1033,7 @@ export class FixerService {
       }
       const message = errorMessage(error);
       this.log.warn({ err: error, analysisId }, "fixer analysis failed");
+      reportError(error, { job: "fixer.analysis" });
       step("error", "fixer", `Analysis failed: ${message}`);
       return finish("failed", undefined, message);
     }
@@ -1059,6 +1063,7 @@ export class FixerService {
       if (!preflight.ok) message = preflight.message;
     } catch (error) {
       message = `Preflight failed: ${errorMessage(error)}`;
+      reportError(error, { job: "fixer.preflight" });
     }
     if (!message) {
       step("info", "fixer", "Import preflight passed.");
@@ -1201,6 +1206,7 @@ export class FixerService {
       outcome = await this.applyProposal(analysisId, candidateIds, opts);
     } catch (error) {
       outcome = { ok: false, dryRun: this.settings.get().dryRun, message: errorMessage(error) };
+      reportError(error, { job: "fixer.apply" });
     }
     const row = this.getAnalysis(analysisId);
     if (!outcome.ok && !outcome.historyId && row) {
@@ -1415,6 +1421,7 @@ export class FixerService {
         result: "error",
         detail: { message },
       });
+      reportError(error, { job: "fixer.import" });
       return { ok: false, dryRun: false, historyId, message };
     }
   }
@@ -1558,6 +1565,7 @@ export class FixerService {
       result = await client.removeQueueItem(current.id, options);
     } catch (error) {
       result = { ok: false, message: errorMessage(error) };
+      if (!result.message.includes("404")) reportError(error, { job: "fixer.remove" });
     }
     if (!result.ok && result.message.includes("404")) {
       if (!(await this.currentQueueItem(current.service, current.id, current.downloadId))) {

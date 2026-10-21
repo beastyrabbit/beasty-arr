@@ -1,3 +1,5 @@
+import { telemetryPath } from "../../shared/telemetry.js";
+import { trackEvent } from "../lib/telemetry.js";
 import { Button } from "./ui/button.js";
 
 export function QueryError({
@@ -20,7 +22,14 @@ export function QueryError({
           ? "Could not load data."
           : "Refresh failed. Showing previously loaded data."}
       </span>
-      <Button size="sm" variant="outline" onClick={() => void query.refetch()}>
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={() => {
+          trackEvent("query_retry", { route: telemetryPath(location.pathname) });
+          void query.refetch();
+        }}
+      >
         Retry
       </Button>
     </div>

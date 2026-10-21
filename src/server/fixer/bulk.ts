@@ -6,6 +6,7 @@ import type {
   QueueRemovalOptions,
 } from "../../shared/fixer-types.js";
 import type { SettingsService } from "../config/settings.js";
+import { reportError } from "../telemetry/report.js";
 import type {
   FixerActionOpts,
   FixerApplyOutcome,
@@ -221,6 +222,7 @@ export class FixerBulk {
       );
     } catch (error) {
       this.status = { ...this.status, running: false, finishedAt: this.now() };
+      reportError(error, { job: "fixer.bulk.start" });
       return {
         ok: false,
         total: 0,
@@ -236,6 +238,7 @@ export class FixerBulk {
     this.donePromise = this.runWorkers(items, clampParallelism(settings.fixerParallelism)).catch(
       (error) => {
         this.log.error({ err: error }, "fixer bulk run crashed");
+        reportError(error, { job: "fixer.bulk" });
       },
     );
     return { ok: true, total: items.length };
@@ -268,6 +271,7 @@ export class FixerBulk {
       await this.service.refreshQueue();
     } catch (error) {
       this.log.warn({ err: error }, "fixer bulk final queue refresh failed");
+      reportError(error, { job: "fixer.bulk.refresh" });
     }
   }
 
@@ -300,6 +304,7 @@ export class FixerBulk {
         }
       } catch (error) {
         this.status.failed += 1;
+        reportError(error, { job: "fixer.bulk.analysis" });
         this.log.warn(
           { err: error, service: item.service, queueItemId: item.id },
           "fixer bulk analysis failed",
