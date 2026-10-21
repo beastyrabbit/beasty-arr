@@ -93,12 +93,12 @@ ${operatorAddress("Germany")}
   overview: {
     de: {
       heading: "Überblick",
-      body: `<p>Diese Erklärung informiert darüber, welche personenbezogenen Daten bei der Nutzung von beasty-arr verarbeitet werden, zu welchen Zwecken, auf welcher Rechtsgrundlage und wie lange. beasty-arr ist ein privates, nicht-kommerzielles Projekt. beasty-arr ist ein internes Werkzeug, mit dem der Verantwortliche deutsch synchronisierte Fassungen für die Serien und Filme in seiner eigenen Sonarr-/Radarr-Mediathek findet. Die Anwendung ist nach Anmeldung ausschließlich für den Verantwortlichen selbst zugänglich; öffentlich ohne Anmeldung erreichbar sind nur das Impressum und diese Datenschutzerklärung.</p>
+      body: `<p>Diese Erklärung informiert darüber, welche personenbezogenen Daten bei der Nutzung von beasty-arr verarbeitet werden, zu welchen Zwecken, auf welcher Rechtsgrundlage und wie lange. beasty-arr ist ein privates, nicht-kommerzielles Projekt. beasty-arr ist ein internes Werkzeug, mit dem der Verantwortliche deutsch synchronisierte Fassungen für die Serien und Filme in seiner eigenen Sonarr-/Radarr-Mediathek findet. Die Anwendung ist nach Anmeldung ausschließlich für den Verantwortlichen selbst zugänglich.</p>
 <p>Personenbezogene Daten werden nicht verkauft und nicht für Werbung verwendet. Eine automatisierte Entscheidungsfindung einschließlich Profiling im Sinne von Art. 22 DSGVO findet nicht statt.</p>`,
     },
     en: {
       heading: "Overview",
-      body: `<p>This policy explains which personal data is processed when you use beasty-arr, for what purposes, on which legal basis, and for how long. beasty-arr is a private, non-commercial project. beasty-arr is an internal tool with which the controller finds German-dubbed versions of the series and films in his own Sonarr/Radarr media library. After sign-in, the application is accessible only to the controller himself; only the legal notice and this privacy policy are publicly accessible without sign-in.</p>
+      body: `<p>This policy explains which personal data is processed when you use beasty-arr, for what purposes, on which legal basis, and for how long. beasty-arr is a private, non-commercial project. beasty-arr is an internal tool with which the controller finds German-dubbed versions of the series and films in his own Sonarr/Radarr media library. After sign-in, the application is accessible only to the controller.</p>
 <p>Personal data is not sold and not used for advertising. There is no automated decision-making, including profiling, within the meaning of Art. 22 GDPR.</p>`,
     },
   },
@@ -183,7 +183,7 @@ ${operatorAddress("Germany")}
 <p>Umami erfasst bei der angemeldeten Nutzung der Anwendung Seitenaufrufe, Interaktionen und Leistungswerte sowie Sitzungsaufzeichnungen und Heatmaps. Texte und Eingaben werden maskiert; sensible Ansichten sind von Sitzungsaufzeichnungen ausgeschlossen. Umami setzt keine Cookies und berücksichtigt das Do-Not-Track-Signal des Browsers. Die IP-Adresse dient nur zur Ableitung einer pseudonymen Sitzung und eines ungefähren Standorts und wird von Umami nicht gespeichert.</p>
 <p>GlitchTip erhält Fehlerberichte aus Server und Browser mit technischen Angaben wie Fehlermeldung, Stacktrace, Anwendungsversion, Browser, Betriebssystem und Seitenpfad sowie eine Stichprobe von Leistungsdaten. Zugangsdaten, Tokens und E-Mail-Adressen werden vor dem Versand entfernt. GlitchTip anonymisiert IP-Adressen standardmäßig.</p>
 <p>Die Verarbeitung dient dem Betrieb und der Verbesserung der Anwendung sowie dem Erkennen und Beheben von Fehlern. Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO. Das berechtigte Interesse liegt in einer stabilen Anwendung, die laufend verbessert wird.</p>
-<p>Umami-Daten werden bis zu 10 Jahre gespeichert. Fehlerdaten in GlitchTip werden 90 Tage aufbewahrt, Leistungsdaten kürzer.</p>`,
+<p>Umami-Analysedaten werden 25 Monate gespeichert, Sitzungsaufzeichnungen und Heatmaps 30 Tage. Fehlerereignisse in GlitchTip werden 90 Tage aufbewahrt.</p>`,
     },
     en: {
       heading: "Usage statistics and error analysis (Umami and GlitchTip)",
@@ -191,7 +191,7 @@ ${operatorAddress("Germany")}
 <p>Umami collects page views, interactions and performance values during signed-in use of the application, as well as session recordings and heatmaps. Text and inputs are masked; sensitive views are excluded from session recordings. Umami sets no cookies and respects the browser's Do Not Track signal. The IP address is used only to derive a pseudonymous session and an approximate location and is not stored by Umami.</p>
 <p>GlitchTip receives error reports from the server and browser with technical details such as the error message, stack trace, application version, browser, operating system and page path, along with a sample of performance data. Credentials, tokens and e-mail addresses are removed before sending. GlitchTip anonymises IP addresses by default.</p>
 <p>The processing serves to operate and improve the application and to find and fix errors. The legal basis is Art. 6(1)(f) GDPR. The legitimate interest is a stable application that is continually improved.</p>
-<p>Umami data is stored for up to 10 years. GlitchTip error data is retained for 90 days, and performance data for a shorter period.</p>`,
+<p>Umami analytics data is stored for 25 months, session recordings and heatmaps for 30 days. GlitchTip error events are retained for 90 days.</p>`,
     },
   },
   posters: {
