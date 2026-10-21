@@ -113,8 +113,6 @@ describe("public legal pages", () => {
         "changes",
       ]);
       for (const text of [
-        "Longhorn",
-        "SQLite",
         "Pocket-ID",
         "artworks.thetvdb.com",
         "image.tmdb.org",

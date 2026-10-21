@@ -112,13 +112,13 @@ Germany</p>
       heading: "Hosting und Bereitstellung",
       body: `<p>beasty-arr läuft auf eigener Server-Infrastruktur des Verantwortlichen in Deutschland. Aufrufe aus dem Internet erreichen die Anwendung über einen Reverse-Proxy auf einem virtuellen Server der netcup GmbH, Emmy-Noether-Straße 10, 76131 Karlsruhe, Deutschland (Rechenzentrum in Nürnberg). netcup verarbeitet die Daten dabei als Auftragsverarbeiter; mit netcup besteht ein Vertrag zur Auftragsverarbeitung nach Art. 28 DSGVO. Die Verbindung ist bis zum Reverse-Proxy TLS-verschlüsselt und wird von dort durch einen verschlüsselten Tunnel an die eigene Infrastruktur weitergeleitet.</p>
 <p>Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO. Das berechtigte Interesse liegt in einer sicheren und zuverlässigen Bereitstellung der Website.</p>
-<p>Die in SQLite auf einem Longhorn-Volume gespeicherten Daten werden lokal und als externe Sicherungskopien in einem Rechenzentrum in Deutschland gesichert. Sicherungskopien werden derzeit ohne feste Löschfrist aufbewahrt. Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO; das berechtigte Interesse ist der Schutz vor Datenverlust.</p>`,
+<p>Die Datenbank der Anwendung wird regelmäßig gesichert. Sicherungskopien werden innerhalb der eigenen Infrastruktur gespeichert und nach spätestens drei Monaten überschrieben. Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO; das berechtigte Interesse ist der Schutz vor Datenverlust.</p>`,
     },
     en: {
       heading: "Hosting and delivery",
       body: `<p>beasty-arr runs on the controller's own server infrastructure in Germany. Requests from the internet reach the application through a reverse proxy on a virtual server operated by netcup GmbH, Emmy-Noether-Straße 10, 76131 Karlsruhe, Germany (data center in Nuremberg). netcup processes the data as a processor under a data processing agreement pursuant to Art. 28 GDPR. The connection is TLS-encrypted up to the reverse proxy and forwarded from there to the controller's infrastructure through an encrypted tunnel.</p>
 <p>The legal basis is Art. 6(1)(f) GDPR. The legitimate interest is the secure and reliable provision of the website.</p>
-<p>The data stored in SQLite on a Longhorn volume is backed up locally and as offsite backup copies in a data center in Germany. Backup copies are currently kept without a fixed deletion period. The legal basis is Art. 6(1)(f) GDPR; the legitimate interest is protection against data loss.</p>`,
+<p>The application's database is backed up regularly. Backup copies are stored within the controller's own infrastructure and overwritten after no more than three months. The legal basis is Art. 6(1)(f) GDPR; the legitimate interest is protection against data loss.</p>`,
     },
   },
   {
@@ -165,13 +165,13 @@ Germany</p>
       heading: "Anmeldung (Single Sign-On)",
       body: `<p>beasty-arr ist nur für eingeladene Personen zugänglich. Die Anmeldung erfolgt über den Reverse-Proxy Pangolin mit dem selbst betriebenen Identitätsdienst Pocket-ID auf der eigenen Infrastruktur. Dabei werden Benutzername, E-Mail-Adresse, Gruppenzugehörigkeit, Zeitpunkt der Anmeldung und IP-Adresse verarbeitet. Nach der Anmeldung setzt Pangolin ein Sitzungs-Cookie, das für den Zugang technisch erforderlich ist.</p>
 <p>In der Praxis ist der Zugang durch Rollen auf den Verantwortlichen selbst beschränkt. Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO; das berechtigte Interesse liegt darin, den Zugang auf berechtigte Personen zu beschränken.</p>
-<p>Das Benutzerkonto in Pocket-ID und Pangolin besteht, solange der Zugang eingeräumt ist, und wird auf Anfrage oder nach Entzug des Zugangs gelöscht. Anmeldeprotokolle werden nach 90 Tagen gelöscht. Sicherungskopien der Datenbanken werden derzeit ohne feste Löschfrist aufbewahrt (siehe Abschnitt Hosting/Backups).</p>`,
+<p>Das Benutzerkonto in Pocket-ID und Pangolin besteht, solange der Zugang eingeräumt ist, und wird auf Anfrage oder nach Entzug des Zugangs gelöscht. Anmeldeprotokolle werden nach 90 Tagen gelöscht. Sicherungskopien werden nach spätestens drei Monaten überschrieben.</p>`,
     },
     en: {
       heading: "Sign-in (single sign-on)",
       body: `<p>beasty-arr is only accessible to invited people. Sign-in is handled by the Pangolin reverse proxy with Pocket-ID, an identity service self-hosted on the controller's infrastructure. This processes your user name, e-mail address, group membership, time of sign-in and IP address. After sign-in, Pangolin sets a session cookie that is technically required for access.</p>
 <p>In practice, role restrictions limit access to the controller himself. The legal basis is Art. 6(1)(f) GDPR; the legitimate interest is restricting access to authorised persons.</p>
-<p>The user account in Pocket-ID and Pangolin exists for as long as access is granted and is deleted on request or after access is withdrawn. Authentication logs are deleted after 90 days. Backup copies of the databases are currently kept without a fixed deletion period (see the Hosting/Backups section).</p>`,
+<p>The user account in Pocket-ID and Pangolin exists for as long as access is granted and is deleted on request or after access is withdrawn. Authentication logs are deleted after 90 days. Backup copies are overwritten after no more than three months.</p>`,
     },
   },
   {
@@ -179,12 +179,14 @@ Germany</p>
     de: {
       heading: "In der Anwendung gespeicherte Daten",
       body: `<p>beasty-arr hat keine eigenen Nutzerkonten. Die Datenbank auf der eigenen Infrastruktur speichert eine Kopie der Bibliotheksdaten aus Sonarr/Radarr (Titel, IDs, Sprachen, Dateipfade), Such- und Aktivitätsverläufe, Ergebnisse von KI-Analysen einschließlich ihrer Begründungen und vom Verantwortlichen eingegebene Notizen. Als Datenquellen dienen die selbst betriebenen Dienste Sonarr, Radarr und Prowlarr im Homelab; sie sind keine externen Dritten. Dies betrifft ausschließlich die eigene Nutzung des Verantwortlichen und dient der Verwaltung seiner Mediathek. Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO; das berechtigte Interesse liegt in dieser Medienverwaltung.</p>
-<p>Diese Datensätze werden derzeit ohne feste Löschfrist aufbewahrt. Dies umfasst Aktivitäten, Suchversuche, KI-Bewertungen, Fixer-Analysen und -Verläufe, manuelle Anfragen und Statistiken. Einige Bibliothekseinträge werden entfernt, wenn sie aus Sonarr/Radarr verschwinden. Budget-Snapshots werden ungefähr 30 Tage aufbewahrt.</p>`,
+<p>Diese Datensätze werden derzeit ohne feste Löschfrist aufbewahrt. Dies umfasst Aktivitäten, Suchversuche, KI-Bewertungen, Fixer-Analysen und -Verläufe, manuelle Anfragen und Statistiken. Einige Bibliothekseinträge werden entfernt, wenn sie aus Sonarr/Radarr verschwinden. Budget-Snapshots werden ungefähr 30 Tage aufbewahrt.</p>
+<p>Nach der Löschung verschwinden Datensätze nach spätestens drei Monaten auch aus den Sicherungskopien.</p>`,
     },
     en: {
       heading: "Data stored in the application",
       body: `<p>beasty-arr has no user accounts of its own. Its database on the controller's own infrastructure stores a copy of library data from Sonarr/Radarr (titles, IDs, languages, file paths), search and activity history, AI analysis results including their reasoning, and notes entered by the controller. The data sources are the self-hosted Sonarr, Radarr and Prowlarr services in the homelab; these are not external third parties. This concerns only the controller's own use and serves the management of his media library. The legal basis is Art. 6(1)(f) GDPR; the legitimate interest is this media management.</p>
-<p>These records are currently kept without a fixed deletion period. This includes activity, search attempts, AI verdicts, Fixer analyses and history, manual requests and statistics. Some library entries are removed when they disappear from Sonarr/Radarr. Budget snapshots are retained for approximately 30 days.</p>`,
+<p>These records are currently kept without a fixed deletion period. This includes activity, search attempts, AI verdicts, Fixer analyses and history, manual requests and statistics. Some library entries are removed when they disappear from Sonarr/Radarr. Budget snapshots are retained for approximately 30 days.</p>
+<p>Once deleted, records also disappear from backup copies after no more than three months.</p>`,
     },
   },
   // TODO(user-decision): posters — the US transfer paragraph has no verified safeguard.
@@ -193,13 +195,13 @@ Germany</p>
     de: {
       heading: "Vorschaubilder (TheTVDB und TMDB)",
       body: `<p>Nach der Anmeldung lädt der Browser Vorschaubilder direkt von artworks.thetvdb.com und image.tmdb.org. Dabei erhalten die Anbieter die IP-Adresse des Browsers, die angefragte Bildadresse und übliche Browser-Header. Anbieter von TheTVDB ist Whip Networks, Inc., laut seiner <a href="https://www.thetvdb.com/privacy-policy">Datenschutzerklärung</a> ein US-Unternehmen. Anbieter von TMDB ist ${TMDB_ENTITY}; siehe dessen <a href="https://www.themoviedb.org/privacy-policy">Datenschutzerklärung</a>.</p>
-<p>Die Übermittlung an TheTVDB erfolgt in die USA und ist nicht durch eine Zertifizierung unter dem EU-US Data Privacy Framework abgedeckt. Ein Angemessenheitsbeschluss oder geeignete Garantien für diese Übermittlung liegen nach derzeitigem Kenntnisstand nicht vor.</p>
+<p>Die Übermittlung an TheTVDB erfolgt in die USA. Ein Angemessenheitsbeschluss oder geeignete Garantien für diese Übermittlung liegen nach derzeitigem Kenntnisstand nicht vor.</p>
 <p>Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO; das berechtigte Interesse ist die Anzeige von Vorschaubildern. Die Speicherdauer bei den Anbietern richtet sich nach deren Datenschutzbestimmungen. Dies betrifft nur den angemeldeten Verantwortlichen.</p>`,
     },
     en: {
       heading: "Poster images",
       body: `<p>After sign-in, the browser loads poster images directly from artworks.thetvdb.com and image.tmdb.org. The providers receive the browser's IP address, the requested image address and usual browser headers. TheTVDB is provided by Whip Networks, Inc., a US company according to its <a href="https://www.thetvdb.com/privacy-policy">privacy policy</a>. TMDB's provider is ${TMDB_ENTITY}; see its <a href="https://www.themoviedb.org/privacy-policy">privacy policy</a>.</p>
-<p>The transfer to TheTVDB is to the USA and is not covered by certification under the EU-US Data Privacy Framework. To the controller's current knowledge, there is no adequacy decision or appropriate safeguard for this transfer.</p>
+<p>The transfer to TheTVDB is to the USA. To the controller's current knowledge, there is no adequacy decision or appropriate safeguard for this transfer.</p>
 <p>The legal basis is Art. 6(1)(f) GDPR; the legitimate interest is displaying artwork. Provider-side retention follows their privacy policies. This affects only the signed-in controller.</p>`,
     },
   },
