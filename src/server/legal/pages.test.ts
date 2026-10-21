@@ -143,8 +143,8 @@ describe("public legal pages", () => {
       );
       expect(telemetry).toContain(
         url === "/datenschutz"
-          ? "Umami-Daten werden bis zu 10 Jahre gespeichert."
-          : "Umami data is stored for up to 10 years.",
+          ? "Umami-Analysedaten werden 25 Monate gespeichert, Sitzungsaufzeichnungen und Heatmaps 30 Tage. Fehlerereignisse in GlitchTip werden 90 Tage aufbewahrt."
+          : "Umami analytics data is stored for 25 months, session recordings and heatmaps for 30 days. GlitchTip error events are retained for 90 days.",
       );
       expect(telemetry).toContain(
         url === "/datenschutz"
