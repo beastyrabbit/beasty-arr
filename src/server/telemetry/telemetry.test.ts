@@ -9,7 +9,7 @@ import { createTelemetryScrubber } from "../../shared/telemetry.js";
 import { buildApp } from "../app.js";
 import { registerTelemetryRoutes } from "../http/routes/telemetry.js";
 import { Scheduler } from "../scheduler/index.js";
-import { RELEASE, telemetryConfig } from "./config.js";
+import { ignoreIncomingRequest, RELEASE, telemetryConfig } from "./config.js";
 import { reportError, setupErrorHandler } from "./report.js";
 
 const env = {
@@ -86,6 +86,64 @@ describe("runtime config", () => {
       await app.close();
     }
   });
+});
+
+it("excludes health probes and SSE from incoming traces, including query strings", () => {
+  for (const path of ["/api/health", "/api/events", "/api/health?probe=1", "/api/events?last=1"])
+    expect(ignoreIncomingRequest(path)).toBe(true);
+  for (const path of ["/api/healthcheck", "/api/events/history", "/api/library", "/hunt"])
+    expect(ignoreIncomingRequest(path)).toBe(false);
+});
+
+function captureReports() {
+  const capture = vi.fn(async () => ({ statusCode: 200 }));
+  Sentry.init({
+    dsn: env.GLITCHTIP_DSN,
+    defaultIntegrations: false,
+    skipOpenTelemetrySetup: true,
+    transport: () => ({ send: capture, flush: async () => true }),
+  });
+  return capture;
+}
+
+it("limits fresh errors by job and scrubbed signature for one hour", async () => {
+  const capture = captureReports();
+  const now = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
+  const tags = { job: "fixture.cooldown" };
+  reportError(new Error("upstream unavailable https://arr.example/?token=first"), tags);
+  reportError(new Error("upstream unavailable https://arr.example/?token=second"), tags);
+  await Sentry.flush(1000);
+  expect(capture).toHaveBeenCalledTimes(1);
+  reportError(new Error("different failure"), tags);
+  reportError(new TypeError("different failure"), tags);
+  reportError(new Error("different failure"), { job: "fixture.other" });
+  await Sentry.flush(1000);
+  expect(capture).toHaveBeenCalledTimes(4);
+  now.mockReturnValue(1_000_000 + 59 * 60 * 1000);
+  reportError(new Error("upstream unavailable https://arr.example/?token=third"), tags);
+  await Sentry.flush(1000);
+  expect(capture).toHaveBeenCalledTimes(4);
+  now.mockReturnValue(1_000_000 + 60 * 60 * 1000);
+  reportError(new Error("upstream unavailable https://arr.example/?token=fourth"), tags);
+  await Sentry.flush(1000);
+  expect(capture).toHaveBeenCalledTimes(5);
+});
+
+it("bounds the cooldown cache by evicting old signatures", async () => {
+  const capture = captureReports();
+  vi.spyOn(Date, "now").mockReturnValue(2_000_000);
+  const tags = { job: "fixture.bounded" };
+  for (let i = 0; i <= 1000; i++) {
+    reportError(new Error(`failure variant${i}end`), tags);
+    await Sentry.flush(1000);
+  }
+  expect(capture).toHaveBeenCalledTimes(1001);
+  reportError(new Error("failure variant1000end"), tags);
+  await Sentry.flush(1000);
+  expect(capture).toHaveBeenCalledTimes(1001);
+  reportError(new Error("failure variant0end"), tags);
+  await Sentry.flush(1000);
+  expect(capture).toHaveBeenCalledTimes(1002);
 });
 
 it("sends route failures and tagged background failures through a fake Sentry transport", async () => {

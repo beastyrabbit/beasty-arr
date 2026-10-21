@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { loadEnvFile } from "node:process";
 import * as Sentry from "@sentry/node";
 import { createTelemetryScrubber } from "../shared/telemetry.js";
-import { telemetryConfig } from "./telemetry/config.js";
+import { ignoreIncomingRequest, telemetryConfig } from "./telemetry/config.js";
 
 const SECRET_ENV_NAME = /API_KEY|TOKEN|SECRET|PASSWORD/;
 if (existsSync(".env")) loadEnvFile(".env");
@@ -21,11 +21,11 @@ if (config) {
     // Explicit integrations avoid capturing AI prompts, subprocess arguments, or local variables.
     defaultIntegrations: false,
     integrations: [
-      Sentry.httpIntegration(),
+      Sentry.httpIntegration({ ignoreIncomingRequests: ignoreIncomingRequest }),
       Sentry.nativeNodeFetchIntegration(),
       Sentry.fastifyIntegration(),
       Sentry.onUncaughtExceptionIntegration(),
-      Sentry.onUnhandledRejectionIntegration(),
+      Sentry.onUnhandledRejectionIntegration({ mode: "strict" }),
       Sentry.linkedErrorsIntegration(),
       Sentry.dedupeIntegration(),
     ],

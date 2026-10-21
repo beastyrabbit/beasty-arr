@@ -32,10 +32,16 @@ wireSseToQueryClient(queryClient);
 const rootElement = document.getElementById("root");
 if (!rootElement) throw new Error("missing #root");
 
+function reportRootError(error: unknown): void {
+  captureBrowserError(error);
+  // biome-ignore lint/suspicious/noConsole: Preserve React's error output when development telemetry is disabled.
+  if (import.meta.env.DEV) console.error(error);
+}
+
 createRoot(rootElement, {
-  onUncaughtError: captureBrowserError,
-  onCaughtError: captureBrowserError,
-  onRecoverableError: captureBrowserError,
+  onUncaughtError: reportRootError,
+  onCaughtError: reportRootError,
+  onRecoverableError: reportRootError,
 }).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>

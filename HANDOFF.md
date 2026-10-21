@@ -105,7 +105,11 @@ supply a domain fallback. Website `beasty-arr` has replay and heatmaps enabled a
 100% sampling, strict masking, max duration 300000 ms, and block selector
 `[data-telemetry-block]`. Preserve those website settings. The recorder connects
 directly to Umami. Settings, portaled dialogs and other private regions use that
-selector; no user identification is sent.
+selector; no user identification is sent. Pageviews and events scrub query strings
+and title IDs. The recorder bypasses `beforeSend`, so replay Meta `href` and heatmap
+click/scroll `url` include the app route's path and query, including media search
+terms and title IDs. The app's browser routes carry no secrets or credentials.
+There is no recorder relay to scrub these URLs; strict masking applies to DOM content.
 
 Release CI needs `GLITCHTIP_AUTH_TOKEN` in Infisical project `beasty-arr`, environment
 `prod`, path `/ci`, with permission to create/finalize releases and upload source maps

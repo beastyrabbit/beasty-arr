@@ -63,11 +63,20 @@ when upgrading Umami and recheck its supported attributes and privacy behavior. 
 serve these files locally; no test fetches the real hosts. Analytics checks initial and
 TanStack navigation pageviews, a Hunt Run now event, outbound host-only events, replay,
 heatmaps, a scrubbed browser error envelope with the exact release/environment, and
-zero telemetry requests without config. Synthetic secret text and input/URL values
-must never appear in the stub's received payloads. The stub matches the provisioned
+zero telemetry requests without config. Pageviews and events scrub query strings
+and title IDs. Replay Meta `href` and heatmap click/scroll `url` bypass `beforeSend`
+and include the app route's path and query, including media search terms and title
+IDs. The app's browser routes carry no secrets or credentials. The browser test
+asserts that recorder URLs retain a synthetic search term and ID while pageviews
+scrub them. Synthetic secret text and blocked DOM input/URL values must never appear
+in the stub's received payloads. The stub matches the provisioned
 strict masking and `[data-telemetry-block]` selector. Tests verify direct Umami-host
 script loading and recording POSTs, initial and incremental blocked DOM regions,
-and Settings blocking. The app has no recorder relay.
+and Settings blocking. The app has no recorder relay to scrub route URLs.
+
+The same runner starts a built, instrumented Node process with `NODE_ENV=production`
+and a dummy DSN pointing at the loopback stub. An unhandled `Promise.reject` must
+produce an error envelope and exit with code 1.
 
 Neither script writes cookies. The inspected analytics script only reads
 `localStorage['umami.disabled']`, if an operator chooses to set it. Its session cache

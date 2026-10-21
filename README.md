@@ -119,16 +119,21 @@ supports `data-website-id`, `data-domains`, `data-exclude-search`, `data-exclude
 `data-performance`, `data-before-send`, and `data-do-not-track`. The saved public scripts
 in `test/fixtures` are the evidence for these attributes. History hooks track TanStack
 Router navigation automatically; the browser test verifies two pageviews without
-manual duplicate tracking. Page titles are fixed to `beasty-arr`, dynamic IDs are
-replaced with route placeholders, and query strings, fragments and referrers' search
-terms are removed. Outbound-link events contain only the destination hostname.
+manual duplicate tracking. For pageviews and events, page titles are fixed to
+`beasty-arr`, dynamic IDs are replaced with route placeholders, and query strings,
+fragments and referrers' search terms are removed. Outbound-link events contain only
+the destination hostname.
 
 Replay and heatmaps use the Umami website settings. Website `beasty-arr` has both
 enabled at 100% sampling, `maskLevel: strict`, a 300000 ms maximum duration, and
 `blockSelector: [data-telemetry-block]`. Keep those settings when recreating the website.
 `recorder.js` loads from `UMAMI_URL` and sends settings requests and recordings directly
-there, preserving the browser's client context. Settings, portaled dialogs, Fixer
-analysis/history, AI evidence, external Arr links and poster URLs are blocked with
+there, preserving the browser's client context. It bypasses `beforeSend`: replay Meta
+`href` and heatmap click/scroll `url` fields include the app route's path and query,
+including media search terms and title IDs. The app's browser routes carry no secrets,
+so these route URLs contain no credentials. There is no recorder relay to scrub them.
+Settings, portaled dialogs, Fixer analysis/history, AI evidence, external Arr links
+and poster URLs are blocked with
 `data-telemetry-block`. Settings also retains `rr-block`, which the saved rrweb fixture
 honors. Strict masking covers other text and inputs; it does not sanitize arbitrary
 DOM attributes. Mark new regions that can show credentials or internal URLs as blocked.
@@ -150,8 +155,9 @@ Both runtimes scrub error events, breadcrumbs and transactions: API-key/authoriz
 cookie/token fields, request bodies, URL credentials and query strings, emails, bearer
 tokens and webhook capability tokens. The server also redacts exact secret environment
 values. Arr and Prowlarr send keys in `X-Api-Key`; outgoing HTTP telemetry crosses the
-same scrubber. Analytics never receives API keys, titles, IDs, input text or full
-outbound URLs. Replay receives masked content. These services still receive normal
+same scrubber. Umami pageviews and events exclude API keys, titles, IDs, input text and
+full outbound URLs. Replay receives masked DOM content, but replay and heatmap route
+URLs retain search terms and IDs as described above. These services still receive normal
 network metadata such as the connecting IP; no identity or IP is explicitly attached
 by the SDK. There is no CSP in this app, so no policy was changed for the telemetry hosts.
 

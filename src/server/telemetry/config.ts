@@ -12,6 +12,11 @@ const DOMAIN = /^[a-z\d.-]+$/;
 const PROJECT_PATH = /^\/\d+$/;
 const TRAILING_SLASH = /\/$/;
 
+export function ignoreIncomingRequest(urlPath: string): boolean {
+  const pathname = urlPath.split("?", 1)[0];
+  return pathname === "/api/health" || pathname === "/api/events";
+}
+
 function publicUrl(value: string | undefined): URL | null {
   if (!value) return null;
   try {

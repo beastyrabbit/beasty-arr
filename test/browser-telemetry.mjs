@@ -32,8 +32,21 @@ export async function verifyTelemetry(page, baseUrl, requests) {
       document.body.append(region);
     });
   }, secret);
-  await page.goto(baseUrl);
+  const recorderPageUrl = `${baseUrl}/?q=recorder-title&id=123`;
+  await page.goto(recorderPageUrl);
   await page.waitForFunction(() => Boolean(window.umami));
+  // recorder.js bypasses beforeSend, including rrweb Meta href and heatmap URLs.
+  await assertEventually(
+    () =>
+      requests.some(
+        (request) =>
+          request.json?.type === "record" &&
+          request.json.payload.events.some(
+            (event) => event.type === 4 && event.data?.href === recorderPageUrl,
+          ),
+      ),
+    "Replay Meta must retain the app route query",
+  );
   await page.getByRole("link", { name: "Hunt", exact: true }).first().click();
   await page
     .getByRole("button", { name: /Run (a )?cycle|Run now|Run cycle/i })
@@ -97,9 +110,14 @@ export async function verifyTelemetry(page, baseUrl, requests) {
   await assertEventually(
     () =>
       requests.some(
-        (request) => request.path === "/api/record" && request.json?.type === "heatmap",
+        (request) =>
+          request.path === "/api/record" &&
+          request.json?.type === "heatmap" &&
+          request.json.payload.events.some(
+            (event) => event.type === "click" && event.url === recorderPageUrl,
+          ),
       ),
-    "Heatmap missing",
+    "Heatmap clicks must retain the app route query",
   );
   await assertEventually(
     () =>
@@ -132,6 +150,11 @@ export async function verifyTelemetry(page, baseUrl, requests) {
   const events = requests
     .filter((request) => request.path === "/api/send")
     .map((request) => request.json);
+  assert(!JSON.stringify(events).includes("recorder-title"), "Pageview query was not scrubbed");
+  assert(
+    events.every((event) => !new URL(event.payload.url).search),
+    "Analytics URLs must exclude query strings",
+  );
   assert(
     events.some((event) => !event.payload.name && new URL(event.payload.url).pathname === "/hunt"),
   );
@@ -191,6 +214,38 @@ async function assertEventually(predicate, message) {
 async function listen(server) {
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   return server.address().port;
+}
+
+async function verifyUnhandledRejection(stubPort, requests) {
+  const child = spawn(
+    process.execPath,
+    [
+      "--import",
+      "./dist/server/server/instrument.js",
+      "--input-type=module",
+      "--eval",
+      'Promise.reject(new Error("x")); setTimeout(() => process.exit(0), 4000);',
+    ],
+    {
+      env: {
+        NODE_ENV: "production",
+        GLITCHTIP_DSN: `http://public@127.0.0.1:${stubPort}/1`,
+      },
+      stdio: "ignore",
+      timeout: 5000,
+    },
+  );
+  const result = await new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.once("exit", (code, signal) => resolve({ code, signal }));
+  });
+  assert.deepEqual(result, { code: 1, signal: null }, "Unhandled rejection must exit with code 1");
+  assert(
+    requests.some(
+      (request) => request.path.includes("/envelope/") && request.body.includes('"value":"x"'),
+    ),
+    "Unhandled rejection must flush its error envelope before exiting",
+  );
 }
 
 async function startApp(dataDir, telemetry = {}) {
@@ -294,6 +349,7 @@ async function run() {
   const apps = [];
   let browser;
   try {
+    await verifyUnhandledRejection(stubPort, requests);
     apps.push(
       await startApp(path.join(root, "enabled"), {
         UMAMI_URL: `http://127.0.0.1:${stubPort}`,
@@ -336,7 +392,7 @@ async function run() {
     await bot.waitForTimeout(1000);
     assert.deepEqual(botRequests, []);
     process.stdout.write(
-      `${JSON.stringify({ ...result, disabledRequests: 0, botRequests: 0, release, environment }, null, 2)}\n`,
+      `${JSON.stringify({ ...result, unhandledRejectionExit: 1, disabledRequests: 0, botRequests: 0, release, environment }, null, 2)}\n`,
     );
   } finally {
     await browser?.close();
