@@ -109,7 +109,7 @@ Set `UMAMI_URL`, `UMAMI_WEBSITE_ID`, and `UMAMI_DOMAINS` together for analytics,
 and `GLITCHTIP_DSN` for errors.
 `GLITCHTIP_ENVIRONMENT` defaults to `production`. Each integration stays off when
 its configuration is absent or invalid. The application assigns no user identity.
-The bilingual privacy policy describes device access and processing; the absence
+The bilingual privacy policy describes usage statistics, error analysis and cookies/local storage; the absence
 of cookies alone does not establish an exemption under Section 25 TDDDG.
 
 The server supplies only public values through uncached `GET /api/client-config`.
