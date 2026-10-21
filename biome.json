@@ -7,7 +7,17 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["**", "!dist", "!node_modules", "!data", "!drizzle", "!.playwright-mcp"]
+    "includes": [
+      "**",
+      "!dist",
+      "!node_modules",
+      "!data",
+      "!drizzle",
+      "!.playwright-mcp",
+      "!.mcp.json",
+      "!.codex/config.toml",
+      "!.claude/settings.json"
+    ]
   },
   "formatter": {
     "enabled": true,

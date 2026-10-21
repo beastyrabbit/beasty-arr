@@ -19,6 +19,7 @@ import { FixerBulk } from "./fixer/bulk.js";
 import { FixerService } from "./fixer/service.js";
 import { registerRoutes } from "./http/routes/index.js";
 import { HuntEngine } from "./hunt/engine.js";
+import { registerLegalPages } from "./legal/pages.js";
 import { drainWithin } from "./lifecycle.js";
 import { createMediaProber, parseMediaPathMap } from "./media/probe.js";
 import type { MediaProber } from "./media/types.js";
@@ -246,6 +247,7 @@ export async function buildApp(
     contentSecurityPolicy: false, // SPA serves its own assets; no external origins used
   });
 
+  registerLegalPages(app);
   await registerRoutes(app, ctx);
 
   if (opts.serveStatic ?? env.NODE_ENV === "production") {

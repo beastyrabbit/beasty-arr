@@ -6,6 +6,7 @@ import {
   Outlet,
 } from "@tanstack/react-router";
 import { AppLayout } from "./components/Layout.js";
+import { LegalFooter } from "./components/LegalFooter.js";
 import { EmptyState } from "./components/Shell.js";
 import { validateLibrarySearch } from "./lib/library-search.js";
 
@@ -29,12 +30,36 @@ const SeriesDetailPage = lazyRouteComponent(
 );
 const SettingsPage = lazyRouteComponent(() => import("./pages/Settings.js"), "SettingsPage");
 
-const rootRoute = createRootRoute({ component: Outlet });
+function NotFound() {
+  return <EmptyState message="Nothing here." hint="Check the URL or head back to the dashboard." />;
+}
+
+function RouteError() {
+  return (
+    <>
+      <EmptyState message="Could not load this page." hint="Reload the page to try again." />
+      <LegalFooter />
+    </>
+  );
+}
+
+const rootRoute = createRootRoute({
+  component: Outlet,
+  notFoundComponent: () => (
+    <>
+      <NotFound />
+      <LegalFooter />
+    </>
+  ),
+  errorComponent: RouteError,
+});
 
 const appRoute = createRoute({
   getParentRoute: () => rootRoute,
   id: "app",
   component: AppLayout,
+  notFoundComponent: NotFound,
+  errorComponent: RouteError,
 });
 
 const dashboardRoute = createRoute({
@@ -167,9 +192,6 @@ const routeTree = rootRoute.addChildren([
 
 export const router = createRouter({
   routeTree,
-  defaultNotFoundComponent: () => (
-    <EmptyState message="Nothing here." hint="Check the URL or head back to the dashboard." />
-  ),
 });
 
 declare module "@tanstack/react-router" {
