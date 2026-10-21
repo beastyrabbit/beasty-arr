@@ -62,6 +62,14 @@ See [HANDOFF.md](HANDOFF.md) for current behavior and operator acceptance work.
 
 ## Security
 
+Fastify serves the self-contained German legal pages at `/impressum` and `/datenschutz`,
+and English versions at `/legal-notice` and `/privacy`, including trailing-slash variants.
+They work without JavaScript, app assets or API calls, and carry noindex and strict CSP
+headers. Exempt exactly these paths from the external sign-in gate. Every app page links
+to all four pages. Bilingual content and the five pending provider/cookie verification
+values live in `src/server/legal/content.ts`; the placeholder test intentionally fails
+until those values are verified and filled. See [test/README.md](test/README.md) for checks.
+
 The application intentionally has no user login or API-key guard; every API route is reachable by
 clients that can reach the service. Connected arr keys are still never returned by any endpoint,
 and webhook callbacks use a dedicated capability token. Put the deployment behind a trusted network

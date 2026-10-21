@@ -26,6 +26,23 @@ data only. Use a context with video recording to capture the interaction.
 same isolated fixture app. It checks apply-error badges, provider cooldown messages, the 95%
 removal gate, and the exact requests sent by Retry analysis, Reanalyze and retry, and Run all.
 
+Legal-page route tests use Fastify inject with static serving enabled to check route precedence,
+headers, both languages, cross links, trailing slashes and the absence of resource dependencies.
+The jsdom layout test checks all four footer links during a query error. The normal test
+`has no unresolved placeholders in any rendered page` deliberately fails until the five
+named provider/cookie constants in `src/server/legal/content.ts` have been verified and filled.
+Run the focused tests with `pnpm exec vitest run src/server/legal/pages.test.ts src/web/components/Layout.test.tsx`.
+
+`browser-legal.mjs` exports `verifyLegalPages(page, baseUrl, evidenceDir)` for the same separately
+supplied Playwright runtime. Build first, then serve via `buildApp({ env: { NODE_ENV: "test" },
+dataDir: <fresh temporary directory>, serveStatic: true, registerJobs: false })` with integration
+environment variables cleared and `BEASTY_ARR_FORBID_LIVE_AI=1`. The empty local database supplies
+the dashboard without Sonarr/Radarr; no credentials or live AI are needed. The helper blocks all
+external requests, stubs EventSource as the other browser helpers do, follows all four footer
+links and policy cross links at 1280×800 and 390×844, checks not-found/query-error/route-error footers,
+browser storage and legal-page resource requests, and checks the pages with JavaScript disabled.
+It saves desktop/mobile home and all four legal-page screenshots to the supplied evidence directory.
+
 The optional profiling checks count writes for a 1,000-delta Fixer stream and
 check overlapping incremental history cutoffs against periodic full-day reads.
 The title-history regression seeds over 400 unrelated searches. Route splitting
