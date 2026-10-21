@@ -26,27 +26,93 @@ const STYLE = `
   .updated { color: #8b93a5; }
 `;
 
-function pageShell(language: LegalLanguage, privacy: boolean): string {
-  const german = language === "de";
-  const title = privacy
-    ? german
-      ? "Datenschutzerklärung"
-      : "Privacy Policy"
-    : german
-      ? "Impressum"
-      : "Legal Notice (Impressum)";
-  const sections = privacy ? privacySections : legalNoticeSections;
-  const content = sections
+type PageKind = "notice" | "privacy";
+type LegalPage = {
+  path: string;
+  language: LegalLanguage;
+  kind: PageKind;
+  title: string;
+  alternatePath: string;
+};
+
+const LABELS = {
+  de: {
+    navigation: "Rechtliche Informationen",
+    noticePath: "/impressum",
+    notice: "Impressum",
+    privacyPath: "/datenschutz",
+    privacy: "Datenschutz",
+    alternateLanguage: "en",
+    alternate: "English",
+    back: "Zur Anwendung",
+    updated: "Stand: 21. Oktober 2026",
+  },
+  en: {
+    navigation: "Legal information",
+    noticePath: "/legal-notice",
+    notice: "Legal notice",
+    privacyPath: "/privacy",
+    privacy: "Privacy",
+    alternateLanguage: "de",
+    alternate: "Deutsch",
+    back: "Back to app",
+    updated: "Last updated: 21 October 2026",
+  },
+};
+
+const PAGES: readonly LegalPage[] = [
+  {
+    path: "/impressum",
+    language: "de",
+    kind: "notice",
+    title: "Impressum",
+    alternatePath: "/legal-notice",
+  },
+  {
+    path: "/datenschutz",
+    language: "de",
+    kind: "privacy",
+    title: "Datenschutzerklärung",
+    alternatePath: "/privacy",
+  },
+  {
+    path: "/legal-notice",
+    language: "en",
+    kind: "notice",
+    title: "Legal Notice (Impressum)",
+    alternatePath: "/impressum",
+  },
+  {
+    path: "/privacy",
+    language: "en",
+    kind: "privacy",
+    title: "Privacy Policy",
+    alternatePath: "/datenschutz",
+  },
+];
+
+const SECTIONS = { notice: legalNoticeSections, privacy: privacySections };
+
+function renderSections({ language, kind }: LegalPage): string {
+  return SECTIONS[kind]
     .map((section, index) => {
       const { heading, body } = section[language];
-      return `<section aria-labelledby="${section.id}"><h2 id="${section.id}">${privacy ? `${index + 1}. ` : ""}${heading}</h2>${body}</section>`;
+      const prefix = kind === "privacy" ? `${index + 1}. ` : "";
+      return `<section aria-labelledby="${section.id}"><h2 id="${section.id}">${prefix}${heading}</h2>${body}</section>`;
     })
     .join("\n");
-  const links = `<nav aria-label="${german ? "Rechtliche Informationen" : "Legal information"}">
-    <a href="${german ? "/impressum" : "/legal-notice"}">${german ? "Impressum" : "Legal notice"}</a>
-    <a href="${german ? "/datenschutz" : "/privacy"}">${german ? "Datenschutz" : "Privacy"}</a>
-    <a href="${privacy ? (german ? "/privacy" : "/datenschutz") : german ? "/legal-notice" : "/impressum"}" lang="${german ? "en" : "de"}" hreflang="${german ? "en" : "de"}">${german ? "English" : "Deutsch"}</a>
-    <a href="/">${german ? "Zur Anwendung" : "Back to app"}</a>
+}
+
+function pageShell(page: LegalPage): string {
+  const { language, kind, title, alternatePath } = page;
+  const labels = LABELS[language];
+  const content = renderSections(page);
+  const updated = kind === "privacy" ? `<p class="updated">${labels.updated}</p>` : "";
+  const links = `<nav aria-label="${labels.navigation}">
+    <a href="${labels.noticePath}">${labels.notice}</a>
+    <a href="${labels.privacyPath}">${labels.privacy}</a>
+    <a href="${alternatePath}" lang="${labels.alternateLanguage}" hreflang="${labels.alternateLanguage}">${labels.alternate}</a>
+    <a href="/">${labels.back}</a>
   </nav>`;
   return `<!doctype html>
 <html lang="${language}">
@@ -61,7 +127,7 @@ function pageShell(language: LegalLanguage, privacy: boolean): string {
 <body><div class="column">
   <header><a class="brand" href="/">beasty<span>-arr</span></a></header>
   <main><h1>${title}</h1>
-  ${privacy ? `<p class="updated">${german ? "Stand: 21. Oktober 2026" : "Last updated: 21 October 2026"}</p>` : ""}
+  ${updated}
   ${content}
   </main><footer>${links}</footer>
 </div></body>
@@ -69,15 +135,10 @@ function pageShell(language: LegalLanguage, privacy: boolean): string {
 }
 
 export function registerLegalPages(app: FastifyInstance): void {
-  for (const [url, language, privacy] of [
-    ["/impressum", "de", false],
-    ["/datenschutz", "de", true],
-    ["/legal-notice", "en", false],
-    ["/privacy", "en", true],
-  ] as const) {
-    const html = pageShell(language, privacy);
+  for (const page of PAGES) {
+    const html = pageShell(page);
     // Explicit routes take precedence over both static files and the SPA not-found handler.
-    for (const path of [url, `${url}/`]) {
+    for (const path of [page.path, `${page.path}/`]) {
       app.get(path, (_request, reply) =>
         reply
           .type("text/html; charset=utf-8")

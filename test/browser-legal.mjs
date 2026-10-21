@@ -1,154 +1,194 @@
-// Like browser-review.mjs, accepts a Page from a separately supplied Playwright runtime.
-// Serve the production build with a fresh database, no integrations and registerJobs: false.
-export async function verifyLegalPages(page, baseUrl, evidenceDir) {
-  const origin = new URL(baseUrl).origin;
-  const externalRequests = [];
-  const requests = [];
-  const pageErrors = [];
-  page.on("request", (request) => requests.push(request.url()));
-  page.on("pageerror", (error) => pageErrors.push(error.message));
+import assert from "node:assert/strict";
+
+const LINKS = [
+  ["Impressum", "/impressum", "Impressum", "impressum-beasty-arr@heerlab.com"],
+  ["Datenschutz", "/datenschutz", "Datenschutzerklärung", "In der Anwendung gespeicherte Daten"],
+  ["Legal notice", "/legal-notice", "Legal Notice (Impressum)", "impressum-beasty-arr@heerlab.com"],
+  ["Privacy", "/privacy", "Privacy Policy", "Data stored in the application"],
+];
+
+async function blockExternalRequests(page, origin, externalRequests) {
   await page.route("**/*", (route) => {
-    if (new URL(route.request().url()).origin !== origin) {
-      externalRequests.push(route.request().url());
+    const url = route.request().url();
+    if (new URL(url).origin !== origin) {
+      externalRequests.push(url);
       return route.abort();
     }
     return route.continue();
   });
+}
+
+async function monitorRequests(page, origin) {
+  const monitor = { externalRequests: [], requests: [], pageErrors: [] };
+  page.on("request", (request) => monitor.requests.push(request.url()));
+  page.on("pageerror", (error) => monitor.pageErrors.push(error.message));
+  await blockExternalRequests(page, origin, monitor.externalRequests);
+  return monitor;
+}
+
+async function installEventSourceStub(page) {
   await page.addInitScript(() => {
     window.EventSource = class {
       constructor() {
         queueMicrotask(() => this.onopen?.());
       }
-      addEventListener() {}
-      close() {}
+      addEventListener() {
+        // Fixture pages receive no server events, so listeners need not be registered.
+      }
+      close() {
+        // The stub opens no connection, so there is nothing to close.
+      }
     };
   });
-  const links = [
-    ["Impressum", "/impressum", "Impressum", "impressum-beasty-arr@heerlab.com"],
-    ["Datenschutz", "/datenschutz", "Datenschutzerklärung", "In der Anwendung gespeicherte Daten"],
-    [
-      "Legal notice",
-      "/legal-notice",
-      "Legal Notice (Impressum)",
-      "impressum-beasty-arr@heerlab.com",
-    ],
-    ["Privacy", "/privacy", "Privacy Policy", "Data stored in the application"],
-  ];
-  for (const [size, width, height] of [
-    ["desktop", 1280, 800],
-    ["mobile", 390, 844],
-  ]) {
-    await page.setViewportSize({ width, height });
-    for (const [label, path, heading, content] of links) {
-      await page.goto(baseUrl);
-      await page.getByText("Priority 1 indexer limits", { exact: true }).waitFor();
-      const footer = page.getByRole("contentinfo");
-      if ((await footer.getByRole("link").count()) !== 4)
-        throw new Error("Missing app footer links");
-      if (path === "/impressum") {
-        await footer.scrollIntoViewIfNeeded();
-        await page.screenshot({ path: `${evidenceDir}/${size}-home.png` });
-      }
-      const start = requests.length;
-      const responsePromise = page.waitForResponse(
-        (response) =>
-          response.url() === `${origin}${path}` && response.request().isNavigationRequest(),
-      );
-      await footer.getByRole("link", { name: label, exact: true }).click();
-      const response = await responsePromise;
-      await page.getByRole("heading", { name: heading, exact: true, level: 1 }).waitFor();
-      if (response.status() !== 200 || response.headers()["x-robots-tag"] !== "noindex")
-        throw new Error(`Bad legal response: ${path}`);
-      if (!(await page.locator("main").innerText()).includes(content))
-        throw new Error(`Missing content: ${path}`);
-      if (!(await page.locator("main").innerText()).includes("Stettiner Str. 41"))
-        throw new Error("Missing operator address");
-      if (await page.locator("script, img, link[rel=stylesheet]").count())
-        throw new Error("Legal page depends on assets");
-      if ((await page.locator('meta[name="robots"]').getAttribute("content")) !== "noindex")
-        throw new Error("Missing robots meta");
-      if (await page.evaluate(() => document.documentElement.scrollWidth > innerWidth))
-        throw new Error(`Horizontal page overflow: ${size} ${path}`);
-      if (
-        await page.evaluate(
-          () => document.cookie !== "" || localStorage.length !== 0 || sessionStorage.length !== 0,
-        )
-      )
-        throw new Error("Legal page wrote browser storage");
-      await page.screenshot({
-        path: `${evidenceDir}/${size}-${path.slice(1)}.png`,
-        fullPage: true,
-      });
-      const resources = requests.slice(start).filter((url) => url !== `${origin}${path}`);
-      if (resources.length)
-        throw new Error(`Legal page requested resources: ${resources.join(", ")}`);
-    }
+}
 
-    // Follow the legal-page cross links as well as each app-footer link.
-    await page.goto(`${baseUrl}/impressum`);
-    await page.getByRole("link", { name: "Datenschutzerklärung", exact: true }).click();
-    await page
-      .getByRole("heading", { name: "Datenschutzerklärung", exact: true, level: 1 })
-      .waitFor();
-    await page.getByRole("link", { name: "English", exact: true }).click();
-    await page.getByRole("heading", { name: "Privacy Policy", exact: true, level: 1 }).waitFor();
-    await page.getByRole("link", { name: "Legal notice", exact: true }).click();
-    await page
-      .getByRole("heading", { name: "Legal Notice (Impressum)", exact: true, level: 1 })
-      .waitFor();
+async function waitForHeading(page, heading) {
+  await page.getByRole("heading", { name: heading, exact: true, level: 1 }).waitFor();
+}
 
-    await page.goto(`${baseUrl}/not-a-real-route`);
-    await page.getByText("Nothing here.", { exact: true }).waitFor();
-    if ((await page.locator("footer a").count()) !== 4)
-      throw new Error("Not-found footer missing or duplicated");
-    await page.route("**/api/missing**", (route) =>
-      route.fulfill({ status: 503, json: { error: "Synthetic unavailable library" } }),
-    );
-    await page.goto(`${baseUrl}/missing`);
-    await page.getByRole("alert").filter({ hasText: "Could not load data" }).waitFor();
-    if ((await page.locator("footer a").count()) !== 4)
-      throw new Error("Query-error footer missing");
-    await page.unroute("**/api/missing**");
+async function checkFooter(page, message) {
+  assert.equal(await page.locator("footer a").count(), 4, message);
+}
+
+function collectStorage() {
+  return {
+    cookies: document.cookie,
+    local: localStorage.length,
+    session: sessionStorage.length,
+  };
+}
+
+async function checkLegalDocument(page, link, response) {
+  const [, path, heading, content] = link;
+  await waitForHeading(page, heading);
+  assert.equal(response.status(), 200, `Bad legal response: ${path}`);
+  assert.equal(response.headers()["x-robots-tag"], "noindex", `Missing noindex header: ${path}`);
+  const text = await page.locator("main").innerText();
+  assert.ok(text.includes(content), `Missing content: ${path}`);
+  assert.ok(text.includes("Stettiner Str. 41"), "Missing operator address");
+  assert.equal(
+    await page.locator("script, img, link[rel=stylesheet]").count(),
+    0,
+    "Legal page depends on assets",
+  );
+  assert.equal(
+    await page.locator('meta[name="robots"]').getAttribute("content"),
+    "noindex",
+    "Missing robots meta",
+  );
+  assert.equal(
+    await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
+    false,
+    `Horizontal page overflow: ${path}`,
+  );
+  assert.deepEqual(
+    await page.evaluate(collectStorage),
+    { cookies: "", local: 0, session: 0 },
+    "Legal page wrote browser storage",
+  );
+}
+
+async function checkPage(page, run, size, link) {
+  const [label, path] = link;
+  await page.goto(run.baseUrl);
+  await page.getByText("Priority 1 indexer limits", { exact: true }).waitFor();
+  await checkFooter(page, "Missing app footer links");
+  const footer = page.getByRole("contentinfo");
+  if (path === "/impressum") {
+    await footer.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: `${run.evidenceDir}/${size}-home.png` });
   }
+  const start = run.monitor.requests.length;
+  const url = run.origin + path;
+  const responsePromise = page.waitForResponse(
+    (response) => response.url() === url && response.request().isNavigationRequest(),
+  );
+  await footer.getByRole("link", { name: label, exact: true }).click();
+  await checkLegalDocument(page, link, await responsePromise);
+  await page.screenshot({
+    path: `${run.evidenceDir}/${size}-${path.slice(1)}.png`,
+    fullPage: true,
+  });
+  const resources = run.monitor.requests.slice(start).filter((request) => request !== url);
+  assert.deepEqual(resources, [], `Legal page requested resources: ${resources.join(", ")}`);
+}
 
-  // Public policies also work when the browser has JavaScript disabled.
+async function checkCrossLinks(page, baseUrl) {
+  await page.goto(`${baseUrl}/impressum`);
+  await page.getByRole("link", { name: "Datenschutzerklärung", exact: true }).click();
+  await waitForHeading(page, "Datenschutzerklärung");
+  await page.getByRole("link", { name: "English", exact: true }).click();
+  await waitForHeading(page, "Privacy Policy");
+  await page.getByRole("link", { name: "Legal notice", exact: true }).click();
+  await waitForHeading(page, "Legal Notice (Impressum)");
+}
+
+async function checkErrorFooters(page, baseUrl) {
+  await page.goto(`${baseUrl}/not-a-real-route`);
+  await page.getByText("Nothing here.", { exact: true }).waitFor();
+  await checkFooter(page, "Not-found footer missing or duplicated");
+  await page.route("**/api/missing**", (route) =>
+    route.fulfill({ status: 503, json: { error: "Synthetic unavailable library" } }),
+  );
+  await page.goto(`${baseUrl}/missing`);
+  await page.getByRole("alert").filter({ hasText: "Could not load data" }).waitFor();
+  await checkFooter(page, "Query-error footer missing");
+  await page.unroute("**/api/missing**");
+}
+
+async function checkJsDisabled(page, run) {
   const context = await page.context().browser().newContext({ javaScriptEnabled: false });
   try {
     const noJsPage = await context.newPage();
-    await noJsPage.route("**/*", (route) =>
-      new URL(route.request().url()).origin === origin ? route.continue() : route.abort(),
-    );
-    for (const [, path, heading] of links) {
-      await noJsPage.goto(`${baseUrl}${path}`);
-      await noJsPage.getByRole("heading", { name: heading, exact: true, level: 1 }).waitFor();
+    await blockExternalRequests(noJsPage, run.origin, run.monitor.externalRequests);
+    for (const [, path, heading] of LINKS) {
+      await noJsPage.goto(run.baseUrl + path);
+      await waitForHeading(noJsPage, heading);
     }
   } finally {
     await context.close();
   }
-  // A fresh page forces a lazy route render failure, exercising the boundary that
-  // replaces AppLayout rather than the in-layout QueryError banner above.
+}
+
+async function checkRenderError(page, run) {
+  // A fresh page forces a lazy route render failure outside AppLayout.
   const errorPage = await page.context().newPage();
   try {
-    await errorPage.route("**/*", (route) =>
-      new URL(route.request().url()).origin === origin ? route.continue() : route.abort(),
-    );
+    await blockExternalRequests(errorPage, run.origin, run.monitor.externalRequests);
     await errorPage.route("**/assets/Settings-*.js", (route) =>
       route.fulfill({
         contentType: "application/javascript",
         body: 'export function SettingsPage() { throw new Error("Synthetic route render failure"); }',
       }),
     );
-    await errorPage.goto(`${baseUrl}/settings/connections`);
+    await errorPage.goto(`${run.baseUrl}/settings/connections`);
     await errorPage.getByText("Could not load this page.", { exact: true }).waitFor();
-    if ((await errorPage.locator("footer a").count()) !== 4) {
-      throw new Error("Route error boundary footer missing or duplicated");
-    }
+    await checkFooter(errorPage, "Route error boundary footer missing or duplicated");
   } finally {
     await errorPage.close();
   }
-  if (externalRequests.length)
-    throw new Error(`Unexpected external requests: ${externalRequests.join(", ")}`);
-  if (pageErrors.length) throw new Error(`Browser errors: ${pageErrors.join(", ")}`);
+}
+
+// Like browser-review.mjs, accepts a Page from a separately supplied Playwright runtime.
+// Serve the production build with a fresh database, no integrations and registerJobs: false.
+export async function verifyLegalPages(page, baseUrl, evidenceDir) {
+  const origin = new URL(baseUrl).origin;
+  const monitor = await monitorRequests(page, origin);
+  const run = { baseUrl, evidenceDir, origin, monitor };
+  await installEventSourceStub(page);
+  for (const [size, width, height] of [
+    ["desktop", 1280, 800],
+    ["mobile", 390, 844],
+  ]) {
+    await page.setViewportSize({ width, height });
+    for (const link of LINKS) await checkPage(page, run, size, link);
+    await checkCrossLinks(page, baseUrl);
+    await checkErrorFooters(page, baseUrl);
+  }
+  await checkJsDisabled(page, run);
+  await checkRenderError(page, run);
+  assert.deepEqual(monitor.externalRequests, [], "Unexpected external requests");
+  assert.deepEqual(monitor.pageErrors, [], "Browser errors");
   return {
     desktop: true,
     mobile: true,
