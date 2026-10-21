@@ -17,6 +17,7 @@ import { useConfig } from "../lib/queries.js";
 import { cn } from "../lib/utils.js";
 import { CommandPalette } from "./CommandPalette.js";
 import { LedDot, type LedState } from "./LedDot.js";
+import { LegalFooter } from "./LegalFooter.js";
 import { TooltipProvider } from "./ui/tooltip.js";
 
 const NAV = [
@@ -165,6 +166,7 @@ export function AppLayout() {
             <Outlet />
           </main>
         </div>
+        <LegalFooter />
       </div>
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
     </TooltipProvider>

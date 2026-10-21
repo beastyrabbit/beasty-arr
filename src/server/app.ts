@@ -20,6 +20,7 @@ import { FixerService } from "./fixer/service.js";
 import { registerRoutes } from "./http/routes/index.js";
 import { registerTelemetryRoutes } from "./http/routes/telemetry.js";
 import { HuntEngine } from "./hunt/engine.js";
+import { registerLegalPages } from "./legal/pages.js";
 import { drainWithin } from "./lifecycle.js";
 import { createMediaProber, parseMediaPathMap } from "./media/probe.js";
 import type { MediaProber } from "./media/types.js";
@@ -260,6 +261,7 @@ export async function buildApp(
         .map(([key, value]) => [key, String(value)]),
     ),
   );
+  registerLegalPages(app);
   await registerRoutes(app, ctx);
 
   if (opts.serveStatic ?? env.NODE_ENV === "production") {

@@ -2,11 +2,13 @@ import {
   createRootRoute,
   createRoute,
   createRouter,
+  type ErrorComponentProps,
   lazyRouteComponent,
   Outlet,
 } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { AppLayout } from "./components/Layout.js";
+import { LegalFooter } from "./components/LegalFooter.js";
 import { EmptyState } from "./components/Shell.js";
 import { validateLibrarySearch } from "./lib/library-search.js";
 import { captureBrowserError } from "./lib/telemetry.js";
@@ -31,12 +33,48 @@ const SeriesDetailPage = lazyRouteComponent(
 );
 const SettingsPage = lazyRouteComponent(() => import("./pages/Settings.js"), "SettingsPage");
 
-const rootRoute = createRootRoute({ component: Outlet });
+function NotFound() {
+  return <EmptyState message="Nothing here." hint="Check the URL or head back to the dashboard." />;
+}
+
+function RouteError({ error, reset }: ErrorComponentProps) {
+  useEffect(() => captureBrowserError(error), [error]);
+  return (
+    <div className="flex flex-col gap-3 p-4" role="alert">
+      <EmptyState message="Could not load this page." hint="Try again or reload the page." />
+      <button type="button" className="text-sm text-muted underline" onClick={reset}>
+        Retry
+      </button>
+    </div>
+  );
+}
+
+function StandaloneRouteError(props: ErrorComponentProps) {
+  return (
+    <>
+      <RouteError {...props} />
+      <LegalFooter />
+    </>
+  );
+}
+
+const rootRoute = createRootRoute({
+  component: Outlet,
+  notFoundComponent: () => (
+    <>
+      <NotFound />
+      <LegalFooter />
+    </>
+  ),
+  errorComponent: StandaloneRouteError,
+});
 
 const appRoute = createRoute({
   getParentRoute: () => rootRoute,
   id: "app",
   component: AppLayout,
+  notFoundComponent: NotFound,
+  errorComponent: StandaloneRouteError,
 });
 
 const dashboardRoute = createRoute({
@@ -169,20 +207,8 @@ const routeTree = rootRoute.addChildren([
 
 export const router = createRouter({
   routeTree,
-  defaultErrorComponent: ({ error, reset }) => {
-    useEffect(() => captureBrowserError(error), [error]);
-    return (
-      <div className="flex flex-col gap-3 p-4" role="alert">
-        <EmptyState message="Could not load this page." hint="Try again or reload the page." />
-        <button type="button" className="text-sm text-muted underline" onClick={reset}>
-          Retry
-        </button>
-      </div>
-    );
-  },
-  defaultNotFoundComponent: () => (
-    <EmptyState message="Nothing here." hint="Check the URL or head back to the dashboard." />
-  ),
+  defaultErrorComponent: RouteError,
+  defaultNotFoundComponent: NotFound,
 });
 
 declare module "@tanstack/react-router" {
