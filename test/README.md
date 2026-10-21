@@ -33,7 +33,9 @@ The jsdom layout test checks all four footer links during a query error. The nor
 Privacy route tests also check the grouped processing sections and stated retention.
 Run the focused tests with `pnpm exec vitest run src/server/legal/pages.test.ts src/web/components/Layout.test.tsx`.
 
-`browser-legal.mjs` exports `verifyLegalPages(page, baseUrl, evidenceDir)` for the same separately
+After building, run `node test/browser-legal.mjs` for an isolated local verification with
+Playwright Chromium. It prints the temporary screenshot directory. The helper also
+exports `verifyLegalPages(page, baseUrl, evidenceDir)` for the same separately
 supplied Playwright runtime. Build first, then serve via `buildApp({ env: { NODE_ENV: "test" },
 dataDir: <fresh temporary directory>, serveStatic: true, registerJobs: false })` with integration
 environment variables cleared and `BEASTY_ARR_FORBID_LIVE_AI=1`. The empty local database supplies

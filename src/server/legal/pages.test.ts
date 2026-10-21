@@ -11,7 +11,14 @@ let built: Awaited<ReturnType<typeof buildApp>>;
 beforeAll(async () => {
   dataDir = mkdtempSync(path.join(tmpdir(), "beasty-arr-legal-"));
   built = await buildApp({
-    env: { NODE_ENV: "production", LOG_LEVEL: "error" },
+    env: {
+      NODE_ENV: "production",
+      LOG_LEVEL: "error",
+      UMAMI_URL: "https://analytics.example",
+      UMAMI_WEBSITE_ID: "00000000-0000-4000-8000-000000000001",
+      UMAMI_DOMAINS: "app.example",
+      GLITCHTIP_DSN: "https://public@errors.example/1",
+    },
     dataDir,
     // Exercise actual static registration and SPA fallback, not just an isolated plugin.
     serveStatic: true,
@@ -92,7 +99,7 @@ describe("public legal pages", () => {
       const response = await built.app.inject(url);
       const headings = [...response.body.matchAll(/<h2 id="([^"]+)">(\d+)\. /g)];
       expect(headings.map((match) => Number(match[2]))).toEqual(
-        Array.from({ length: 15 }, (_, i) => i + 1),
+        Array.from({ length: 16 }, (_, i) => i + 1),
       );
       expect(headings.map((match) => match[1])).toEqual([
         "controller",
@@ -102,6 +109,7 @@ describe("public legal pages", () => {
         "crowdsec",
         "sso",
         "app-data",
+        "telemetry",
         "posters",
         "openai",
         "external-information",
@@ -123,7 +131,38 @@ describe("public legal pages", () => {
       ]) {
         expect(response.body).toContain(text);
       }
-      expect(response.body).not.toMatch(/Umami|GlitchTip|Resend/);
+      expect(response.body).not.toContain("Resend");
+      const telemetry = response.body.match(
+        /<section aria-labelledby="telemetry">(.*?)<\/section>/s,
+      )?.[1];
+      expect(telemetry).toBeDefined();
+      for (const text of [
+        "Umami 3.4",
+        "GlitchTip 6.2.6",
+        "umami.heerlab.com",
+        "glitchtip.heerlab.com",
+        "umami.disabled",
+        "sendDefaultPii",
+        "GLITCHTIP_MAX_EVENT_LIFE_DAYS",
+        "Settings",
+        "Fixer",
+        "90",
+        "30",
+        "10",
+        "25",
+      ])
+        expect(telemetry).toContain(text);
+      expect(telemetry).toContain(url === "/datenschutz" ? "Titel-IDs" : "title IDs");
+      expect(telemetry).toContain(
+        url === "/datenschutz"
+          ? "bis der Verantwortliche sie löscht"
+          : "until the controller deletes it",
+      );
+      expect(telemetry).toContain(
+        url === "/datenschutz"
+          ? "auch wenn das SDK keine Nutzerinformationen sendet"
+          : "even when the SDK sends no user information",
+      );
       expect(response.body).toContain(
         url === "/datenschutz"
           ? "Diese Daten werden bis zu 10 Jahre gespeichert."

@@ -108,8 +108,9 @@ Umami 3 and GlitchTip are optional and enabled only with `NODE_ENV=production`.
 Set `UMAMI_URL`, `UMAMI_WEBSITE_ID`, and `UMAMI_DOMAINS` together for analytics,
 and `GLITCHTIP_DSN` for errors.
 `GLITCHTIP_ENVIRONMENT` defaults to `production`. Each integration stays off when
-its configuration is absent or invalid. No consent banner is needed for this private
-tool behind Pangolin SSO, and no user identity is assigned.
+its configuration is absent or invalid. The application assigns no user identity.
+The bilingual privacy policy describes device access and processing; the absence
+of cookies alone does not establish an exemption under Section 25 TDDDG.
 
 The server supplies only public values through uncached `GET /api/client-config`.
 This keeps the image independent of its deployment and lets the browser fetch its
@@ -145,6 +146,8 @@ and poster URLs are blocked with
 `data-telemetry-block`. Settings also retains `rr-block`, which the saved rrweb fixture
 honors. Strict masking covers other text and inputs; it does not sanitize arbitrary
 DOM attributes. Mark new regions that can show credentials or internal URLs as blocked.
+The block selector excludes replay contents; heatmaps can still collect click and
+scroll positions in those regions, including Settings and Fixer.
 The app does not call recorder admin APIs. Analytics `script.js` keeps its client-side
 `beforeSend` scrubber.
 
@@ -167,7 +170,9 @@ same scrubber. Umami pageviews and events exclude API keys, titles, IDs, input t
 full outbound URLs. Replay receives masked DOM content, but replay and heatmap route
 URLs retain search terms and IDs as described above. These services still receive normal
 network metadata such as the connecting IP; no identity or IP is explicitly attached
-by the SDK. There is no CSP in this app, so no policy was changed for the telemetry hosts.
+by the SDK. GlitchTip can add a routable client IP at ingestion and anonymises it by
+default; SDK-side scrubbing alone does not prevent this. The SPA has no CSP; the
+public legal pages retain their strict CSP and load no telemetry scripts.
 
 Every release is `beasty-arr@<package.json version>`. Vite injects browser debug IDs
 without uploading or running a CLI binary during the build. `pnpm build` moves browser

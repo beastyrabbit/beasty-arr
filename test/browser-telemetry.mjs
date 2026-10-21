@@ -290,7 +290,7 @@ async function verifyUnhandledRejection(stubPort, requests) {
   );
 }
 
-async function startApp(dataDir, telemetry = {}) {
+export async function startApp(dataDir, telemetry = {}) {
   const reservation = http.createServer();
   const port = await listen(reservation);
   await new Promise((resolve) => reservation.close(resolve));
@@ -408,7 +408,50 @@ async function run() {
     });
     const context = await browser.newContext();
     const result = await verifyTelemetry(await context.newPage(), apps[0].baseUrl, requests);
+    const errorPage = await context.newPage();
+    await errorPage.addInitScript(() => {
+      window.__BEASTY_TELEMETRY_TEST__ = true;
+    });
+    await errorPage.route("**/assets/Settings-*.js", (route) =>
+      route.fulfill({
+        contentType: "application/javascript",
+        body: 'export function SettingsPage() { if (!window.fixtureRouteRecovered) throw new Error("telemetry-route-render-failure"); return "Recovered route"; }',
+      }),
+    );
+    await errorPage.goto(`${apps[0].baseUrl}/settings/connections`);
+    await errorPage.getByText("Could not load this page.", { exact: true }).waitFor();
+    assert.equal(await errorPage.locator("footer a").count(), 4);
+    await assertEventually(
+      () =>
+        requests.some(
+          (request) =>
+            request.path.includes("/envelope/") &&
+            request.body.includes("telemetry-route-render-failure"),
+        ),
+      "Route error was not reported to GlitchTip",
+    );
+    await errorPage.evaluate(() => {
+      window.fixtureRouteRecovered = true;
+    });
+    await errorPage.getByRole("button", { name: "Retry", exact: true }).click();
+    await errorPage.getByText("Recovered route", { exact: true }).waitFor();
+    assert.equal(await errorPage.locator("footer a").count(), 4);
     await context.close();
+    const legal = await browser.newContext();
+    const legalPage = await legal.newPage();
+    await legalPage.addInitScript(() => {
+      window.__BEASTY_TELEMETRY_TEST__ = true;
+    });
+    const legalRequests = [];
+    legalPage.on("request", (request) => legalRequests.push(request.url()));
+    for (const legalPath of ["/impressum", "/datenschutz", "/legal-notice", "/privacy"]) {
+      legalRequests.length = 0;
+      const url = apps[0].baseUrl + legalPath;
+      await legalPage.goto(url);
+      assert.deepEqual(legalRequests, [url], "Legal page loaded telemetry or other resources");
+      assert.equal(await legalPage.locator("script").count(), 0);
+    }
+    await legal.close();
     const disabled = await browser.newContext();
     const disabledPage = await disabled.newPage();
     await disabledPage.addInitScript(() => {
@@ -437,7 +480,7 @@ async function run() {
     await bot.waitForTimeout(1000);
     assert.deepEqual(botRequests, []);
     process.stdout.write(
-      `${JSON.stringify({ ...result, unhandledRejectionExit: 1, disabledRequests: 0, botRequests: 0, release, environment }, null, 2)}\n`,
+      `${JSON.stringify({ ...result, routeErrorReportAndRetry: true, legalResourceRequests: 0, unhandledRejectionExit: 1, disabledRequests: 0, botRequests: 0, release, environment }, null, 2)}\n`,
     );
   } finally {
     await browser?.close();
