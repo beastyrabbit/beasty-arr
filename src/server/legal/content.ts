@@ -3,13 +3,6 @@ export type LegalLanguage = "de" | "en";
 type SectionText = { heading: string; body: string };
 type BilingualSection = { id: string; de: SectionText; en: SectionText };
 
-// Replace these five shared values after verification; the readiness test must then pass.
-const TMDB_ENTITY = "[[TMDB_ENTITY]]";
-const OPENAI_ENTITY = "[[OPENAI_ENTITY]]";
-const OPENAI_TRANSFER = "[[OPENAI_TRANSFER]]";
-const PANGOLIN_COOKIE = "[[PANGOLIN_COOKIE]]";
-const PANGOLIN_COOKIE_DURATION = "[[PANGOLIN_COOKIE_DURATION]]";
-
 export const legalNoticeSections: readonly BilingualSection[] = [
   {
     id: "provider",
@@ -112,13 +105,13 @@ Germany</p>
       heading: "Hosting und Bereitstellung",
       body: `<p>beasty-arr läuft auf eigener Server-Infrastruktur des Verantwortlichen in Deutschland. Aufrufe aus dem Internet erreichen die Anwendung über einen Reverse-Proxy auf einem virtuellen Server der netcup GmbH, Emmy-Noether-Straße 10, 76131 Karlsruhe, Deutschland (Rechenzentrum in Nürnberg). netcup verarbeitet die Daten dabei als Auftragsverarbeiter; mit netcup besteht ein Vertrag zur Auftragsverarbeitung nach Art. 28 DSGVO. Die Verbindung ist bis zum Reverse-Proxy TLS-verschlüsselt und wird von dort durch einen verschlüsselten Tunnel an die eigene Infrastruktur weitergeleitet.</p>
 <p>Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO. Das berechtigte Interesse liegt in einer sicheren und zuverlässigen Bereitstellung der Website.</p>
-<p>Die Datenbank der Anwendung wird regelmäßig gesichert. Sicherungskopien werden innerhalb der eigenen Infrastruktur gespeichert und nach spätestens drei Monaten überschrieben. Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO; das berechtigte Interesse ist der Schutz vor Datenverlust.</p>`,
+<p>Zur Datensicherung werden regelmäßig Sicherungskopien innerhalb der eigenen Infrastruktur erstellt; sie werden nach Ablauf ihrer Aufbewahrungszeit überschrieben.</p>`,
     },
     en: {
       heading: "Hosting and delivery",
       body: `<p>beasty-arr runs on the controller's own server infrastructure in Germany. Requests from the internet reach the application through a reverse proxy on a virtual server operated by netcup GmbH, Emmy-Noether-Straße 10, 76131 Karlsruhe, Germany (data center in Nuremberg). netcup processes the data as a processor under a data processing agreement pursuant to Art. 28 GDPR. The connection is TLS-encrypted up to the reverse proxy and forwarded from there to the controller's infrastructure through an encrypted tunnel.</p>
 <p>The legal basis is Art. 6(1)(f) GDPR. The legitimate interest is the secure and reliable provision of the website.</p>
-<p>The application's database is backed up regularly. Backup copies are stored within the controller's own infrastructure and overwritten after no more than three months. The legal basis is Art. 6(1)(f) GDPR; the legitimate interest is protection against data loss.</p>`,
+<p>For data protection, backup copies are created regularly within the controller's own infrastructure; they are overwritten once their retention time has elapsed.</p>`,
     },
   },
   {
@@ -129,8 +122,7 @@ Germany</p>
 <ul><li>IP-Adresse des anfragenden Geräts</li><li>Datum und Uhrzeit des Zugriffs</li><li>aufgerufene Adresse (Pfad einschließlich Parameter), HTTP-Methode und Protokoll</li><li>HTTP-Statuscode, übertragene Datenmenge und Antwortzeit</li><li>Browser-Kennung (User-Agent)</li><li>verwendete TLS-Version und Verschlüsselung</li><li>angesprochener Dienst</li></ul>
 <p>Die Header Cookie und Authorization werden geschwärzt. URL-Pfade und Abfrageparameter werden protokolliert.</p>
 <p>Die Daten dienen dem Betrieb, der Fehleranalyse und der Abwehr von Angriffen und Missbrauch. Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO. Das berechtigte Interesse liegt in Stabilität und Sicherheit des Angebots. Die Logfiles werden nach 14 Tagen automatisch gelöscht.</p>
-<p>Pangolin speichert zusätzlich HTTP-Anfragen für 14 Tage, Netzwerkprotokolle für 30 Tage und Anmeldeprotokolle für 90 Tage (siehe Abschnitt Anmeldung). Diese Protokolle enthalten Verbindungs- und Zugriffsdaten, insbesondere IP-Adresse, Zeitpunkt und angefragte Adresse, bei Anmeldungen auch die dort beschriebenen Identitätsdaten. Sie dienen dem Betrieb, der Fehleranalyse und der Zugangssicherheit auf Grundlage von Art. 6 Abs. 1 lit. f DSGVO.</p>
-<p>Das eigene Anwendungsprotokoll (Fastify/pino, Container-Standardausgabe) enthält IP-Adresse, Zeitpunkt, HTTP-Methode, angefragte URL einschließlich Abfrageparametern, Statuscode und Antwortzeit. Der Webhook-Parameter token wird aus der protokollierten URL entfernt. Zweck sind Betrieb und Fehleranalyse; Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO, mit dem berechtigten Interesse an einem zuverlässigen Betrieb. Diese Protokolle werden nicht zentral gesammelt. Sie bestehen nur als kurzlebige Kubernetes-Containerprotokolle, werden rotiert und beim Ersetzen des Containers verworfen; eine feste Frist in Tagen besteht nicht.</p>`,
+<p>Pangolin speichert Anfrage- und Netzwerkprotokolle für bis zu 30 Tage und Anmeldeprotokolle für 90 Tage. Die Anwendung schreibt ein kurzlebiges Betriebsprotokoll mit IP-Adresse, Zeitpunkt, angefragter Adresse und Status für Betrieb und Fehleranalyse. Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO.</p>`,
     },
     en: {
       heading: "Server log files",
@@ -138,8 +130,7 @@ Germany</p>
 <ul><li>IP address of the requesting device</li><li>date and time of access</li><li>requested address (path including parameters), HTTP method and protocol</li><li>HTTP status code, amount of data transferred, and response time</li><li>browser identifier (user agent)</li><li>TLS version and cipher used</li><li>target service</li></ul>
 <p>The Cookie and Authorization headers are redacted. URL paths and query parameters are logged.</p>
 <p>This data is used to operate the site, analyse errors, and defend against attacks and abuse. The legal basis is Art. 6(1)(f) GDPR. The legitimate interest is the stability and security of the service. Log files are deleted automatically after 14 days.</p>
-<p>Pangolin also retains HTTP request logs for 14 days, network logs for 30 days and authentication logs for 90 days (see the sign-in section). These logs contain connection and access data, in particular IP address, time and requested address, and, for sign-ins, the identity data described there. They serve operation, troubleshooting and access security on the basis of Art. 6(1)(f) GDPR.</p>
-<p>The application’s own log (Fastify/pino, container standard output) contains IP address, time, HTTP method, requested URL including query parameters, status code and response time. The webhook token parameter is removed from the logged URL. The purposes are operation and troubleshooting; the legal basis is Art. 6(1)(f) GDPR, with a legitimate interest in reliable operation. These logs are not collected centrally. They exist only as short-lived Kubernetes container logs, are rotated and discarded when the container is replaced; there is no fixed period in days.</p>`,
+<p>Pangolin keeps request and network logs for up to 30 days and sign-in logs for 90 days. The application writes a short-lived operational log containing IP address, time, requested address and status for operation and troubleshooting. The legal basis is Art. 6(1)(f) GDPR.</p>`,
     },
   },
   {
@@ -165,82 +156,59 @@ Germany</p>
       heading: "Anmeldung (Single Sign-On)",
       body: `<p>beasty-arr ist nur für eingeladene Personen zugänglich. Die Anmeldung erfolgt über den Reverse-Proxy Pangolin mit dem selbst betriebenen Identitätsdienst Pocket-ID auf der eigenen Infrastruktur. Dabei werden Benutzername, E-Mail-Adresse, Gruppenzugehörigkeit, Zeitpunkt der Anmeldung und IP-Adresse verarbeitet. Nach der Anmeldung setzt Pangolin ein Sitzungs-Cookie, das für den Zugang technisch erforderlich ist.</p>
 <p>In der Praxis ist der Zugang durch Rollen auf den Verantwortlichen selbst beschränkt. Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO; das berechtigte Interesse liegt darin, den Zugang auf berechtigte Personen zu beschränken.</p>
-<p>Das Benutzerkonto in Pocket-ID und Pangolin besteht, solange der Zugang eingeräumt ist, und wird auf Anfrage oder nach Entzug des Zugangs gelöscht. Anmeldeprotokolle werden nach 90 Tagen gelöscht. Sicherungskopien werden nach spätestens drei Monaten überschrieben.</p>`,
+<p>Das Benutzerkonto in Pocket-ID und Pangolin besteht, solange der Zugang eingeräumt ist, und wird auf Anfrage oder nach Entzug des Zugangs gelöscht. Anmeldeprotokolle werden nach 90 Tagen gelöscht.</p>`,
     },
     en: {
       heading: "Sign-in (single sign-on)",
       body: `<p>beasty-arr is only accessible to invited people. Sign-in is handled by the Pangolin reverse proxy with Pocket-ID, an identity service self-hosted on the controller's infrastructure. This processes your user name, e-mail address, group membership, time of sign-in and IP address. After sign-in, Pangolin sets a session cookie that is technically required for access.</p>
 <p>In practice, role restrictions limit access to the controller himself. The legal basis is Art. 6(1)(f) GDPR; the legitimate interest is restricting access to authorised persons.</p>
-<p>The user account in Pocket-ID and Pangolin exists for as long as access is granted and is deleted on request or after access is withdrawn. Authentication logs are deleted after 90 days. Backup copies are overwritten after no more than three months.</p>`,
+<p>The user account in Pocket-ID and Pangolin exists for as long as access is granted and is deleted on request or after access is withdrawn. Authentication logs are deleted after 90 days.</p>`,
     },
   },
   {
     id: "app-data",
     de: {
       heading: "In der Anwendung gespeicherte Daten",
-      body: `<p>beasty-arr hat keine eigenen Nutzerkonten. Die Datenbank auf der eigenen Infrastruktur speichert eine Kopie der Bibliotheksdaten aus Sonarr/Radarr (Titel, IDs, Sprachen, Dateipfade), Such- und Aktivitätsverläufe, Ergebnisse von KI-Analysen einschließlich ihrer Begründungen und vom Verantwortlichen eingegebene Notizen. Als Datenquellen dienen die selbst betriebenen Dienste Sonarr, Radarr und Prowlarr im Homelab; sie sind keine externen Dritten. Dies betrifft ausschließlich die eigene Nutzung des Verantwortlichen und dient der Verwaltung seiner Mediathek. Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO; das berechtigte Interesse liegt in dieser Medienverwaltung.</p>
-<p>Diese Datensätze werden derzeit ohne feste Löschfrist aufbewahrt. Dies umfasst Aktivitäten, Suchversuche, KI-Bewertungen, Fixer-Analysen und -Verläufe, manuelle Anfragen und Statistiken. Einige Bibliothekseinträge werden entfernt, wenn sie aus Sonarr/Radarr verschwinden. Budget-Snapshots werden ungefähr 30 Tage aufbewahrt.</p>
-<p>Nach der Löschung verschwinden Datensätze nach spätestens drei Monaten auch aus den Sicherungskopien.</p>`,
+      body: `<p>beasty-arr hat keine eigenen Nutzerkonten. Auf der eigenen Infrastruktur werden Bibliotheksdaten aus den eigenen Sonarr-/Radarr-Diensten des Verantwortlichen, Such- und Aktivitätsverläufe, Ergebnisse von KI-Analysen und eigene Notizen gespeichert. Dies betrifft nur die eigene Nutzung des Verantwortlichen zur Verwaltung seiner Mediathek. Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO.</p>
+<p>Diese Daten werden bis zu 10 Jahre gespeichert.</p>`,
     },
     en: {
       heading: "Data stored in the application",
-      body: `<p>beasty-arr has no user accounts of its own. Its database on the controller's own infrastructure stores a copy of library data from Sonarr/Radarr (titles, IDs, languages, file paths), search and activity history, AI analysis results including their reasoning, and notes entered by the controller. The data sources are the self-hosted Sonarr, Radarr and Prowlarr services in the homelab; these are not external third parties. This concerns only the controller's own use and serves the management of his media library. The legal basis is Art. 6(1)(f) GDPR; the legitimate interest is this media management.</p>
-<p>These records are currently kept without a fixed deletion period. This includes activity, search attempts, AI verdicts, Fixer analyses and history, manual requests and statistics. Some library entries are removed when they disappear from Sonarr/Radarr. Budget snapshots are retained for approximately 30 days.</p>
-<p>Once deleted, records also disappear from backup copies after no more than three months.</p>`,
+      body: `<p>beasty-arr has no user accounts of its own. The controller's own infrastructure stores library data from his own Sonarr/Radarr services, search and activity history, AI analysis results and his own notes. This concerns only the controller's own use to manage his media library. The legal basis is Art. 6(1)(f) GDPR.</p>
+<p>This data is stored for up to 10 years.</p>`,
     },
   },
-  // TODO(user-decision): posters — the US transfer paragraph has no verified safeguard.
   {
     id: "posters",
     de: {
       heading: "Vorschaubilder (TheTVDB und TMDB)",
-      body: `<p>Nach der Anmeldung lädt der Browser Vorschaubilder direkt von artworks.thetvdb.com und image.tmdb.org. Dabei erhalten die Anbieter die IP-Adresse des Browsers, die angefragte Bildadresse und übliche Browser-Header. Anbieter von TheTVDB ist Whip Networks, Inc., laut seiner <a href="https://www.thetvdb.com/privacy-policy">Datenschutzerklärung</a> ein US-Unternehmen. Anbieter von TMDB ist ${TMDB_ENTITY}; siehe dessen <a href="https://www.themoviedb.org/privacy-policy">Datenschutzerklärung</a>.</p>
-<p>Die Übermittlung an TheTVDB erfolgt in die USA. Ein Angemessenheitsbeschluss oder geeignete Garantien für diese Übermittlung liegen nach derzeitigem Kenntnisstand nicht vor.</p>
-<p>Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO; das berechtigte Interesse ist die Anzeige von Vorschaubildern. Die Speicherdauer bei den Anbietern richtet sich nach deren Datenschutzbestimmungen. Dies betrifft nur den angemeldeten Verantwortlichen.</p>`,
+      body: `<p>Nach der Anmeldung lädt der Browser Vorschaubilder direkt von den Bilddiensten von TheTVDB und TMDB. Diese erhalten die IP-Adresse und die angefragte Bildadresse. Die Anbieter können Daten außerhalb der EU verarbeiten, unter anderem in den USA. Die Anzeige der Vorschaubilder erfolgt auf Grundlage von Art. 6 Abs. 1 lit. f DSGVO. Weitere Informationen: <a href="https://www.thetvdb.com/privacy-policy">Datenschutzerklärung von TheTVDB</a> und <a href="https://www.themoviedb.org/privacy-policy">Datenschutzerklärung von TMDB</a>.</p>`,
     },
     en: {
       heading: "Poster images",
-      body: `<p>After sign-in, the browser loads poster images directly from artworks.thetvdb.com and image.tmdb.org. The providers receive the browser's IP address, the requested image address and usual browser headers. TheTVDB is provided by Whip Networks, Inc., a US company according to its <a href="https://www.thetvdb.com/privacy-policy">privacy policy</a>. TMDB's provider is ${TMDB_ENTITY}; see its <a href="https://www.themoviedb.org/privacy-policy">privacy policy</a>.</p>
-<p>The transfer to TheTVDB is to the USA. To the controller's current knowledge, there is no adequacy decision or appropriate safeguard for this transfer.</p>
-<p>The legal basis is Art. 6(1)(f) GDPR; the legitimate interest is displaying artwork. Provider-side retention follows their privacy policies. This affects only the signed-in controller.</p>`,
+      body: `<p>After sign-in, the browser loads poster images directly from the image services of TheTVDB and TMDB. These receive the IP address and the requested image address. The providers may process data outside the EU, including in the USA. The display of poster images is based on Art. 6(1)(f) GDPR. Further information: <a href="https://www.thetvdb.com/privacy-policy">TheTVDB privacy policy</a> and <a href="https://www.themoviedb.org/privacy-policy">TMDB privacy policy</a>.</p>`,
     },
   },
-  // TODO(verify): openai
   {
     id: "openai",
     de: {
       heading: "KI-Analyse (OpenAI)",
-      body: `<p>Zur Prüfung deutscher Synchronfassungen und zur Reparatur blockierter Importe sendet der Server Daten an den Codex-Dienst von OpenAI über das eigene ChatGPT-Konto des Verantwortlichen (chatgpt.com, Anmeldung über auth.openai.com). Übermittelt werden Titel, Erscheinungsjahre, externe IDs, Staffeldaten und Rechercheergebnisse. Bei Importreparaturen gehören dazu auch Datei- und Ordnernamen, Release-Namen, Dateipfade, Statusmeldungen, technische Dateiinformationen und optional Untertitelauszüge und NFO-IDs. Daten von Besuchern werden nicht übermittelt.</p>
-<p>Anbieter: ${OPENAI_ENTITY}. Drittlandübermittlung: ${OPENAI_TRANSFER}. Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO; das berechtigte Interesse liegt in der Prüfung von Synchronfassungen und der Behebung von Importproblemen. Weitere Informationen: <a href="https://openai.com/policies/">OpenAI-Richtlinien</a>.</p>`,
+      body: `<p>Zur Prüfung deutscher Synchronfassungen und zur Reparatur blockierter Importe sendet der Server Titel und Medienmetadaten an OpenAI über das eigene ChatGPT-Konto des Verantwortlichen. Bei Importreparaturen gehören dazu auch Datei- und Release-Namen, Pfade und optionale Untertitelauszüge. Daten von Besuchern werden nicht übermittelt. Dabei können Daten in die USA übermittelt werden. Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO. Weitere Informationen: <a href="https://openai.com/policies/">OpenAI-Richtlinien</a>.</p>`,
     },
     en: {
       heading: "AI analysis (OpenAI)",
-      body: `<p>For German-dub checks and stuck-import repair, the server sends data to OpenAI's Codex service through the controller's own ChatGPT account (chatgpt.com, sign-in via auth.openai.com). The data includes titles, years, external IDs, season data and research results. Import repair also includes file and folder names, release names, file paths, status messages, technical file information and optionally subtitle excerpts and NFO IDs. No data of visitors is sent.</p>
-<p>Provider: ${OPENAI_ENTITY}. Third-country transfer: ${OPENAI_TRANSFER}. The legal basis is Art. 6(1)(f) GDPR; the legitimate interest is checking dubbed versions and resolving import problems. Further information: <a href="https://openai.com/policies/">OpenAI policies</a>.</p>`,
+      body: `<p>For German-dub checks and stuck-import repair, the server sends titles and media metadata to OpenAI through the controller's own ChatGPT account. Import repair also includes file and release names, paths and optional subtitle excerpts. No data of visitors is sent. Data may be transferred to the USA in the process. The legal basis is Art. 6(1)(f) GDPR. Further information: <a href="https://openai.com/policies/">OpenAI policies</a>.</p>`,
     },
   },
   {
-    id: "indexers",
+    id: "external-information",
     de: {
-      heading: "Indexer (über Prowlarr)",
-      body: `<p>Um Releases zu suchen, senden die selbst betriebenen Dienste Sonarr/Radarr/Prowlarr Suchanfragen (Titel, IDs) mit den eigenen Indexer-Konten des Verantwortlichen an die von ihm konfigurierten Usenet-/Torrent-Indexer. Diese erhalten die IP-Adresse des Homelabs, die Zugangsdaten des Kontos und die Suchanfragen, keine Daten von Besuchern. Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO; das berechtigte Interesse liegt in der Suche nach passenden Releases für die eigene Mediathek.</p>`,
+      heading: "Abruf externer Informationen",
+      body: `<p>Der Server und die selbst betriebenen Dienste Sonarr/Radarr/Prowlarr fragen die konfigurierten Indexer mit den eigenen Konten des Verantwortlichen sowie öffentliche Informationsquellen ab. Dazu gehören etwa Wikidata, Wikipedia, Synchronkartei, fernsehserien.de, JustWatch, öffentliche Titelseiten von Streamingdiensten, weitere von der KI-Analyse gefundene öffentliche Seiten und der Modellkatalog von pi.dev. Die Anbieter sehen dabei nur die IP-Adresse des Homelabs und die angefragten Titel/IDs, keine Daten von Besuchern. Die Abrufe dienen der Suche nach passenden Veröffentlichungen, der Recherche zu Synchronfassungen und der Modellauswahl. Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO.</p>`,
     },
     en: {
-      heading: "Indexers (via Prowlarr)",
-      body: `<p>To search for releases, the self-hosted Sonarr/Radarr/Prowlarr services send search queries (titles, IDs), using the controller's own indexer accounts, to the Usenet/torrent indexers configured by the controller. They receive the homelab's IP address, account credentials and search queries, with no data of visitors. The legal basis is Art. 6(1)(f) GDPR; the legitimate interest is finding suitable releases for the controller's own media library.</p>`,
-    },
-  },
-  {
-    id: "public-sources",
-    de: {
-      heading: "Öffentliche Informationsquellen",
-      body: `<p>Um zu prüfen, ob eine deutsche Synchronfassung existiert, ruft der Server öffentliche Webseiten und Daten ab, insbesondere Wikidata (query.wikidata.org), Wikipedia, Synchronkartei, fernsehserien.de, JustWatch und öffentliche Titelseiten von Streamingdiensten (zum Beispiel Netflix und Prime Video). Die KI-Analyse kann zusätzlich weitere von ihr gefundene öffentliche Seiten abrufen. Für die Liste verfügbarer KI-Modelle wird der Modellkatalog von pi.dev (Earendil Inc.) abgerufen.</p>
-<p>Diese Anfragen kommen vom Server. Die Anbieter sehen nur die IP-Adresse des Homelabs und die angefragte Adresse (Titel/IDs), keine Daten von Besuchern und keine Cookies. Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO; das berechtigte Interesse liegt in der Recherche zu Synchronfassungen und der Bereitstellung der Modellauswahl.</p>`,
-    },
-    en: {
-      heading: "Public information sources",
-      body: `<p>To check whether a German dub exists, the server retrieves public web pages and data, in particular Wikidata (query.wikidata.org), Wikipedia, Synchronkartei, fernsehserien.de, JustWatch and public title pages of streaming services (for example Netflix and Prime Video). The AI analysis can also retrieve other public pages it finds. The model catalog from pi.dev (Earendil Inc.) is retrieved for the list of available AI models.</p>
-<p>These requests come from the server. Providers see only the homelab's IP address and the requested address (titles/IDs), no data of visitors and no cookies. The legal basis is Art. 6(1)(f) GDPR; the legitimate interest is researching dubbed versions and providing model selection.</p>`,
+      heading: "Retrieval of external information",
+      body: `<p>The server and the self-hosted Sonarr/Radarr/Prowlarr services query the configured indexers using the controller's own accounts, as well as public information sources. These include, for example, Wikidata, Wikipedia, Synchronkartei, fernsehserien.de, JustWatch, streaming services' public title pages, other public pages found by the AI analysis and the pi.dev model catalog. The providers see only the homelab's IP address and the requested titles/IDs, no data of visitors. These requests serve release searches, research into dubbed versions and model selection. The legal basis is Art. 6(1)(f) GDPR.</p>`,
     },
   },
   {
@@ -262,13 +230,11 @@ Germany</p>
     id: "cookies",
     de: {
       heading: "Cookies und lokale Speicherung",
-      body: `<table><thead><tr><th scope="col">Eintrag</th><th scope="col">Anbieter</th><th scope="col">Zweck</th><th scope="col">Dauer</th><th scope="col">Erforderlichkeit</th></tr></thead><tbody><tr><td>Pangolin-Sitzungs-Cookie: ${PANGOLIN_COOKIE}</td><td>Pangolin, nach der Anmeldung</td><td>Authentifizierung</td><td>${PANGOLIN_COOKIE_DURATION}</td><td>Technisch notwendig, § 25 Abs. 2 Nr. 2 TDDDG</td></tr><tr><td>localStorage: ba.sidebar</td><td>beasty-arr</td><td>Merkt sich, ob die Seitenleiste eingeklappt ist</td><td>Bis zum Löschen</td><td>Technisch notwendig, § 25 Abs. 2 Nr. 2 TDDDG, vom Nutzer angefordert</td></tr></tbody></table>
-<p>Die rechtlichen Seiten selbst setzen keine Cookies und speichern nichts im Browser.</p>`,
+      body: `<p>Nach der Anmeldung setzt Pangolin ein technisch notwendiges Sitzungs-Cookie, das für die Dauer der Anmeldesitzung gültig ist (§ 25 Abs. 2 Nr. 2 TDDDG). Die Anwendung speichert außerdem die vom Nutzer gewünschte Einstellung der Seitenleiste in localStorage (ba.sidebar), bis diese gelöscht wird. Auch diese Speicherung ist technisch notwendig (§ 25 Abs. 2 Nr. 2 TDDDG). Die rechtlichen Seiten selbst setzen keine Cookies und speichern nichts im Browser.</p>`,
     },
     en: {
       heading: "Cookies and local storage",
-      body: `<table><thead><tr><th scope="col">Entry</th><th scope="col">Provider</th><th scope="col">Purpose</th><th scope="col">Duration</th><th scope="col">Necessity</th></tr></thead><tbody><tr><td>Pangolin session cookie: ${PANGOLIN_COOKIE}</td><td>Pangolin, after sign-in</td><td>Authentication</td><td>${PANGOLIN_COOKIE_DURATION}</td><td>Technically necessary, Section 25(2) no. 2 TDDDG</td></tr><tr><td>localStorage: ba.sidebar</td><td>beasty-arr</td><td>Remembers whether the sidebar is collapsed</td><td>Until cleared</td><td>Technically necessary, Section 25(2) no. 2 TDDDG, requested by the user</td></tr></tbody></table>
-<p>The legal pages themselves set no cookies and store nothing in the browser.</p>`,
+      body: `<p>After sign-in, Pangolin sets a technically necessary session cookie, valid for the duration of the sign-in session (Section 25(2) no. 2 TDDDG). The application also stores the user's preferred sidebar setting in localStorage (ba.sidebar) until cleared. This storage is also technically necessary (Section 25(2) no. 2 TDDDG). The legal pages themselves set no cookies and store nothing in the browser.</p>`,
     },
   },
   {

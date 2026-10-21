@@ -92,7 +92,7 @@ describe("public legal pages", () => {
       const response = await built.app.inject(url);
       const headings = [...response.body.matchAll(/<h2 id="([^"]+)">(\d+)\. /g)];
       expect(headings.map((match) => Number(match[2]))).toEqual(
-        Array.from({ length: 16 }, (_, i) => i + 1),
+        Array.from({ length: 15 }, (_, i) => i + 1),
       );
       expect(headings.map((match) => match[1])).toEqual([
         "controller",
@@ -104,8 +104,7 @@ describe("public legal pages", () => {
         "app-data",
         "posters",
         "openai",
-        "indexers",
-        "public-sources",
+        "external-information",
         "email",
         "cookies",
         "rights",
@@ -114,24 +113,28 @@ describe("public legal pages", () => {
       ]);
       for (const text of [
         "Pocket-ID",
-        "artworks.thetvdb.com",
-        "image.tmdb.org",
-        "auth.openai.com",
-        "query.wikidata.org",
-        "Earendil Inc.",
+        "TheTVDB",
+        "TMDB",
+        "OpenAI",
+        "ChatGPT",
+        "Wikidata",
+        "pi.dev",
         "ba.sidebar",
       ]) {
         expect(response.body).toContain(text);
       }
       expect(response.body).not.toMatch(/Umami|GlitchTip|Resend/);
+      expect(response.body).toContain(
+        url === "/datenschutz"
+          ? "Diese Daten werden bis zu 10 Jahre gespeichert."
+          : "This data is stored for up to 10 years.",
+      );
     },
   );
 
-  // Deliberate publication gate: keep this a normal failing test until the user verifies
-  // the five named constants in content.ts. Do not skip or invert this assertion.
   it("has no unresolved placeholders in any rendered page", async () => {
     const pages = await Promise.all(paths.map((url) => built.app.inject(url)));
-    expect(pages.flatMap((response) => response.body.match(/\[\[[^\]]+\]\]/g) ?? [])).toEqual([]);
+    for (const response of pages) expect(response.body).not.toContain("[[");
   });
 
   it("keeps legal-only headers off API responses", async () => {

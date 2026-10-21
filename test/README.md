@@ -29,8 +29,8 @@ removal gate, and the exact requests sent by Retry analysis, Reanalyze and retry
 Legal-page route tests use Fastify inject with static serving enabled to check route precedence,
 headers, both languages, cross links, trailing slashes and the absence of resource dependencies.
 The jsdom layout test checks all four footer links during a query error. The normal test
-`has no unresolved placeholders in any rendered page` deliberately fails until the five
-named provider/cookie constants in `src/server/legal/content.ts` have been verified and filled.
+`has no unresolved placeholders in any rendered page` checks all four rendered pages.
+Privacy route tests also check the grouped processing sections and stated retention.
 Run the focused tests with `pnpm exec vitest run src/server/legal/pages.test.ts src/web/components/Layout.test.tsx`.
 
 `browser-legal.mjs` exports `verifyLegalPages(page, baseUrl, evidenceDir)` for the same separately

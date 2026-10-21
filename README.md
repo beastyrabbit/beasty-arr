@@ -66,9 +66,9 @@ Fastify serves the self-contained German legal pages at `/impressum` and `/daten
 and English versions at `/legal-notice` and `/privacy`, including trailing-slash variants.
 They work without JavaScript, app assets or API calls, and carry noindex and strict CSP
 headers. Exempt exactly these paths from the external sign-in gate. Every app page links
-to all four pages. Bilingual content and the five pending provider/cookie verification
-values live in `src/server/legal/content.ts`; the placeholder test intentionally fails
-until those values are verified and filled. See [test/README.md](test/README.md) for checks.
+to all four pages. Bilingual content lives in `src/server/legal/content.ts`; a test
+checks that every rendered page is free of unresolved placeholders.
+See [test/README.md](test/README.md) for checks.
 
 The application intentionally has no user login or API-key guard; every API route is reachable by
 clients that can reach the service. Connected arr keys are still never returned by any endpoint,
