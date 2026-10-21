@@ -175,9 +175,10 @@ blocks the release image. No upload token is passed into an image build.
 CI and local verification both run `bash scripts/upload-sourcemaps.sh <export-directory>`
 with `SENTRY_RELEASE` and an Infisical-injected `GLITCHTIP_AUTH_TOKEN`. The script starts
 `scripts/glitchtip-upload-proxy.mjs` on an ephemeral loopback port and stops it with a
-shell trap. The proxy streams requests to `GLITCHTIP_UPLOAD_TARGET`, default
-`http://192.168.60.68:8000`, replaces Authorization with the injected bearer token,
-and rewrites the chunk-options URL to loopback. This bypasses GlitchTip's advertised
+shell trap. The script defaults `GLITCHTIP_UPLOAD_TARGET` to `http://192.168.60.68:8000`;
+the proxy requires that variable. It streams requests there, replaces Authorization
+with the injected bearer token, and rewrites the chunk-options URL to loopback.
+This bypasses GlitchTip's advertised
 public chunk URL behind Pangolin SSO without changing either service. It logs neither
 auth headers nor request bodies. Treat the proxy as a short-lived CI tool.
 

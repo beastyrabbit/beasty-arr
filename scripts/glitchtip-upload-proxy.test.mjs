@@ -1,8 +1,24 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { once } from "node:events";
 import http from "node:http";
 import { test } from "node:test";
 import { createUploadProxy } from "./glitchtip-upload-proxy.mjs";
+
+test("requires an explicit upload target when launched directly", () => {
+  const result = spawnSync(
+    process.execPath,
+    [new URL("./glitchtip-upload-proxy.mjs", import.meta.url).pathname],
+    {
+      env: { GLITCHTIP_AUTH_TOKEN: "synthetic-upstream-auth" },
+      encoding: "utf8",
+      timeout: 1000,
+    },
+  );
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /GLITCHTIP_UPLOAD_TARGET is required/);
+  assert.equal(result.stdout, "");
+});
 
 async function listen(server) {
   server.listen(0, "127.0.0.1");

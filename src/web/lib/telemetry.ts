@@ -36,9 +36,11 @@ export function trackEvent(name: AnalyticsEvent, properties: Properties = {}): v
   const data: Properties = {};
   for (const [key, value] of Object.entries(properties)) {
     if (!allowed.includes(key)) continue;
-    if (typeof value === "boolean" || (typeof value === "number" && Number.isFinite(value)))
-      data[key] = value;
-    else if (typeof value === "string" && value.length <= 100 && SAFE_PROPERTY.test(value))
+    if (
+      typeof value === "boolean" ||
+      (typeof value === "number" && Number.isFinite(value)) ||
+      (typeof value === "string" && value.length <= 100 && SAFE_PROPERTY.test(value))
+    )
       data[key] = value;
   }
   try {
@@ -72,8 +74,9 @@ export function loadUmami(config: NonNullable<ClientConfig["umami"]>): void {
   window.beastyUmamiBeforeSend = (_type, payload) => ({
     ...scrub(payload),
     title: "beasty-arr",
-    url: scrubUrl(String(payload.url ?? location.href)),
-    referrer: payload.referrer ? scrubUrl(String(payload.referrer)) : "",
+    url: scrubUrl(typeof payload.url === "string" ? payload.url : location.href),
+    referrer:
+      typeof payload.referrer === "string" && payload.referrer ? scrubUrl(payload.referrer) : "",
   });
   const script = document.createElement("script");
   script.src = config.src;
@@ -195,6 +198,24 @@ export function trackApiFailure(method: string, path: string, status: number): v
   trackEvent("api_failure", { method, route: telemetryPath(path), status });
 }
 
+function trackSettings(route: string, input: Properties): void {
+  trackEvent("settings_saved", { section: route === "/api/config" ? "app" : "budget" });
+  if ("fixerAutoRun" in input || "fixerAutoApply" in input)
+    trackEvent("fixer_automation_changed", {
+      autoRun: input.fixerAutoRun,
+      autoApply: input.fixerAutoApply,
+    });
+}
+
+function trackFixer(route: string, path: string): void {
+  const action = path.split("/").pop();
+  if (["analyze", "apply", "remove", "ignore", "start", "cancel"].includes(action ?? ""))
+    trackEvent("fixer_action", {
+      action: route.includes("/bulk/") ? BULK_ACTIONS[String(action)] : action,
+      service: ARR_SERVICE.exec(path)?.[1],
+    });
+}
+
 export function trackMutation(method: string, path: string, body: unknown, result: unknown): void {
   if (
     method === "GET" ||
@@ -207,22 +228,9 @@ export function trackMutation(method: string, path: string, body: unknown, resul
     trackEvent("hunt_action", { action: path.split("/").pop() });
   else if (route === "/api/system/dry-run")
     trackEvent("dry_run_changed", { enabled: input.enabled });
-  else if (route === "/api/config" || route === "/api/budget/settings") {
-    trackEvent("settings_saved", { section: route === "/api/config" ? "app" : "budget" });
-    if ("fixerAutoRun" in input || "fixerAutoApply" in input)
-      trackEvent("fixer_automation_changed", {
-        autoRun: input.fixerAutoRun,
-        autoApply: input.fixerAutoApply,
-      });
-  } else if (route.startsWith("/api/fixer/")) {
-    const action = path.split("/").pop();
-    if (["analyze", "apply", "remove", "ignore", "start", "cancel"].includes(action ?? "")) {
-      trackEvent("fixer_action", {
-        action: route.includes("/bulk/") ? BULK_ACTIONS[String(action)] : action,
-        service: ARR_SERVICE.exec(path)?.[1],
-      });
-    }
-  } else if (route === "/api/ai/recheck" || route.startsWith("/api/verdicts/"))
+  else if (route === "/api/config" || route === "/api/budget/settings") trackSettings(route, input);
+  else if (route.startsWith("/api/fixer/")) trackFixer(route, path);
+  else if (route === "/api/ai/recheck" || route.startsWith("/api/verdicts/"))
     trackEvent("oracle_recheck");
   else if (route === "/api/missing/force")
     trackEvent("missing_search", {

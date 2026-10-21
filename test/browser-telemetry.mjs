@@ -49,7 +49,7 @@ export async function verifyTelemetry(page, baseUrl, requests) {
   await page.addInitScript((privateValue) => {
     document.addEventListener("DOMContentLoaded", () => {
       const region = document.createElement("div");
-      region.setAttribute("data-telemetry-block", "");
+      region.dataset.telemetryBlock = "";
       region.innerHTML = `<a href="http://initial-internal.example/?token=${privateValue}" title="${privateValue}">${privateValue}</a>`;
       document.body.append(region);
     });
@@ -81,7 +81,7 @@ export async function verifyTelemetry(page, baseUrl, requests) {
   assert(destinations.includes(`${umamiOrigin}/recorder.js`), "Recorder did not load from Umami");
   await page.evaluate((privateValue) => {
     const content = document.createElement("div");
-    content.setAttribute("data-telemetry-block", "");
+    content.dataset.telemetryBlock = "";
     content.textContent = privateValue;
     const input = document.createElement("input");
     input.value = privateValue;
@@ -400,8 +400,8 @@ async function run() {
         GLITCHTIP_DSN: `http://public@127.0.0.1:${stubPort}/1`,
         GLITCHTIP_ENVIRONMENT: environment,
       }),
+      await startApp(path.join(root, "disabled")),
     );
-    apps.push(await startApp(path.join(root, "disabled")));
     browser = await chromium.launch({
       headless: true,
       executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || undefined,

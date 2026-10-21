@@ -86,8 +86,9 @@ export function createUploadProxy({ target, token }) {
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  if (!process.env.GLITCHTIP_UPLOAD_TARGET) throw new Error("GLITCHTIP_UPLOAD_TARGET is required");
   const server = createUploadProxy({
-    target: process.env.GLITCHTIP_UPLOAD_TARGET || "http://192.168.60.68:8000",
+    target: process.env.GLITCHTIP_UPLOAD_TARGET,
     token: process.env.GLITCHTIP_AUTH_TOKEN,
   });
   server.on("error", () => {

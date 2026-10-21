@@ -4,6 +4,7 @@ set -euo pipefail
 : "${SENTRY_RELEASE:?Set the release to upload}"
 export SENTRY_ORG="${SENTRY_ORG:-beasty-rabbit}"
 export SENTRY_PROJECT="${SENTRY_PROJECT:-beasty-arr}"
+export GLITCHTIP_UPLOAD_TARGET="${GLITCHTIP_UPLOAD_TARGET:-http://192.168.60.68:8000}"
 # The proxy supplies the real token. The CLI only needs a nonempty auth value.
 export SENTRY_AUTH_TOKEN=upload-proxy
 artifacts=$(realpath "${1:-dist/sourcemaps}")

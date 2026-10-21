@@ -213,79 +213,70 @@ function AiTab() {
             </td>
           </tr>
         ) : null}
-        {verdicts.isError && !verdicts.data ? null : verdicts.isPending ? (
-          <SkeletonRows rows={8} cols={6} />
-        ) : verdicts.data && verdicts.data.items.length > 0 ? (
-          verdicts.data.items.map((v) => (
-            <tr
-              key={v.id}
-              className={cn(
-                "h-8 border-b border-line last:border-b-0",
-                v.superseded && "opacity-50",
-              )}
-            >
-              <Td>
-                <span className="font-mono text-[11px] text-muted">{fmtDateTime(v.checkedAt)}</span>
-              </Td>
-              <Td>
-                <span className="max-w-[260px] truncate text-[12px] text-ink">{v.title}</span>
-                {v.germanTitle ? (
-                  <span className="ml-2 text-[11px] text-faint">„{v.germanTitle}“</span>
-                ) : null}
-              </Td>
-              <Td>
-                <span
-                  className="font-mono text-[11px]"
-                  style={{
-                    color:
-                      v.verdict === "exists"
-                        ? STATE_META.german.color
-                        : v.verdict === "announced"
-                          ? STATE_META.unreleased.color
-                          : v.verdict === "unlikely"
-                            ? STATE_META.ai_paused.color
-                            : undefined,
-                  }}
-                >
-                  {new Set(v.perSeason?.map((entry) => entry.verdict) ?? []).size > 1
-                    ? "mixed"
-                    : v.verdict}
-                </span>
-              </Td>
-              <Td>
-                <span className="font-mono text-[11px] text-muted">{v.confidence.toFixed(2)}</span>
-              </Td>
-              <Td>
-                <span
-                  className="block max-w-[320px] truncate text-[11px] text-muted"
-                  data-telemetry-block
-                  title={v.evidence.join("\n")}
-                >
-                  {v.evidence[0] ?? "—"}
-                </span>
-              </Td>
-              <Td>
-                <span className="font-mono text-[11px] text-muted">
-                  {fmtDateTime(v.recheckAfter)}
-                </span>
-              </Td>
-            </tr>
-          ))
-        ) : (
-          <tr>
-            <td colSpan={6}>
-              <EmptyState
-                message="No AI checks yet."
-                hint="The oracle runs nightly on stubborn items."
-              />
-            </td>
-          </tr>
-        )}
+        <AiRows verdicts={verdicts} />
       </DataTable>
       {verdicts.data ? (
         <Pager page={page} pageSize={PAGE_SIZE} total={verdicts.data.total} onPage={setPage} />
       ) : null}
     </Panel>
+  );
+}
+
+function verdictColor(verdict: string) {
+  if (verdict === "exists") return STATE_META.german.color;
+  if (verdict === "announced") return STATE_META.unreleased.color;
+  if (verdict === "unlikely") return STATE_META.ai_paused.color;
+  return undefined;
+}
+
+function AiRows({ verdicts }: { verdicts: ReturnType<typeof useVerdicts> }) {
+  if (verdicts.isError && !verdicts.data) return null;
+  if (verdicts.isPending) return <SkeletonRows rows={8} cols={6} />;
+  if (verdicts.data && verdicts.data.items.length > 0)
+    return verdicts.data.items.map((v) => (
+      <tr
+        key={v.id}
+        className={cn("h-8 border-b border-line last:border-b-0", v.superseded && "opacity-50")}
+      >
+        <Td>
+          <span className="font-mono text-[11px] text-muted">{fmtDateTime(v.checkedAt)}</span>
+        </Td>
+        <Td>
+          <span className="max-w-[260px] truncate text-[12px] text-ink">{v.title}</span>
+          {v.germanTitle ? (
+            <span className="ml-2 text-[11px] text-faint">„{v.germanTitle}“</span>
+          ) : null}
+        </Td>
+        <Td>
+          <span className="font-mono text-[11px]" style={{ color: verdictColor(v.verdict) }}>
+            {new Set(v.perSeason?.map((entry) => entry.verdict) ?? []).size > 1
+              ? "mixed"
+              : v.verdict}
+          </span>
+        </Td>
+        <Td>
+          <span className="font-mono text-[11px] text-muted">{v.confidence.toFixed(2)}</span>
+        </Td>
+        <Td>
+          <span
+            className="block max-w-[320px] truncate text-[11px] text-muted"
+            data-telemetry-block
+            title={v.evidence.join("\n")}
+          >
+            {v.evidence[0] ?? "—"}
+          </span>
+        </Td>
+        <Td>
+          <span className="font-mono text-[11px] text-muted">{fmtDateTime(v.recheckAfter)}</span>
+        </Td>
+      </tr>
+    ));
+  return (
+    <tr>
+      <td colSpan={6}>
+        <EmptyState message="No AI checks yet." hint="The oracle runs nightly on stubborn items." />
+      </td>
+    </tr>
   );
 }
 

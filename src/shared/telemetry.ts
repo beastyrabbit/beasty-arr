@@ -5,15 +5,44 @@ export type ClientConfig = {
 
 const PRIVATE_KEY =
   /authorization|cookie|api[-_]?key|token|password|secret|email|^user$|^ip_address$/i;
-const EMAIL = /[\w.+-]+@[\w.-]+\.[a-z]{2,}/gi;
+const EMAIL_TOKEN = /[\w.+@-]+/g;
+const EMAIL_SUFFIX = /\.[a-z]{2,}/gi;
 const BEARER = /\bBearer\s+[^\s"'<>;,]+/gi;
 const CREDENTIAL = /((?:api[-_]?key|token|password|secret|authorization)\s*[=:]\s*)[^\s&;,"'<>]+/gi;
 const URL_PATTERN = /https?:\/\/[^\s"'<>]+/gi;
-const QUERY = /([?&][^=&#\s]+)=([^&#\s]*)/g;
+const QUERY = /[?&][^&#\s]*/g;
 const LOCAL_PATH = /\/(?:home|Users)\/[^/\s]+/g;
 const QUERY_OR_FRAGMENT = /[?#]/;
 const ROUTE_ID = /\/(?:\d+|[a-f\d]{8}-[a-f\d-]{27,})(?=\/|$)/gi;
 const OPAQUE_ROUTE_ID = /(\/analyses\/|\/codex-login\/)[^/]+/g;
+
+function scrubEmailToken(token: string): string {
+  const parts = token.split("@");
+  const output = [parts[0] ?? ""];
+  for (const part of parts.slice(1)) {
+    const domain = part.split("+", 1)[0] ?? "";
+    let end = 0;
+    // Require a domain character before the final dot, as the original pattern did.
+    for (const match of domain.slice(1).matchAll(EMAIL_SUFFIX))
+      end = match.index + 1 + match[0].length;
+    const local = output.pop() ?? "";
+    if (local && end > 0) output.push("[redacted-email]", part.slice(end));
+    else output.push(local, "@", part);
+  }
+  return output.join("");
+}
+
+function scrubQuery(query: string): string {
+  let start = 0;
+  while (start >= 0) {
+    const equals = query.indexOf("=", start + 1);
+    if (equals === -1) break;
+    if (equals > start + 1) return `${query.slice(0, equals + 1)}[redacted]`;
+    // An empty key can precede another query marker in arbitrary error text.
+    start = query.indexOf("?", equals + 1);
+  }
+  return query;
+}
 
 /** Keep route structure, never a title ID, search term, fragment, or capability token. */
 export function telemetryPath(value: string): string {
@@ -45,10 +74,10 @@ export function createTelemetryScrubber(secrets: readonly string[] = []) {
     for (const secret of exact) text = text.replaceAll(secret, "[redacted]");
     return text
       .replace(URL_PATTERN, scrubUrl)
-      .replace(QUERY, "$1=[redacted]")
+      .replace(QUERY, scrubQuery)
       .replace(BEARER, "Bearer [redacted]")
       .replace(CREDENTIAL, "$1[redacted]")
-      .replace(EMAIL, "[redacted-email]")
+      .replace(EMAIL_TOKEN, scrubEmailToken)
       .replace(LOCAL_PATH, "/[redacted-home]");
   }
   function scrub<T>(value: T): T {

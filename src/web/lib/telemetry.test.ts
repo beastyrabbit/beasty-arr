@@ -27,6 +27,8 @@ describe("analytics", () => {
     expect(window.umami.track).toHaveBeenLastCalledWith("outbound_link", {});
     trackEvent("missing_search", { count: Number.NaN });
     expect(window.umami.track).toHaveBeenLastCalledWith("missing_search", {});
+    trackEvent("missing_search", { count: 2 });
+    expect(window.umami.track).toHaveBeenLastCalledWith("missing_search", { count: 2 });
   });
 
   it("loads supported attributes once, gates by domain, and loads the direct recorder", () => {
@@ -79,6 +81,77 @@ describe("analytics", () => {
     span.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
     expect(window.umami.track).toHaveBeenCalledExactlyOnceWith("outbound_link", {
       host: "sonarr.example",
+    });
+  });
+
+  it("falls back to safe URLs for non-string analytics fields", () => {
+    loadUmami({
+      src: "https://analytics.example/script.js",
+      websiteId: "fixture",
+      domains: [location.hostname],
+    });
+    for (const value of [undefined, null, 42, false, { private: "value" }, ["private"]]) {
+      expect(
+        window.beastyUmamiBeforeSend?.("event", { url: value, referrer: value }),
+      ).toMatchObject({
+        url: location.href,
+        referrer: "",
+      });
+    }
+    expect(window.beastyUmamiBeforeSend?.("event", { url: "", referrer: "" })).toMatchObject({
+      url: "",
+      referrer: "",
+    });
+  });
+
+  it.each([
+    ["PUT", "/api/config", {}, [["settings_saved", { section: "app" }]]],
+    ["PUT", "/api/budget/settings", null, [["settings_saved", { section: "budget" }]]],
+    [
+      "PUT",
+      "/api/config",
+      { fixerAutoApply: true },
+      [
+        ["settings_saved", { section: "app" }],
+        ["fixer_automation_changed", { autoApply: true }],
+      ],
+    ],
+    ["POST", "/api/ai/recheck", {}, [["oracle_recheck", {}]]],
+    ["POST", "/api/verdicts/12/recheck", {}, [["oracle_recheck", {}]]],
+    ["POST", "/api/missing/force", undefined, [["missing_search", { count: 0 }]]],
+    [
+      "POST",
+      "/api/items/sonarr/series/12/search",
+      {},
+      [["item_action", { action: "search", service: "sonarr", kind: "series" }]],
+    ],
+    ["GET", "/api/engine/status", {}, []],
+    ["POST", "/api/untracked", {}, []],
+    ["POST", "/api/fixer/untracked", {}, []],
+  ] as const)("preserves mutation events for %s %s", (method, path, body, expected) => {
+    window.umami = { track: vi.fn() };
+    trackMutation(method, path, body, {});
+    expect(vi.mocked(window.umami.track).mock.calls).toEqual(expected);
+  });
+
+  it.each([
+    ["analyze", undefined],
+    ["apply", undefined],
+    ["remove", undefined],
+    ["ignore", undefined],
+    ["start", "run_all"],
+    ["cancel", "cancel_all"],
+  ])("preserves fixer action %s and its bulk mapping", (action, bulkAction) => {
+    window.umami = { track: vi.fn() };
+    trackMutation("POST", `/api/fixer/sonarr/12/${action}`, {}, {});
+    expect(window.umami.track).toHaveBeenLastCalledWith("fixer_action", {
+      action,
+      service: "sonarr",
+    });
+    trackMutation("POST", `/api/fixer/bulk/radarr/${action}`, {}, {});
+    expect(window.umami.track).toHaveBeenLastCalledWith("fixer_action", {
+      ...(bulkAction ? { action: bulkAction } : {}),
+      service: "radarr",
     });
   });
 
