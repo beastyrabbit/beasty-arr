@@ -228,7 +228,7 @@ async function run() {
     process.stdout.write(`${JSON.stringify({ ...result, evidenceDir }, null, 2)}\n`);
   } finally {
     await browser?.close();
-    if (app && app.child.exitCode === null) {
+    if (app?.child.exitCode === null) {
       await new Promise((resolve) => {
         app.child.once("exit", resolve);
         app.child.kill("SIGTERM");
