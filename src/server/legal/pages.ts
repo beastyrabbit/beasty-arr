@@ -24,10 +24,6 @@ const STYLE = `
   p, li { overflow-wrap: anywhere; }
   ul { padding-left: 24px; }
   .updated { color: #8b93a5; }
-  .table-scroll { overflow-x: auto; }
-  table { border-collapse: collapse; font-size: 13px; width: 100%; }
-  th, td { border: 1px solid #262a33; padding: 10px; text-align: left; vertical-align: top; overflow-wrap: anywhere; }
-  th { background: #15171d; }
 `;
 
 function pageShell(language: LegalLanguage, privacy: boolean): string {
@@ -66,7 +62,7 @@ function pageShell(language: LegalLanguage, privacy: boolean): string {
   <header><a class="brand" href="/">beasty<span>-arr</span></a></header>
   <main><h1>${title}</h1>
   ${privacy ? `<p class="updated">${german ? "Stand: 21. Oktober 2026" : "Last updated: 21 October 2026"}</p>` : ""}
-  ${content.replaceAll("<table>", `<div class="table-scroll" role="region" aria-label="${german ? "Browser-Speicherung" : "Browser storage"}" tabindex="0"><table>`).replaceAll("</table>", "</table></div>")}
+  ${content}
   </main><footer>${links}</footer>
 </div></body>
 </html>`;
