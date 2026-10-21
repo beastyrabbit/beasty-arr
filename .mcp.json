@@ -7,6 +7,16 @@
         "Authorization": "Bearer ${GLITCHTIP_MCP_TOKEN}"
       }
     },
+    "kubernetes": {
+      "type": "stdio",
+      "command": "homelab-kubernetes-mcp",
+      "args": []
+    },
+    "talos": {
+      "type": "stdio",
+      "command": "homelab-talos-mcp",
+      "args": []
+    },
     "umami": {
       "type": "http",
       "url": "http://192.168.60.67:3000/mcp",
