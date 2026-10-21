@@ -93,12 +93,12 @@ ${operatorAddress("Germany")}
   overview: {
     de: {
       heading: "Überblick",
-      body: `<p>Diese Erklärung informiert darüber, welche personenbezogenen Daten bei der Nutzung von beasty-arr verarbeitet werden, zu welchen Zwecken, auf welcher Rechtsgrundlage und wie lange. beasty-arr ist ein privates, nicht-kommerzielles Projekt. beasty-arr ist ein internes Werkzeug, mit dem der Verantwortliche deutsch synchronisierte Fassungen für die Serien und Filme in seiner eigenen Sonarr-/Radarr-Mediathek findet. Die Anwendung ist nach Anmeldung ausschließlich für den Verantwortlichen selbst zugänglich; öffentlich ohne Anmeldung erreichbar sind nur das Impressum und diese Datenschutzerklärung.</p>
+      body: `<p>Diese Erklärung informiert darüber, welche personenbezogenen Daten bei der Nutzung von beasty-arr verarbeitet werden, zu welchen Zwecken, auf welcher Rechtsgrundlage und wie lange. beasty-arr ist ein privates, nicht-kommerzielles Projekt. beasty-arr ist ein internes Werkzeug, mit dem der Verantwortliche deutsch synchronisierte Fassungen für die Serien und Filme in seiner eigenen Sonarr-/Radarr-Mediathek findet. Die Anwendung ist nach Anmeldung ausschließlich für den Verantwortlichen selbst zugänglich.</p>
 <p>Personenbezogene Daten werden nicht verkauft und nicht für Werbung verwendet. Eine automatisierte Entscheidungsfindung einschließlich Profiling im Sinne von Art. 22 DSGVO findet nicht statt.</p>`,
     },
     en: {
       heading: "Overview",
-      body: `<p>This policy explains which personal data is processed when you use beasty-arr, for what purposes, on which legal basis, and for how long. beasty-arr is a private, non-commercial project. beasty-arr is an internal tool with which the controller finds German-dubbed versions of the series and films in his own Sonarr/Radarr media library. After sign-in, the application is accessible only to the controller himself; only the legal notice and this privacy policy are publicly accessible without sign-in.</p>
+      body: `<p>This policy explains which personal data is processed when you use beasty-arr, for what purposes, on which legal basis, and for how long. beasty-arr is a private, non-commercial project. beasty-arr is an internal tool with which the controller finds German-dubbed versions of the series and films in his own Sonarr/Radarr media library. After sign-in, the application is accessible only to the controller.</p>
 <p>Personal data is not sold and not used for advertising. There is no automated decision-making, including profiling, within the meaning of Art. 22 GDPR.</p>`,
     },
   },
