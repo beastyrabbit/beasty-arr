@@ -12,7 +12,7 @@ export function registerEventRoutes(app: FastifyInstance, ctx: AppContext): void
   app.addHook("preClose", async () => {
     for (const stream of streams) stream.end();
   });
-  app.get("/api/events", (request, reply) => {
+  app.get("/api/events", { config: { otel: false } }, (request, reply) => {
     streams.add(reply.raw);
     reply.raw.writeHead(200, {
       "content-type": "text/event-stream",

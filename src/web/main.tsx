@@ -34,8 +34,8 @@ if (!rootElement) throw new Error("missing #root");
 
 function reportRootError(error: unknown): void {
   captureBrowserError(error);
-  // biome-ignore lint/suspicious/noConsole: Preserve React's error output when development telemetry is disabled.
-  if (import.meta.env.DEV) console.error(error);
+  // biome-ignore lint/suspicious/noConsole: Preserve React's error output even when telemetry is disabled.
+  console.error(error);
 }
 
 createRoot(rootElement, {

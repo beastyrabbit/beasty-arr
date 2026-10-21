@@ -16,6 +16,28 @@ const website = "00000000-0000-4000-8000-000000000001";
 const environment = "telemetry-fixture";
 const secret = "fixture-should-never-leave-the-app";
 
+async function verifyRootErrorConsole(page) {
+  const messages = [];
+  const onConsole = (message) => {
+    if (message.type() === "error" && message.text().includes("telemetry-root-"))
+      messages.push(message.text());
+  };
+  page.on("console", onConsole);
+  try {
+    // Exercise the callbacks registered by the built app, without adding a production test API.
+    await page.evaluate(() => {
+      const element = document.getElementById("root");
+      const key = Object.keys(element).find((name) => name.startsWith("__reactContainer$"));
+      const root = element[key].stateNode;
+      for (const callback of ["onCaughtError", "onUncaughtError", "onRecoverableError"])
+        root[callback](new Error(`telemetry-root-${callback}`), { componentStack: "" });
+    });
+    assert.equal(messages.length, 3, "Every root error callback must log in production");
+  } finally {
+    page.off("console", onConsole);
+  }
+}
+
 /** Built-app flow, with the exact public Umami scripts served by an isolated local stub. */
 export async function verifyTelemetry(page, baseUrl, requests) {
   await page.addInitScript(() => {
@@ -184,6 +206,25 @@ export async function verifyTelemetry(page, baseUrl, requests) {
     "settings-internal.example",
   ])
     assert(!payloads.includes(privateValue), `Unscrubbed fixture data: ${privateValue}`);
+  await verifyRootErrorConsole(page);
+  const rootEnvelopes = () =>
+    requests
+      .filter((request) => request.path.includes("/envelope/"))
+      .map((request) => JSON.parse(request.body.split("\n")[2]))
+      .filter((event) =>
+        event.exception?.values?.some((error) => error.value?.startsWith("telemetry-root-")),
+      );
+  await assertEventually(() => rootEnvelopes().length >= 3, "Root error envelopes missing");
+  // Allow console capture to finish too, so a delayed duplicate fails the count.
+  await page.waitForTimeout(250);
+  for (const callback of ["onCaughtError", "onUncaughtError", "onRecoverableError"])
+    assert.equal(
+      rootEnvelopes().filter((event) =>
+        event.exception.values.some((error) => error.value === `telemetry-root-${callback}`),
+      ).length,
+      1,
+      `${callback} must send exactly one error envelope`,
+    );
   assert.equal((await page.context().cookies()).length, 0, "Telemetry set cookies");
   const storage = await page.evaluate(() => ({
     local: Object.keys(localStorage),
@@ -194,6 +235,7 @@ export async function verifyTelemetry(page, baseUrl, requests) {
     pageviews: events.filter((event) => event.type === "event" && !event.payload.name).length,
     customEvents: events.filter((event) => event.payload.name).map((event) => event.payload.name),
     envelope: true,
+    rootErrorEnvelopes: rootEnvelopes().length,
     replay: true,
     heatmap: true,
     cookies: 0,
@@ -378,6 +420,7 @@ async function run() {
     });
     await disabledPage.goto(apps[1].baseUrl);
     await disabledPage.getByRole("link", { name: "Hunt", exact: true }).first().click();
+    await verifyRootErrorConsole(disabledPage);
     await disabledPage.waitForTimeout(1000);
     assert.deepEqual(unexpected, [], "Disabled app contacted telemetry host");
     assert.equal(await disabledPage.locator("script[data-beasty-umami]").count(), 0);
@@ -389,6 +432,8 @@ async function run() {
       if (new URL(request.url()).port === String(stubPort)) botRequests.push(request.url());
     });
     await bot.goto(apps[0].baseUrl);
+    await bot.getByRole("link", { name: "Hunt", exact: true }).first().waitFor();
+    await verifyRootErrorConsole(bot);
     await bot.waitForTimeout(1000);
     assert.deepEqual(botRequests, []);
     process.stdout.write(
