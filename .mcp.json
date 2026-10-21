@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "glitchtip": {
+      "type": "http",
+      "url": "http://192.168.60.68:8000/mcp",
+      "headers": {
+        "Authorization": "Bearer ${GLITCHTIP_MCP_TOKEN}"
+      }
+    },
+    "umami": {
+      "type": "http",
+      "url": "http://192.168.60.67:3000/mcp",
+      "headers": {
+        "Authorization": "Bearer ${UMAMI_MCP_TOKEN}"
+      }
+    }
+  }
+}

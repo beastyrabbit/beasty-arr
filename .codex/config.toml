@@ -1,0 +1,9 @@
+# >>> bytefleet:mcp — managed by ByteFleet, do not edit between the markers >>>
+[mcp_servers.glitchtip]
+url = "http://192.168.60.68:8000/mcp"
+bearer_token_env_var = "GLITCHTIP_MCP_TOKEN"
+
+[mcp_servers.umami]
+url = "http://192.168.60.67:3000/mcp"
+bearer_token_env_var = "UMAMI_MCP_TOKEN"
+# <<< bytefleet:mcp <<<
