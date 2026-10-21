@@ -61,6 +61,7 @@ function SeriesDetailView({ s, selectedSeason }: { s: SeriesDetail; selectedSeas
         <div className="flex gap-4">
           {s.posterUrl ? (
             <img
+              data-telemetry-block
               src={s.posterUrl}
               alt=""
               className="h-36 w-24 shrink-0 rounded-[4px] border border-line object-cover"
@@ -78,6 +79,7 @@ function SeriesDetailView({ s, selectedSeason }: { s: SeriesDetail; selectedSeas
               />
               {s.arrUrl ? (
                 <a
+                  data-telemetry-block
                   href={s.arrUrl}
                   target="_blank"
                   rel="noreferrer"

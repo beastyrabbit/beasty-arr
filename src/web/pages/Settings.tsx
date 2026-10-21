@@ -43,7 +43,7 @@ export function SettingsPage({ tab }: { tab: SettingsTab }) {
   const config = useConfig();
 
   return (
-    <div className="mx-auto flex max-w-[900px] flex-col gap-3">
+    <div data-telemetry-block className="rr-block mx-auto flex max-w-[900px] flex-col gap-3">
       <div className="flex items-center border-b border-line">
         {TABS.map((t) => (
           <button

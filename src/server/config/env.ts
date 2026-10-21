@@ -22,6 +22,11 @@ const envSchema = z.object({
   API_PORT: z.coerce.number().int().min(1).max(65535).optional(),
   DATA_DIR: z.string().default("./data"),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
+  UMAMI_URL: z.string().optional(),
+  UMAMI_WEBSITE_ID: z.string().optional(),
+  UMAMI_DOMAINS: z.string().optional(),
+  GLITCHTIP_DSN: z.string().optional(),
+  GLITCHTIP_ENVIRONMENT: z.string().optional(),
 
   SONARR_URL: z.url().optional(),
   SONARR_EXTERNAL_URL: externalArrUrl.optional(),

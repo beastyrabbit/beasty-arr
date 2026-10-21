@@ -258,6 +258,7 @@ function AiTab() {
               <Td>
                 <span
                   className="block max-w-[320px] truncate text-[11px] text-muted"
+                  data-telemetry-block
                   title={v.evidence.join("\n")}
                 >
                   {v.evidence[0] ?? "—"}

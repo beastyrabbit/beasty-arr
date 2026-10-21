@@ -18,6 +18,7 @@ import { EventBus } from "./events/bus.js";
 import { FixerBulk } from "./fixer/bulk.js";
 import { FixerService } from "./fixer/service.js";
 import { registerRoutes } from "./http/routes/index.js";
+import { registerTelemetryRoutes } from "./http/routes/telemetry.js";
 import { HuntEngine } from "./hunt/engine.js";
 import { drainWithin } from "./lifecycle.js";
 import { createMediaProber, parseMediaPathMap } from "./media/probe.js";
@@ -27,6 +28,7 @@ import { Scheduler } from "./scheduler/index.js";
 import { backupDatabase, snapshotDailyStats } from "./stats/maintenance.js";
 import { radarrSyncPort, sonarrSyncPort } from "./sync/adapters.js";
 import { SyncService } from "./sync/service.js";
+import { reportError, setupErrorHandler } from "./telemetry/report.js";
 import { WebhookTokenService } from "./webhooks/token.js";
 
 export type BuildAppOptions = {
@@ -137,12 +139,14 @@ export async function buildApp(
     if (force) {
       for (const subjectKey of subjectKeys) {
         void oracle.recheckSubject(subjectKey, true).catch((error) => {
+          reportError(error, { job: "oracle.recheck" });
           app.log.warn({ err: error, subjectKey }, "forced dub oracle recheck failed");
         });
       }
       return;
     }
     void oracle.checkAfterFailedSearch(subjectKeys).catch((error) => {
+      reportError(error, { job: "oracle.automatic" });
       app.log.warn({ err: error, subjectKeys }, "automatic dub oracle check failed");
     });
   };
@@ -243,9 +247,19 @@ export async function buildApp(
   }
 
   await app.register(fastifyHelmet, {
-    contentSecurityPolicy: false, // SPA serves its own assets; no external origins used
+    // No CSP. Runtime telemetry may load the configured Umami and GlitchTip hosts.
+    contentSecurityPolicy: false,
   });
 
+  setupErrorHandler(app);
+  registerTelemetryRoutes(
+    app,
+    Object.fromEntries(
+      Object.entries(env)
+        .filter(([, value]) => value !== undefined)
+        .map(([key, value]) => [key, String(value)]),
+    ),
+  );
   await registerRoutes(app, ctx);
 
   if (opts.serveStatic ?? env.NODE_ENV === "production") {
@@ -254,9 +268,11 @@ export async function buildApp(
     await app.register(fastifyStatic, {
       root: path.resolve(process.cwd(), "dist/web"),
       wildcard: false,
+      allowedPath: (filePath) => !filePath.endsWith(".map"),
     });
     app.setNotFoundHandler((request, reply) => {
-      if (request.url.startsWith("/api/")) return reply.code(404).send({ error: "not found" });
+      if (request.url.startsWith("/api/") || request.url.split("?", 1)[0]?.endsWith(".map"))
+        return reply.code(404).send({ error: "not found" });
       return reply.sendFile("index.html");
     });
   }

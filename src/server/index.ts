@@ -3,6 +3,7 @@ import { loadEnvFile } from "node:process";
 import { buildApp } from "./app.js";
 import { drainWithin } from "./lifecycle.js";
 import { reconcileMirrorOnStartup } from "./sync/startup.js";
+import { flushErrors, reportError } from "./telemetry/report.js";
 
 if (existsSync(".env")) loadEnvFile(".env");
 
@@ -20,7 +21,9 @@ try {
     "beasty-arr started",
   );
 } catch (error) {
+  reportError(error, { job: "startup" });
   app.log.error(error);
+  await flushErrors();
   process.exit(1);
 }
 
@@ -29,12 +32,18 @@ try {
 startup = reconcileMirrorOnStartup(ctx.db, ctx.services.sync, {
   sonarr: Boolean(ctx.env.SONARR_URL && ctx.env.SONARR_API_KEY),
   radarr: Boolean(ctx.env.RADARR_URL && ctx.env.RADARR_API_KEY),
-}).catch((err) => app.log.error({ err }, "startup full sync failed"));
+}).catch((err) => {
+  reportError(err, { job: "sync.startup" });
+  app.log.error({ err }, "startup full sync failed");
+});
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
     void app.close().then(
-      () => process.exit(0),
+      async () => {
+        await flushErrors();
+        process.exit(0);
+      },
       (error) => {
         app.log.error(error, "shutdown drain failed");
         process.exit(1);

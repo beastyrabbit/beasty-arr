@@ -22,6 +22,7 @@ export function DialogContent({
     <DialogPrimitive.Portal>
       <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-black/60" />
       <DialogPrimitive.Content
+        data-telemetry-block
         className={cn(
           "fixed top-1/2 left-1/2 z-50 w-[440px] max-w-[calc(100vw-32px)] -translate-x-1/2 -translate-y-1/2 rounded-[6px] border border-line bg-surface p-4 focus:outline-none",
           className,

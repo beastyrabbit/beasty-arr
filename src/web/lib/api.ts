@@ -1,3 +1,4 @@
+import { trackApiFailure, trackMutation } from "./telemetry.js";
 /** Typed fetch wrapper: JSON in/out with normalized server/network errors. */
 
 export class ApiError extends Error {
@@ -58,6 +59,7 @@ async function request<T>(
       body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
     });
   } catch (err) {
+    trackApiFailure(method, path, 0);
     throw new ApiError(0, err instanceof Error ? err.message : "network error");
   }
 
@@ -72,12 +74,14 @@ async function request<T>(
   }
 
   if (!res.ok) {
+    trackApiFailure(method, path, res.status);
     const message =
       typeof parsed === "object" && parsed !== null && "error" in parsed
         ? String((parsed as { error: unknown }).error)
         : `${res.status} ${res.statusText}`;
     throw new ApiError(res.status, message, parsed);
   }
+  trackMutation(method, path, opts.body, parsed);
   return parsed as T;
 }
 

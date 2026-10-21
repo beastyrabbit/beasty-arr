@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { AppContext } from "../../context.js";
+import { reportError } from "../../telemetry/report.js";
 import { parse } from "./util.js";
 
 /**
@@ -32,6 +33,7 @@ export function registerWebhookRoutes(app: FastifyInstance, ctx: AppContext): vo
       const seriesId = b.data.series?.id;
       if (typeof seriesId === "number") {
         void ctx.services.sync.targetedRefreshSeries(seriesId).catch((err) => {
+          reportError(err, { job: "webhook.sonarr" });
           request.log.warn({ err, seriesId }, "webhook series refresh failed");
         });
       }
@@ -39,6 +41,7 @@ export function registerWebhookRoutes(app: FastifyInstance, ctx: AppContext): vo
       const movieId = b.data.movie?.id;
       if (typeof movieId === "number") {
         void ctx.services.sync.targetedRefreshMovie(movieId).catch((err) => {
+          reportError(err, { job: "webhook.radarr" });
           request.log.warn({ err, movieId }, "webhook movie refresh failed");
         });
       }

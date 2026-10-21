@@ -11,6 +11,20 @@ docker exec "$name" node --input-type=module -e '
     try {
       const health = await fetch("http://127.0.0.1:9898/api/health");
       if (health.ok) {
+        const { readdirSync } = await import("node:fs");
+        function assertNoMaps(directory) {
+          for (const entry of readdirSync(directory, { withFileTypes: true })) {
+            if (entry.name.endsWith(".map")) throw new Error("Runtime source map exposed");
+            if (entry.isDirectory()) assertNoMaps(`${directory}/${entry.name}`);
+          }
+        }
+        assertNoMaps("/app/dist");
+        const assets = readdirSync("/app/dist/web/assets").filter(file => file.endsWith(".js"));
+        if (!assets.length) throw new Error("No browser assets");
+        for (const asset of [assets[0], "missing.js"]) {
+          const response = await fetch(`http://127.0.0.1:9898/assets/${asset}.map`);
+          if (response.status !== 404) throw new Error("Source map endpoint must return 404");
+        }
         const Database = (await import("better-sqlite3")).default;
         const db = new Database("/data/beasty-arr.db", { readonly: true });
         if (db.pragma("integrity_check", { simple: true }) !== "ok") throw new Error("SQLite integrity failed");

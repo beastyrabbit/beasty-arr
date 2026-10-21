@@ -11,6 +11,7 @@ import {
 } from "../db/schema.js";
 import type { EventBus } from "../events/bus.js";
 import type { ProwlarrClient, ProwlarrHistoryRecord } from "../prowlarr/client.js";
+import { reportError } from "../telemetry/report.js";
 
 const HOUR_MS = 3_600_000;
 /** History window feeding the organic forecast. */
@@ -209,6 +210,7 @@ export class BudgetManager {
         await this.refreshSourceAttribution(cutoff);
         this.reconcileReservations(cutoff);
       } catch (err) {
+        reportError(err, { job: "budget.attribution" });
         this.log.warn(
           { err },
           "prowlarr history attribution refresh failed; holding automatic searches until accounting recovers",
