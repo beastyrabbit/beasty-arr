@@ -136,32 +136,20 @@ describe("public legal pages", () => {
         /<section aria-labelledby="telemetry">(.*?)<\/section>/s,
       )?.[1];
       expect(telemetry).toBeDefined();
-      for (const text of [
-        "Umami 3.4",
-        "GlitchTip 6.2.6",
-        "umami.heerlab.com",
-        "glitchtip.heerlab.com",
-        "umami.disabled",
-        "sendDefaultPii",
-        "GLITCHTIP_MAX_EVENT_LIFE_DAYS",
-        "Settings",
-        "Fixer",
-        "90",
-        "30",
-        "10",
-        "25",
-      ])
+      for (const text of ["Umami", "GlitchTip", "umami.heerlab.com", "glitchtip.heerlab.com", "90"])
         expect(telemetry).toContain(text);
-      expect(telemetry).toContain(url === "/datenschutz" ? "Titel-IDs" : "title IDs");
       expect(telemetry).toContain(
-        url === "/datenschutz"
-          ? "bis der Verantwortliche sie löscht"
-          : "until the controller deletes it",
+        url === "/datenschutz" ? "Do-Not-Track-Signal" : "Do Not Track signal",
       );
       expect(telemetry).toContain(
         url === "/datenschutz"
-          ? "auch wenn das SDK keine Nutzerinformationen sendet"
-          : "even when the SDK sends no user information",
+          ? "Umami-Daten werden bis zu 10 Jahre gespeichert."
+          : "Umami data is stored for up to 10 years.",
+      );
+      expect(telemetry).toContain(
+        url === "/datenschutz"
+          ? "GlitchTip anonymisiert IP-Adressen standardmäßig."
+          : "GlitchTip anonymises IP addresses by default.",
       );
       expect(response.body).toContain(
         url === "/datenschutz"

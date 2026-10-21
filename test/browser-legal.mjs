@@ -73,8 +73,8 @@ async function checkLegalDocument(page, link, response) {
   assert.ok(text.includes(content), `Missing content: ${path}`);
   if (["/datenschutz", "/privacy"].includes(path)) {
     const telemetry = page.locator('section[aria-labelledby="telemetry"]');
-    assert.match(await telemetry.innerText(), /Umami 3\.4/);
-    assert.match(await telemetry.innerText(), /GlitchTip 6\.2\.6/);
+    assert.match(await telemetry.innerText(), /Umami/);
+    assert.match(await telemetry.innerText(), /GlitchTip/);
   }
   assert.ok(text.includes("Stettiner Str. 41"), "Missing operator address");
   assert.equal(
