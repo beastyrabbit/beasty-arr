@@ -11,7 +11,14 @@ docker exec "$name" node --input-type=module -e '
     try {
       const health = await fetch("http://127.0.0.1:9898/api/health");
       if (health.ok) {
-        const { readdirSync } = await import("node:fs");
+        const { readdirSync, readFileSync } = await import("node:fs");
+        const version = await fetch("http://127.0.0.1:9898/api/version");
+        const body = await version.json();
+        const expected = JSON.parse(readFileSync("/app/package.json", "utf8")).version;
+        if (version.status !== 200 || version.headers.get("cache-control") !== "no-store" ||
+            JSON.stringify(body) !== JSON.stringify({ version: expected })) {
+          throw new Error("Version endpoint must expose only the package version without caching");
+        }
         function assertNoMaps(directory) {
           for (const entry of readdirSync(directory, { withFileTypes: true })) {
             if (entry.name.endsWith(".map")) throw new Error("Runtime source map exposed");

@@ -13,10 +13,12 @@ import { registerLibraryRoutes } from "./library.js";
 import { registerLogRoutes } from "./logs.js";
 import { registerMissingRoutes } from "./missing.js";
 import { registerStatusRoutes } from "./status.js";
+import { registerVersionRoutes } from "./version.js";
 import { registerWebhookRoutes } from "./webhooks.js";
 
 export async function registerRoutes(app: FastifyInstance, ctx: AppContext): Promise<void> {
   registerHealthRoutes(app);
+  registerVersionRoutes(app);
   registerEventRoutes(app, ctx);
   registerStatusRoutes(app, ctx);
   registerLibraryRoutes(app, ctx);
