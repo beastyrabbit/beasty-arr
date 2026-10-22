@@ -6,15 +6,18 @@ const SEMVER =
   /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([\da-zA-Z-]+(?:\.[\da-zA-Z-]+)*))?(?:\+[\da-zA-Z-]+(?:\.[\da-zA-Z-]+)*)?$/;
 const NUMERIC = /^\d+$/;
 
+class DeploymentError extends Error {}
+class TransportError extends DeploymentError {}
+
 function parseVersion(value: unknown): string[] {
-  if (typeof value !== "string") throw new Error("Malformed version response");
+  if (typeof value !== "string") throw new DeploymentError("Malformed version response");
   const match = SEMVER.exec(value);
   if (
     !match ||
     match[0] !== value ||
     match[4]?.split(".").some((id) => NUMERIC.test(id) && id.length > 1 && id[0] === "0")
   ) {
-    throw new Error("Malformed version response");
+    throw new DeploymentError("Malformed version response");
   }
   return [match[1], match[2], match[3], ...(match[4]?.split(".") ?? [])];
 }
@@ -63,49 +66,71 @@ export async function deploymentSmoke({
   const expected = parseVersion(expectedVersion);
   const deadline = now() + timeoutMs;
   async function request(endpoint: string): Promise<Response> {
-    if (now() >= deadline) throw new Error("Deployment check timed out");
-    const response = await fetchImpl(new URL(endpoint, baseUrl), {
-      redirect: "error",
-      cache: "no-store",
-      signal: AbortSignal.timeout(Math.min(10_000, deadline - now())),
-    });
-    if (response.status !== 200) throw new Error(`${endpoint} returned HTTP ${response.status}`);
+    if (now() >= deadline) throw new DeploymentError("Deployment check timed out");
+    let response: Response;
+    try {
+      response = await fetchImpl(new URL(endpoint, baseUrl), {
+        redirect: "error",
+        cache: "no-store",
+        signal: AbortSignal.timeout(Math.min(10_000, deadline - now())),
+      });
+    } catch {
+      throw new TransportError(`${endpoint} request failed before receiving an HTTP response`);
+    }
+    if (response.status !== 200)
+      throw new DeploymentError(`${endpoint} returned HTTP ${response.status}`);
     return response;
   }
+  async function readJson(response: Response, kind: string) {
+    try {
+      return await response.json();
+    } catch {
+      throw new DeploymentError(`Malformed ${kind} response`);
+    }
+  }
   async function checkHealth(): Promise<void> {
-    const body = await (await request("/api/health")).json();
+    const body = await readJson(await request("/api/health"), "health");
     if (body?.status !== "ok" || Object.keys(body).length !== 1) {
-      throw new Error("Malformed health response");
+      throw new DeploymentError("Malformed health response");
     }
   }
 
   // Verify in-cluster DNS, routing and HTTP before waiting for Flux to reconcile.
   await checkHealth();
   while (now() < deadline) {
-    const body = await (await request("/api/version")).json();
-    if (!body || Object.keys(body).length !== 1) throw new Error("Malformed version response");
+    let response: Response;
+    try {
+      response = await request("/api/version");
+    } catch (error) {
+      // Recreate rollouts briefly leave the Service without endpoints.
+      if (!(error instanceof TransportError)) throw error;
+      await pause(Math.max(0, Math.min(intervalMs, deadline - now())));
+      continue;
+    }
+    const body = await readJson(response, "version");
+    if (!body || Object.keys(body).length !== 1)
+      throw new DeploymentError("Malformed version response");
     const comparison = compareVersions(parseVersion(body.version), expected);
     if (comparison >= 0) {
       const root = await request("/");
-      if (!(await root.text()).trim()) throw new Error("Empty application page");
+      if (!(await root.text()).trim()) throw new DeploymentError("Empty application page");
       await checkHealth();
       return { status: comparison === 0 ? "deployed" : "superseded", version: body.version };
     }
     await pause(Math.max(0, Math.min(intervalMs, deadline - now())));
   }
-  throw new Error("Deployment check timed out");
+  throw new DeploymentError("Deployment check timed out");
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
     const tag = process.env.GITHUB_REF_NAME;
-    if (!tag?.startsWith("v")) throw new Error("A v* release tag is required");
+    if (!tag?.startsWith("v")) throw new DeploymentError("A v* release tag is required");
     const result = await deploymentSmoke({ expectedVersion: tag.slice(1) });
     process.stdout.write(`Release ${tag}: ${result.status} (running ${result.version})\n`);
-  } catch {
-    process.stderr.write(
-      "Deployment smoke failed: unreachable service, invalid response or timeout.\n",
-    );
+  } catch (error) {
+    const reason = error instanceof DeploymentError ? error.message : "Unexpected deployment error";
+    process.stderr.write(`Deployment smoke failed: ${reason}.\n`);
     process.exitCode = 1;
   }
 }

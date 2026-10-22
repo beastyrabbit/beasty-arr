@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { describe, expect, it, vi } from "vitest";
 import { deploymentSmoke } from "../scripts/deployment-smoke.js";
 import { waitForMainCi } from "../scripts/wait-for-main-ci.js";
@@ -109,7 +110,7 @@ describe("tag main CI gate", () => {
 
   it("fails closed on malformed API JSON", async () => {
     await expect(gate([Response.json({})]).result).rejects.toThrow("Malformed");
-    await expect(gate([new Response("not json")]).result).rejects.toThrow();
+    await expect(gate([new Response("not json")]).result).rejects.toThrow("Malformed main CI");
   });
 
   it("fails closed on transport errors", async () => {
@@ -119,16 +120,19 @@ describe("tag main CI gate", () => {
 
 function rollout(
   versions: unknown[],
-  overrides: Record<string, Response> = {},
+  overrides: Record<string, Response | Error> = {},
   expected = "0.8.0",
 ) {
   const fetchImpl = vi.fn<typeof fetch>(async (input) => {
     const pathname = new URL(String(input)).pathname;
-    if (overrides[pathname]) return overrides[pathname].clone();
+    const override = overrides[pathname];
+    if (override instanceof Error) throw override;
+    if (override) return override.clone();
     if (pathname === "/api/health") return Response.json({ status: "ok" });
     if (pathname === "/") return new Response("<!doctype html><html></html>");
     if (pathname !== "/api/version") throw new Error("Unexpected endpoint");
     const version = versions.shift();
+    if (version instanceof Error) throw version;
     if (version === undefined) throw new Error("Unexpected version request");
     return Response.json(version);
   });
@@ -154,6 +158,30 @@ describe("deployment smoke", () => {
       rollout([{ version: "0.8.0" }, { version: "0.9.0" }, { version: "0.10.0" }], {}, "0.10.0")
         .result,
     ).resolves.toEqual({ status: "deployed", version: "0.10.0" });
+  });
+
+  it("waits through transport failures during a Recreate rollout", async () => {
+    const { result, fetchImpl } = rollout([
+      { version: "0.7.0" },
+      new TypeError("fetch failed"),
+      { version: "0.8.0" },
+    ]);
+    await expect(result).resolves.toEqual({ status: "deployed", version: "0.8.0" });
+    expect(fetchImpl).toHaveBeenCalledTimes(6);
+  });
+
+  it("times out on persistent version transport failures", async () => {
+    const { result, fetchImpl } = rollout([], { "/api/version": new TypeError("fetch failed") });
+    await expect(result).rejects.toThrow("timed out");
+    expect(fetchImpl).toHaveBeenCalledTimes(4);
+  });
+
+  it.each(["/api/health", "/"])("fails immediately on transport errors at %s", async (endpoint) => {
+    const { result, fetchImpl } = rollout([{ version: "0.8.0" }], {
+      [endpoint]: new TypeError("fetch failed"),
+    });
+    await expect(result).rejects.toThrow(`${endpoint} request failed`);
+    expect(fetchImpl).toHaveBeenCalledTimes(endpoint === "/" ? 3 : 1);
   });
 
   it("reports a newer version as superseded", async () => {
@@ -199,9 +227,9 @@ describe("deployment smoke", () => {
   });
 
   it("rejects invalid JSON", async () => {
-    await expect(
-      rollout([], { "/api/version": new Response("not json") }).result,
-    ).rejects.toThrow();
+    await expect(rollout([], { "/api/version": new Response("not json") }).result).rejects.toThrow(
+      "Malformed version",
+    );
   });
 
   it("times out on an older deployment", async () => {
@@ -225,6 +253,14 @@ describe("deployment smoke", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
+  it("fails immediately on a version 404 from the old app", async () => {
+    const { result, fetchImpl } = rollout([], {
+      "/api/version": new Response("not logged", { status: 404 }),
+    });
+    await expect(result).rejects.toThrow("/api/version returned HTTP 404");
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
   it("rejects a malformed health response or empty page", async () => {
     await expect(
       rollout([], { "/api/health": Response.json({ status: "failed" }) }).result,
@@ -232,5 +268,28 @@ describe("deployment smoke", () => {
     await expect(rollout([{ version: "0.8.0" }], { "/": new Response("") }).result).rejects.toThrow(
       "Empty application page",
     );
+  });
+});
+
+describe("deployment CLI diagnostics", () => {
+  it.each([
+    ["new Response('not logged', {status: 404})", "/api/version returned HTTP 404"],
+    ["new Response('synthetic-private-response')", "Malformed version response"],
+    ["Response.json({version: 'synthetic-private-response'})", "Malformed version response"],
+  ])("reports a safe reason for %s", (response, reason) => {
+    const preload = `globalThis.fetch = async (url) => new URL(url).pathname === '/api/health'
+      ? Response.json({status: 'ok'}) : ${response};`;
+    const result = spawnSync(
+      process.execPath,
+      [
+        "--import",
+        `data:text/javascript,${encodeURIComponent(preload)}`,
+        "scripts/deployment-smoke.ts",
+      ],
+      { encoding: "utf8", env: { GITHUB_REF_NAME: "v0.8.0" }, timeout: 5_000 },
+    );
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(reason);
+    expect(result.stderr).not.toContain("synthetic-private-response");
   });
 });

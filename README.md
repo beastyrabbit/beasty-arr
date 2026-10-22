@@ -101,7 +101,8 @@ smoke-test the container. Only release tags publish images. After publication, t
 the internal service for the expected version for up to 30 minutes, then verifies the page and
 health endpoint. A newer running version reports the release as superseded. `GET /api/version`
 returns only the package version with caching disabled; deployment checks never read `/api/config`.
-HTTP errors fail the check immediately. For the first release that adds `/api/version`, the old
+Version polling tolerates temporary connection failures during a rollout; HTTP errors fail the
+check immediately. For the first release that adds `/api/version`, the old
 app can return 404 before Flux deploys it; rerun the failed check after the new endpoint is live.
 
 Deployments should set `SONARR_EXTERNAL_URL` and `RADARR_EXTERNAL_URL` to the HTTPS origins users

@@ -3,6 +3,8 @@ import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
+class MainCiError extends Error {}
+
 type WorkflowRun = {
   id: number;
   event: string;
@@ -55,9 +57,16 @@ export async function waitForMainCi({
       redirect: "error",
       signal: AbortSignal.timeout(Math.min(10_000, deadline - now())),
     });
-    if (response.status !== 200) throw new Error(`Main CI API returned HTTP ${response.status}`);
-    const body = (await response.json()) as { workflow_runs?: WorkflowRun[] };
-    if (!Array.isArray(body?.workflow_runs)) throw new Error("Malformed main CI API response");
+    if (response.status !== 200)
+      throw new MainCiError(`Main CI API returned HTTP ${response.status}`);
+    let body: { workflow_runs?: WorkflowRun[] };
+    try {
+      body = await response.json();
+    } catch {
+      throw new MainCiError("Malformed main CI API response");
+    }
+    if (!Array.isArray(body?.workflow_runs))
+      throw new MainCiError("Malformed main CI API response");
     const run = body.workflow_runs
       .filter(
         (candidate) =>
@@ -72,20 +81,20 @@ export async function waitForMainCi({
       .sort((a, b) => b.id - a.id)[0];
     if (run?.status === "completed") {
       if (run.conclusion !== "success") {
-        throw new Error(`Main CI run ${run.id} did not succeed (${run.conclusion})`);
+        throw new MainCiError(`Main CI run ${run.id} did not succeed`);
       }
       return run.id;
     }
     await pause(Math.max(0, Math.min(intervalMs, deadline - now())));
   }
-  throw new Error("Timed out waiting for successful main CI on the exact tag commit");
+  throw new MainCiError("Timed out waiting for successful main CI on the exact tag commit");
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
     const { GITHUB_REF, GITHUB_REPOSITORY, GITHUB_RUN_ID, GITHUB_TOKEN } = process.env;
     if (!GITHUB_REF?.startsWith("refs/tags/v") || !GITHUB_REPOSITORY || !GITHUB_TOKEN) {
-      throw new Error("A v* tag, repository and GitHub token are required");
+      throw new MainCiError("A v* tag, repository and GitHub token are required");
     }
     const sha = execFileSync("git", ["rev-parse", `${GITHUB_REF}^{commit}`], {
       encoding: "utf8",
@@ -95,7 +104,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       !GITHUB_RUN_ID ||
       !Number.isSafeInteger(Number(GITHUB_RUN_ID))
     ) {
-      throw new Error("Invalid peeled commit or current run ID");
+      throw new MainCiError("Invalid peeled commit or current run ID");
     }
     const runId = await waitForMainCi({
       repository: GITHUB_REPOSITORY,
@@ -105,10 +114,9 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       apiUrl: process.env.GITHUB_API_URL,
     });
     process.stdout.write(`Reusing successful main CI run ${runId} for ${sha}\n`);
-  } catch {
-    process.stderr.write(
-      "Main CI gate failed; an exact-commit successful main push run is required.\n",
-    );
+  } catch (error) {
+    const reason = error instanceof MainCiError ? error.message : "Unexpected main CI gate error";
+    process.stderr.write(`Main CI gate failed: ${reason}.\n`);
     process.exitCode = 1;
   }
 }
