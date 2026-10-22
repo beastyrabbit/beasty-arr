@@ -94,6 +94,17 @@ GitHub Actions on `arc-beasty-arr` → `ghcr.io/beastyrabbit/beasty-arr` → Flu
 release tag is the deployment: Flux image automation commits the new image tag and digest to kub-homelab
 `cluster/homelab/apps/media/beasty-arr/helmrelease.yaml`. Do not edit that pin by hand; fix a bad
 release forward with a new tag.
+
+PRs, main pushes and manual branch runs execute the full quality suite. Release tags wait up to
+30 minutes for the newest main push run on the exact tag commit to succeed, then build and
+smoke-test the container. Only release tags publish images. After publication, tag CI checks
+the internal service for the expected version for up to 30 minutes, then verifies the page and
+health endpoint. A newer running version reports the release as superseded. `GET /api/version`
+returns only the package version with caching disabled; deployment checks never read `/api/config`.
+Version polling tolerates temporary connection failures during a rollout; HTTP errors fail the
+check immediately. For the first release that adds `/api/version`, the old
+app can return 404 before Flux deploys it; rerun the failed check after the new endpoint is live.
+
 Deployments should set `SONARR_EXTERNAL_URL` and `RADARR_EXTERNAL_URL` to the HTTPS origins users
 open in their browsers. These public URLs contain no API keys and are separate from the internal arr
 connection URLs.

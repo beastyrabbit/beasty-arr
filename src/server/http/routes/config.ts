@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import { eq, max } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
@@ -13,19 +11,8 @@ import type {
 import { settingsPatchSchema } from "../../config/settings.js";
 import type { AppContext } from "../../context.js";
 import { indexers, syncState } from "../../db/schema.js";
+import { APP_VERSION } from "../../version.js";
 import { parse } from "./util.js";
-
-/** Read once at module load — cwd is the repo root (dev) or /app (container). */
-export const APP_VERSION = (() => {
-  try {
-    const pkg = JSON.parse(readFileSync(path.resolve(process.cwd(), "package.json"), "utf8")) as {
-      version?: string;
-    };
-    return pkg.version ?? "0.0.0";
-  } catch {
-    return "0.0.0";
-  }
-})();
 
 // dryRun is toggled only via POST /api/system/dry-run (typed confirm) — never here.
 const configPatchSchema = settingsPatchSchema.omit({ dryRun: true, aiProvider: true });

@@ -2,7 +2,7 @@ import { desc } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { AppContext } from "../../context.js";
 import { activityLog, searchAttempts } from "../../db/schema.js";
-import { APP_VERSION } from "./config.js";
+import { APP_VERSION } from "../../version.js";
 import { isEnginePaused, loadStateCounts } from "./util.js";
 
 const RECENT_ACTIVITY = 200;

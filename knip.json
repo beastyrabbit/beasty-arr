@@ -1,6 +1,12 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "entry": ["src/server/index.ts", "src/server/instrument.ts", "scripts/prepare-sourcemaps.mjs"],
+  "entry": [
+    "src/server/index.ts",
+    "src/server/instrument.ts",
+    "scripts/prepare-sourcemaps.mjs",
+    "scripts/wait-for-main-ci.ts",
+    "scripts/deployment-smoke.ts"
+  ],
   "project": ["src/**/*.{ts,tsx}", "test/**/*.ts", "*.{ts,js}"],
   "ignoreBinaries": ["gitleaks", "infisical", "portless"],
   "ignoreDependencies": [

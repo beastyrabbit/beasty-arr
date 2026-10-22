@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { buildApp } from "./app.js";
+import { APP_VERSION } from "./version.js";
 
 let testDir: string;
 let built: Awaited<ReturnType<typeof buildApp>>;
@@ -23,6 +24,13 @@ afterAll(async () => {
 });
 
 describe("app skeleton", () => {
+  it("serves only the package version with caching disabled", async () => {
+    const res = await built.app.inject({ method: "GET", url: "/api/version" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ version: APP_VERSION });
+    expect(res.headers["cache-control"]).toBe("no-store");
+  });
+
   it("serves health with no extra fields", async () => {
     const res = await built.app.inject({ method: "GET", url: "/api/health" });
     expect(res.statusCode).toBe(200);
