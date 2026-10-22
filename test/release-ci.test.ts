@@ -59,12 +59,20 @@ describe("tag main CI gate", () => {
     });
   });
 
+  it("accepts GitHub's ref-qualified main workflow path", async () => {
+    const { result } = gate([
+      Response.json({ workflow_runs: [{ ...run, path: ".github/workflows/ci.yaml@main" }] }),
+    ]);
+    await expect(result).resolves.toBe(run.id);
+  });
+
   it.each([
     ["wrong SHA", { head_sha: "b".repeat(40) }],
     ["tag push", { head_branch: "v0.8.0" }],
     ["PR", { event: "pull_request" }],
     ["dispatch", { event: "workflow_dispatch" }],
     ["another workflow", { path: ".github/workflows/other.yaml" }],
+    ["another workflow ref", { path: ".github/workflows/ci.yaml@release" }],
     ["tag run itself", { id: 99 }],
   ])("rejects %s", async (_name, overrides) => {
     const { result } = gate(
@@ -221,6 +229,14 @@ describe("deployment smoke", () => {
     { version: "01.8.0" },
     { version: "0.8.0\n" },
     { version: "0.8.0-01" },
+    { version: "0.8.0-" },
+    { version: "0.8.0-a..b" },
+    { version: "0.8.0-a_b" },
+    { version: "0.8.0+" },
+    { version: "0.8.0+a..b" },
+    { version: "0.8.0+a_b" },
+    { version: "0.8.0+a+b" },
+    { version: "0.8.0+build\n" },
     { version: "0.8.0", unexpected: "field" },
   ])("rejects malformed version body %j", async (body) => {
     await expect(rollout([body]).result).rejects.toThrow("Malformed");

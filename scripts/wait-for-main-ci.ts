@@ -70,11 +70,11 @@ export async function waitForMainCi({
     const run = body.workflow_runs
       .filter(
         (candidate) =>
-          candidate &&
-          candidate.event === "push" &&
+          candidate?.event === "push" &&
           candidate.head_branch === "main" &&
           candidate.head_sha === sha &&
-          candidate.path === ".github/workflows/ci.yaml" &&
+          (candidate.path === ".github/workflows/ci.yaml" ||
+            candidate.path === ".github/workflows/ci.yaml@main") &&
           Number.isSafeInteger(candidate.id) &&
           candidate.id !== currentRunId,
       )
@@ -96,7 +96,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     if (!GITHUB_REF?.startsWith("refs/tags/v") || !GITHUB_REPOSITORY || !GITHUB_TOKEN) {
       throw new MainCiError("A v* tag, repository and GitHub token are required");
     }
-    const sha = execFileSync("git", ["rev-parse", `${GITHUB_REF}^{commit}`], {
+    const sha = execFileSync("/usr/bin/git", ["rev-parse", `${GITHUB_REF}^{commit}`], {
       encoding: "utf8",
     }).trim();
     if (

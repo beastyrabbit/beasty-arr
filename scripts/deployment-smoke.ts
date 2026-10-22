@@ -2,8 +2,8 @@ import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
-const SEMVER =
-  /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([\da-zA-Z-]+(?:\.[\da-zA-Z-]+)*))?(?:\+[\da-zA-Z-]+(?:\.[\da-zA-Z-]+)*)?$/;
+const SEMVER_CORE = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
+const INVALID_IDENTIFIER = /[^\da-zA-Z-]/;
 const NUMERIC = /^\d+$/;
 
 class DeploymentError extends Error {}
@@ -11,15 +11,20 @@ class TransportError extends DeploymentError {}
 
 function parseVersion(value: unknown): string[] {
   if (typeof value !== "string") throw new DeploymentError("Malformed version response");
-  const match = SEMVER.exec(value);
+  const [version, metadata, ...extra] = value.split("+");
+  const hyphen = version.indexOf("-");
+  const core = hyphen === -1 ? version : version.slice(0, hyphen);
+  const prerelease = hyphen === -1 ? [] : version.slice(hyphen + 1).split(".");
+  const identifiers = [...prerelease, ...(metadata === undefined ? [] : metadata.split("."))];
   if (
-    !match ||
-    match[0] !== value ||
-    match[4]?.split(".").some((id) => NUMERIC.test(id) && id.length > 1 && id[0] === "0")
+    extra.length > 0 ||
+    SEMVER_CORE.exec(core)?.[0] !== core ||
+    identifiers.some((id) => id.length === 0 || INVALID_IDENTIFIER.test(id)) ||
+    prerelease.some((id) => NUMERIC.test(id) && id.length > 1 && id.startsWith("0"))
   ) {
     throw new DeploymentError("Malformed version response");
   }
-  return [match[1], match[2], match[3], ...(match[4]?.split(".") ?? [])];
+  return [...core.split("."), ...prerelease];
 }
 
 function compareIdentifiers(actual: string, expected: string): number {
@@ -34,12 +39,16 @@ function compareVersions(actual: string[], expected: string[]): number {
   for (let i = 0; i < 3; i++) {
     if (actual[i] !== expected[i]) return compareIdentifiers(actual[i], expected[i]);
   }
-  if (actual.length === 3 || expected.length === 3) {
-    return actual.length === expected.length ? 0 : actual.length === 3 ? 1 : -1;
-  }
-  for (let i = 3; i < Math.max(actual.length, expected.length); i++) {
-    if (actual[i] === undefined || expected[i] === undefined)
-      return actual[i] === undefined ? -1 : 1;
+  if (actual.length === 3 && expected.length === 3) return 0;
+  if (actual.length === 3) return 1;
+  if (expected.length === 3) return -1;
+  return comparePrereleases(actual.slice(3), expected.slice(3));
+}
+
+function comparePrereleases(actual: string[], expected: string[]): number {
+  for (let i = 0; i < Math.max(actual.length, expected.length); i++) {
+    if (actual[i] === undefined) return -1;
+    if (expected[i] === undefined) return 1;
     if (actual[i] === expected[i]) continue;
     return compareIdentifiers(actual[i], expected[i]);
   }
@@ -94,6 +103,12 @@ export async function deploymentSmoke({
       throw new DeploymentError("Malformed health response");
     }
   }
+  async function readVersion(response: Response) {
+    const body = await readJson(response, "version");
+    if (!body || Object.keys(body).length !== 1)
+      throw new DeploymentError("Malformed version response");
+    return { version: body.version as string, parsed: parseVersion(body.version) };
+  }
 
   // Verify in-cluster DNS, routing and HTTP before waiting for Flux to reconcile.
   await checkHealth();
@@ -107,15 +122,13 @@ export async function deploymentSmoke({
       await pause(Math.max(0, Math.min(intervalMs, deadline - now())));
       continue;
     }
-    const body = await readJson(response, "version");
-    if (!body || Object.keys(body).length !== 1)
-      throw new DeploymentError("Malformed version response");
-    const comparison = compareVersions(parseVersion(body.version), expected);
+    const { version, parsed } = await readVersion(response);
+    const comparison = compareVersions(parsed, expected);
     if (comparison >= 0) {
       const root = await request("/");
       if (!(await root.text()).trim()) throw new DeploymentError("Empty application page");
       await checkHealth();
-      return { status: comparison === 0 ? "deployed" : "superseded", version: body.version };
+      return { status: comparison === 0 ? "deployed" : "superseded", version };
     }
     await pause(Math.max(0, Math.min(intervalMs, deadline - now())));
   }
