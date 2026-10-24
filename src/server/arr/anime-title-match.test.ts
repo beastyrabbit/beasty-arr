@@ -23,6 +23,20 @@ const episodes = [
 ];
 
 describe("animeTitleConflict", () => {
+  it("does not treat a multipart title's stem as another episode", () => {
+    const parts = [
+      { id: 30, title: "The Last Battle" },
+      { id: 31, title: "The Last Battle (2)" },
+    ];
+    expect(
+      animeTitleConflict(
+        candidate("Show.S01E31.The.Last.Battle.Part.2.German.1080p"),
+        parts[1]!,
+        parts,
+      ),
+    ).toBeNull();
+  });
+
   it("blocks a filename that explicitly names another episode", () => {
     expect(
       animeTitleConflict(
