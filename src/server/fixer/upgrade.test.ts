@@ -309,6 +309,48 @@ describe("assessCandidateUpgrade", () => {
 });
 
 describe("assessImportMappings", () => {
+  it.each([
+    ["one episode already German", [{ id: 4, name: "German" }], "skip", undefined],
+    ["both episodes lacking German", [{ id: 1, name: "English" }], "import", true],
+  ] as const)(
+    "judges the release-quality override for a two-episode file with %s",
+    (_label, secondLanguages, expected, relabeled) => {
+      // E01 is missing; E02 has a 720p file. The German file measures WEBDL-720p
+      // (outside HD-1080p) and was grabbed as WEBDL-1080p.
+      const file: ManualImportCandidate = {
+        id: "candidate_1",
+        service: "sonarr",
+        path: "/downloads/pack/e01e02.mkv",
+        episodeIds: [101, 102],
+        absoluteEpisodeNumbers: [],
+        episodeLabels: [],
+        languageLabels: ["German"],
+        rejections: [],
+        isLikelySample: false,
+        ...candidate({ quality: quality(5, "WEBDL-720p"), languages: [{ id: 4, name: "German" }] }),
+        releaseQuality: quality(3, "WEBDL-1080p"),
+        germanAudioProbed: true,
+      };
+      const [result] = assessImportMappings({
+        imports: [{ candidateId: "candidate_1", episodeIds: [101, 102] }],
+        candidatesById: new Map([["candidate_1", file]]),
+        episodesById: new Map<number, SonarrEpisodeRecord>([
+          [101, episode({ id: 101, hasFile: false })],
+          [
+            102,
+            episode({
+              id: 102,
+              episodeFile: { quality: quality(5, "WEBDL-720p"), languages: [...secondLanguages] },
+            }),
+          ],
+        ]),
+        profilesById: new Map([[6, profile]]),
+      });
+      expect(result?.assessment.decision).toBe(expected);
+      expect(result?.assessment.importQuality !== undefined || undefined).toBe(relabeled);
+    },
+  );
+
   it("aggregates per file: blocked, then unverified, then import; skip only when every target is satisfied", () => {
     const base: ManualImportCandidate = {
       id: "candidate_1",

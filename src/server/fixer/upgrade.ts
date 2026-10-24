@@ -383,6 +383,22 @@ export function assessImportMappings(input: {
     });
     const pick = (decision: UpgradeDecision) =>
       perEpisode.find((entry) => entry.decision === decision);
+    // The release quality is file-wide, so it may replace the detected one only
+    // when every mapped episode qualifies; otherwise a missing episode would
+    // carry the file past the profile for an episode that already has German.
+    const unqualified = perEpisode.some((entry) => entry.importQuality !== undefined)
+      ? perEpisode.find((entry) => entry.importQuality === undefined)
+      : undefined;
+    if (unqualified) {
+      return {
+        candidateId,
+        episodeIds,
+        assessment: {
+          decision: unqualified.decision === "import" ? "skip" : unqualified.decision,
+          reason: `${unqualified.reason} The release-quality exception must hold for every episode the file covers.`,
+        },
+      };
+    }
     const assessment = pick("blocked") ??
       pick("unverified") ??
       pick("import") ??
