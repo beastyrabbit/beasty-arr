@@ -240,35 +240,47 @@ const GERMAN_LANGUAGE = { id: 4, name: "German" };
 /**
  * Adds German to the arr's language labels of candidates whose inspected audio
  * has German the labels missed (an untagged track titled "Deutsch", say), so
- * the arr-side upgrade and language checks judge the real file, and marks
- * candidates whose probe heard German audio.
+ * the arr-side upgrade and language checks judge the real file. Marks
+ * candidates whose probe heard German audio and carries the library files'
+ * inspected audio languages for the upgrade assessment.
  */
 export function withVerifiedGerman(
   candidates: ManualImportCandidate[],
   facts: InspectionFacts,
 ): ManualImportCandidate[] {
-  // Library files the probe heard German in, whatever the arr's labels say.
-  const germanLibraryTargetIds = [...facts.targets.values()].flatMap((target) => {
-    const probe = target.currentFile?.path ? facts.probes.get(target.currentFile.path) : undefined;
-    return probe?.ok && probe.hasGermanAudio ? [target.id] : [];
-  });
+  // The library file's audio languages as the probe heard them, whatever the
+  // arr's labels say: German when any track is, otherwise the tracks' languages
+  // only when every track has one (an untagged track could still be German).
+  const inspectedLibraryAudio: Record<number, string[]> = Object.fromEntries(
+    [...facts.targets.values()].flatMap((target) => {
+      const probe = target.currentFile?.path
+        ? facts.probes.get(target.currentFile.path)
+        : undefined;
+      if (!probe?.ok) return [];
+      if (probe.hasGermanAudio) return [[target.id, [GERMAN_LANGUAGE.name]]];
+      const known =
+        probe.audio.length > 0 &&
+        probe.audio.every((stream) => stream.inferredLanguage && stream.inferredLanguage !== "und");
+      return known ? [[target.id, probe.audioLanguages]] : [];
+    }),
+  );
+  const hasInspectedLibrary = Object.keys(inspectedLibraryAudio).length > 0;
   return candidates.map((original) => {
     const probe = facts.probes.get(original.path);
     // The release-quality exception (upgrade.ts) exists for German audio, so it
-    // needs German the probe heard, not a release-name label (GERMAN.SUBBED),
-    // and a library file without German by inspection, not by label.
+    // needs German the probe heard, not a release-name label (GERMAN.SUBBED).
     // Recomputed on every pass, so files probed late (packs over the upfront
     // probe limit) gain it once inspected.
     const heard = probe?.ok === true && probe.hasGermanAudio;
     const {
       germanAudioProbed: _previous,
-      germanLibraryTargetIds: _previousLibrary,
+      inspectedLibraryAudio: _previousLibrary,
       ...rest
     } = original;
     const candidate: ManualImportCandidate = {
       ...rest,
       ...(heard ? { germanAudioProbed: true } : {}),
-      ...(germanLibraryTargetIds.length > 0 ? { germanLibraryTargetIds } : {}),
+      ...(hasInspectedLibrary ? { inspectedLibraryAudio } : {}),
     };
     if (!heard || hasGermanAudio(candidate.languages)) {
       return candidate;

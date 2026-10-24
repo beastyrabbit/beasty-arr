@@ -117,22 +117,37 @@ describe("assessCandidateUpgrade", () => {
     },
   );
 
-  it("refuses the override when inspection heard German in an English-labelled library file", () => {
-    const result = assessCandidateUpgrade({
-      candidate: {
-        ...candidate({ quality: quality(5, "WEBDL-720p"), languages: [{ id: 4, name: "German" }] }),
-        releaseQuality,
-        germanAudioProbed: true,
-        germanLibraryTargetIds: [101],
-      },
-      episode: episode({
-        episodeFile: { quality: quality(5, "WEBDL-720p"), languages: [{ id: 1, name: "English" }] },
-      }),
-      profile,
-    });
-    expect(result).toMatchObject({ decision: "skip" });
-    expect(result.importQuality).toBeUndefined();
-  });
+  // The library file's inspected audio outranks the arr's labels both ways.
+  it.each([
+    ["German", ["eng"], "import"],
+    ["no", ["eng"], "import"],
+    ["English", ["eng"], "import"],
+    ["English", ["German"], "skip"],
+  ] as const)(
+    "judges the override for %s library labels when inspection heard %j",
+    (label, heard, expected) => {
+      const result = assessCandidateUpgrade({
+        candidate: {
+          ...candidate({
+            quality: quality(5, "WEBDL-720p"),
+            languages: [{ id: 4, name: "German" }],
+          }),
+          releaseQuality,
+          germanAudioProbed: true,
+          inspectedLibraryAudio: { 101: [...heard] },
+        },
+        episode: episode({
+          episodeFile: {
+            quality: quality(5, "WEBDL-720p"),
+            languages: label === "no" ? [] : [{ id: label === "German" ? 4 : 1, name: label }],
+          },
+        }),
+        profile,
+      });
+      expect(result.decision).toBe(expected);
+      expect(result.importQuality).toEqual(expected === "import" ? releaseQuality : undefined);
+    },
+  );
 
   it("imports a higher custom format score at equal quality", () => {
     const result = assessCandidateUpgrade({
