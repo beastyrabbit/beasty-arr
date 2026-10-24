@@ -582,6 +582,73 @@ describe("24 October saved review regressions", () => {
     },
   );
 
+  it("lets upgrade lookups see German heard in a file probed during the AI run", async () => {
+    // A 31-file pack exceeds the upfront probe limit, so the German file is
+    // only inspected by the model before it asks for the upgrade context.
+    const client = new FakeArrClient();
+    client.episodes = [
+      {
+        id: 101,
+        seriesId: 5,
+        seasonNumber: 1,
+        episodeNumber: 1,
+        title: "Pilot",
+        hasFile: false,
+        series: { id: 5, qualityProfileId: 6 },
+      },
+    ];
+    client.getQualityProfiles = async () =>
+      [
+        {
+          id: 6,
+          name: "HD-1080p",
+          upgradeAllowed: true,
+          items: [
+            { quality: { id: 5, name: "WEBDL-720p" }, allowed: false },
+            { quality: { id: 3, name: "WEBDL-1080p" }, allowed: true },
+          ],
+        },
+      ] as never[];
+    const fillers = Array.from({ length: 30 }, (_, index) =>
+      makeCandidate(`f${index + 1}`, { languages: [{ id: 1, name: "English" }] }),
+    );
+    const german = makeCandidate("g31", {
+      quality: { quality: { id: 5, name: "WEBDL-720p" } },
+      qualityLabel: "WEBDL-720p",
+      releaseQuality: { quality: { id: 3, name: "WEBDL-1080p" } },
+    });
+    let decision: string | undefined;
+    await resolveQueueItem({
+      queueItem: makeQueueItem(),
+      candidates: [...fillers, german],
+      client,
+      prober: fakeProber({ [german.path]: { audio: [germanAudio()], hasGermanAudio: true } }),
+      runner: async (req) => {
+        await invokeLookupTool(req, "inspect_media_files", { candidateIds: ["g31"] });
+        const tool = (req.tools as ProposalToolLike[]).find(
+          (entry) => entry.name === "sonarr_get_upgrade_context",
+        );
+        const result = (await tool?.execute(
+          "lookup_2",
+          {},
+          undefined,
+          undefined,
+          undefined as never,
+        )) as {
+          details: {
+            upgradeAssessment: Array<{ candidateId: string; decision: string }>;
+          };
+        };
+        decision = result.details.upgradeAssessment.find(
+          (entry) => entry.candidateId === "g31",
+        )?.decision;
+        await invokeProposalTool(req, importProposal("g31"));
+        return { log: [] };
+      },
+    });
+    expect(decision).toBe("import");
+  });
+
   it("keeps a reordered pack whose files name each other's queued episodes", async () => {
     // Release order differs from Sonarr's: each file names the other target's
     // title, so each contradicts its mapping but the pack holds exactly the

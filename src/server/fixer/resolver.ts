@@ -350,15 +350,21 @@ function rememberEpisodes(state: SessionState, episodeIds: number[]): void {
 function createLookupTools(input: ResolveQueueItemInput, state: SessionState, step: Step) {
   const { queueItem } = input;
   const emit = toolEmitter(step);
+  // Upgrade lookups judge candidates with the latest probes, including files
+  // inspected during the AI run (packs over the upfront probe limit).
+  const verifiedCandidates = () => {
+    state.candidates = withVerifiedGerman(state.candidates, state.facts);
+    return state.candidates;
+  };
   if (queueItem.service === "radarr") {
     const client = input.client as RadarrFixerClientPort;
     return createRadarrLookupTools({
       client: client as unknown as RadarrClient,
       queueItem,
-      getCandidates: () => state.candidates,
+      getCandidates: verifiedCandidates,
       refreshCandidates: async () => {
         state.candidates = await client.getManualImportCandidates(queueItem);
-        return state.candidates;
+        return verifiedCandidates();
       },
       emit,
     });
@@ -367,14 +373,14 @@ function createLookupTools(input: ResolveQueueItemInput, state: SessionState, st
   return createSonarrLookupTools({
     client: client as unknown as SonarrClient,
     queueItem,
-    getCandidates: () => state.candidates,
+    getCandidates: verifiedCandidates,
     refreshCandidates: async () => {
       state.candidates = await client.getManualImportCandidates(queueItem);
       rememberEpisodes(
         state,
         state.candidates.flatMap((candidate) => candidate.episodeIds),
       );
-      return state.candidates;
+      return verifiedCandidates();
     },
     rememberEpisodeIds: (ids) => rememberEpisodes(state, ids),
     observeEpisodes: (episodes) => {
