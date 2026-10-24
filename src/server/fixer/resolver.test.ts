@@ -337,7 +337,16 @@ describe("24 October saved review regressions", () => {
     expect(withVerifiedGerman(first, facts)[0]?.germanAudioProbed).toBe(true);
   });
 
-  it("records library files the probe heard German in despite English labels", async () => {
+  it.each([
+    ["untagged German", { hasGermanAudio: true, audio: [{ title: "Deutsch" }] }, ["German"]],
+    [
+      "English only",
+      { hasGermanAudio: false, audio: [{ inferredLanguage: "eng" }], audioLanguages: ["eng"] },
+      ["eng"],
+    ],
+    // An untagged track could still be German, so no verdict.
+    ["an untagged track", { hasGermanAudio: false, audio: [{}], audioLanguages: [] }, undefined],
+  ] as const)("records the library's inspected audio for %s", async (_label, probe, expected) => {
     const { withVerifiedGerman, emptyFacts } = await import("./inspection.js");
     const capture = realReviewCapture("er-1465308286");
     const facts = emptyFacts("sonarr", undefined);
@@ -346,13 +355,13 @@ describe("24 October saved review regressions", () => {
       id: 7,
       label: "S10E14",
       titles: ["ER"],
-      currentFile: { path: libraryPath, languages: ["English"] },
+      currentFile: { id: 70, path: libraryPath, languages: ["English"] },
     });
-    expect(
-      withVerifiedGerman(capture.candidates, facts)[0]?.germanLibraryTargetIds,
-    ).toBeUndefined();
-    facts.probes.set(libraryPath, { ok: true, hasGermanAudio: true } as never);
-    expect(withVerifiedGerman(capture.candidates, facts)[0]?.germanLibraryTargetIds).toEqual([7]);
+    expect(withVerifiedGerman(capture.candidates, facts)[0]?.inspectedLibraryAudio).toBeUndefined();
+    facts.probes.set(libraryPath, { ok: true, ...probe } as never);
+    expect(withVerifiedGerman(capture.candidates, facts)[0]?.inspectedLibraryAudio?.[7]).toEqual(
+      expected && { fileId: 70, path: libraryPath, languages: expected },
+    );
   });
 
   const sequelMatches = [

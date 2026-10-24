@@ -122,7 +122,7 @@ export interface AssessUpgradeInput {
     | "quality"
     | "releaseQuality"
     | "germanAudioProbed"
-    | "germanLibraryTargetIds"
+    | "inspectedLibraryAudio"
     | "customFormatScore"
     | "languages"
   >;
@@ -139,20 +139,35 @@ export interface AssessUpgradeInput {
  * from the release name at grab time is allowed, assess and import it at that
  * release quality, as the arr itself rated it when grabbing.
  */
-export function assessCandidateUpgrade(input: AssessUpgradeInput): UpgradeAssessment {
+export function assessCandidateUpgrade(raw: AssessUpgradeInput): UpgradeAssessment {
+  // The library file's languages as inspection heard them outrank the arr's
+  // labels, which miss untagged German tracks and mislabel English ones, but
+  // only while the library file is still the one inspected: a saved verdict
+  // must not judge a file imported since, even under the same name.
+  const inspected =
+    raw.episode?.id !== undefined
+      ? raw.candidate.inspectedLibraryAudio?.[raw.episode.id]
+      : undefined;
+  const file = raw.episode?.episodeFile;
+  const input =
+    inspected &&
+    file?.id !== undefined &&
+    file.id === inspected.fileId &&
+    file.path === inspected.path
+      ? {
+          ...raw,
+          episode: { ...raw.episode, episodeFile: { ...file, languages: inspected.languages } },
+        }
+      : raw;
   const { candidate, episode, profile } = input;
   const ranking = profile ? rankProfile(profile) : undefined;
   const detected = parseQuality(candidate.quality);
   const release = parseQuality(candidate.releaseQuality);
   const existingLanguages = episode?.episodeFile?.languages ?? [];
-  const libraryHeardGerman =
-    episode?.id !== undefined && (candidate.germanLibraryTargetIds ?? []).includes(episode.id);
   const addsGerman =
     hasGermanAudio(candidate.languages) &&
     ((episode?.hasFile !== true && episode?.episodeFile === undefined) ||
-      (!libraryHeardGerman &&
-        hasKnownLanguageMetadata(existingLanguages) &&
-        !hasGermanAudio(existingLanguages)));
+      (hasKnownLanguageMetadata(existingLanguages) && !hasGermanAudio(existingLanguages)));
   if (
     !episode ||
     !ranking ||

@@ -96,8 +96,13 @@ export interface ManualImportCandidate {
   releaseQuality?: unknown;
   /** Inspection heard German audio in this file (not just a release-name label). */
   germanAudioProbed?: boolean;
-  /** Queued targets whose library file inspection heard German in, despite arr labels. */
-  germanLibraryTargetIds?: number[];
+  /**
+   * Audio languages inspection heard in each queued target's library file, by
+   * target id with the inspected file's arr id and path; the upgrade
+   * assessment trusts them over the arr's labels while that file is still the
+   * library file.
+   */
+  inspectedLibraryAudio?: Record<number, { fileId: number; path: string; languages: string[] }>;
   languages: unknown[];
   languageLabels: string[];
   releaseGroup?: string;

@@ -117,22 +117,47 @@ describe("assessCandidateUpgrade", () => {
     },
   );
 
-  it("refuses the override when inspection heard German in an English-labelled library file", () => {
-    const result = assessCandidateUpgrade({
-      candidate: {
-        ...candidate({ quality: quality(5, "WEBDL-720p"), languages: [{ id: 4, name: "German" }] }),
-        releaseQuality,
-        germanAudioProbed: true,
-        germanLibraryTargetIds: [101],
-      },
-      episode: episode({
-        episodeFile: { quality: quality(5, "WEBDL-720p"), languages: [{ id: 1, name: "English" }] },
-      }),
-      profile,
-    });
-    expect(result).toMatchObject({ decision: "skip" });
-    expect(result.importQuality).toBeUndefined();
-  });
+  // The library file's inspected audio outranks the arr's labels both ways,
+  // but only for the file that was inspected.
+  const libraryPath = "/tv/Show/Season 01/Show.S01E01.mkv";
+  it.each([
+    ["German", ["eng"], libraryPath, 10, "import"],
+    ["no", ["eng"], libraryPath, 10, "import"],
+    ["English", ["eng"], libraryPath, 10, "import"],
+    ["English", ["German"], libraryPath, 10, "skip"],
+    // A German file imported since the analysis: the saved verdict is stale,
+    // whether it got a new name or reused the old one under a new file id.
+    ["German", ["eng"], "/tv/Show/Season 01/Show.S01E01.Old.mkv", 10, "skip"],
+    ["German", ["eng"], libraryPath, 9, "skip"],
+  ] as const)(
+    "judges the override for %s library labels when inspection heard %j in %s (file %i)",
+    (label, heard, inspectedPath, inspectedFileId, expected) => {
+      const result = assessCandidateUpgrade({
+        candidate: {
+          ...candidate({
+            quality: quality(5, "WEBDL-720p"),
+            languages: [{ id: 4, name: "German" }],
+          }),
+          releaseQuality,
+          germanAudioProbed: true,
+          inspectedLibraryAudio: {
+            101: { fileId: inspectedFileId, path: inspectedPath, languages: [...heard] },
+          },
+        },
+        episode: episode({
+          episodeFile: {
+            id: 10,
+            path: libraryPath,
+            quality: quality(5, "WEBDL-720p"),
+            languages: label === "no" ? [] : [{ id: label === "German" ? 4 : 1, name: label }],
+          },
+        }),
+        profile,
+      });
+      expect(result.decision).toBe(expected);
+      expect(result.importQuality).toEqual(expected === "import" ? releaseQuality : undefined);
+    },
+  );
 
   it("imports a higher custom format score at equal quality", () => {
     const result = assessCandidateUpgrade({

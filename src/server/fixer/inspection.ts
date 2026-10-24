@@ -63,6 +63,8 @@ export interface TargetFacts {
   /** Plot synopsis, so dialogue can confirm the target by content. */
   synopsis?: string;
   currentFile?: {
+    /** The arr's file id; a replacement under the same path gets a new one. */
+    id?: number;
     path?: string;
     quality?: string;
     languages: string[];
@@ -188,6 +190,7 @@ function movieTarget(
     synopsis: movie.overview?.slice(0, 300),
     currentFile: file
       ? {
+          id: file.id,
           path: file.path,
           quality: qualityName(file.quality),
           languages: (file.languages ?? []).map(valueName).filter(Boolean),
@@ -219,6 +222,7 @@ function episodeTarget(episode: SonarrEpisodeRecord): TargetFacts | undefined {
     currentFile:
       episode.hasFile && file
         ? {
+            id: file.id,
             path: file.path,
             quality: qualityName(file.quality),
             languages: (file.languages ?? []).map(valueName).filter(Boolean),
@@ -240,35 +244,51 @@ const GERMAN_LANGUAGE = { id: 4, name: "German" };
 /**
  * Adds German to the arr's language labels of candidates whose inspected audio
  * has German the labels missed (an untagged track titled "Deutsch", say), so
- * the arr-side upgrade and language checks judge the real file, and marks
- * candidates whose probe heard German audio.
+ * the arr-side upgrade and language checks judge the real file. Marks
+ * candidates whose probe heard German audio and carries the library files'
+ * inspected audio languages for the upgrade assessment.
  */
 export function withVerifiedGerman(
   candidates: ManualImportCandidate[],
   facts: InspectionFacts,
 ): ManualImportCandidate[] {
-  // Library files the probe heard German in, whatever the arr's labels say.
-  const germanLibraryTargetIds = [...facts.targets.values()].flatMap((target) => {
-    const probe = target.currentFile?.path ? facts.probes.get(target.currentFile.path) : undefined;
-    return probe?.ok && probe.hasGermanAudio ? [target.id] : [];
-  });
+  // The library file's audio languages as the probe heard them, whatever the
+  // arr's labels say: German when any track is, otherwise the tracks' languages
+  // only when every track has one (an untagged track could still be German).
+  // Each verdict names the file it describes (arr file id and path), so a
+  // later library file, even one imported under the same name, is not judged
+  // by it.
+  const inspectedLibraryAudio: ManualImportCandidate["inspectedLibraryAudio"] = Object.fromEntries(
+    [...facts.targets.values()].flatMap((target) => {
+      const fileId = target.currentFile?.id;
+      const path = target.currentFile?.path;
+      const probe = path ? facts.probes.get(path) : undefined;
+      if (fileId === undefined || !path || !probe?.ok) return [];
+      const known =
+        probe.audio.length > 0 &&
+        probe.audio.every((stream) => stream.inferredLanguage && stream.inferredLanguage !== "und");
+      if (!probe.hasGermanAudio && !known) return [];
+      const languages = probe.hasGermanAudio ? [GERMAN_LANGUAGE.name] : probe.audioLanguages;
+      return [[target.id, { fileId, path, languages }]];
+    }),
+  );
+  const hasInspectedLibrary = Object.keys(inspectedLibraryAudio).length > 0;
   return candidates.map((original) => {
     const probe = facts.probes.get(original.path);
     // The release-quality exception (upgrade.ts) exists for German audio, so it
-    // needs German the probe heard, not a release-name label (GERMAN.SUBBED),
-    // and a library file without German by inspection, not by label.
+    // needs German the probe heard, not a release-name label (GERMAN.SUBBED).
     // Recomputed on every pass, so files probed late (packs over the upfront
     // probe limit) gain it once inspected.
     const heard = probe?.ok === true && probe.hasGermanAudio;
     const {
       germanAudioProbed: _previous,
-      germanLibraryTargetIds: _previousLibrary,
+      inspectedLibraryAudio: _previousLibrary,
       ...rest
     } = original;
     const candidate: ManualImportCandidate = {
       ...rest,
       ...(heard ? { germanAudioProbed: true } : {}),
-      ...(germanLibraryTargetIds.length > 0 ? { germanLibraryTargetIds } : {}),
+      ...(hasInspectedLibrary ? { inspectedLibraryAudio } : {}),
     };
     if (!heard || hasGermanAudio(candidate.languages)) {
       return candidate;
