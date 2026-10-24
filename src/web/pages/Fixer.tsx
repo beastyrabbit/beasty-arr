@@ -308,6 +308,10 @@ export function FixerPage() {
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(420px,5fr)_minmax(420px,6fr)]">
         {/* left: stuck queue */}
         <Panel>
+          <p className="border-b border-line px-3 py-2 text-[12px] text-muted">
+            {items.length} stuck downloads. Season packs share one row; downloads still in progress
+            are excluded.
+          </p>
           <QueryError query={queue} />
           {queue.data?.unavailableServices?.length ? (
             <div role="alert" className="p-3 text-[12px] text-missing">
@@ -905,6 +909,11 @@ function ProposalCard({
   return (
     <Panel title={analysis.itemLabel}>
       <div className="flex flex-col gap-3 p-3">
+        <p className="text-[12px] text-muted">
+          Saved analysis from {new Date(analysis.createdAt).toLocaleString()}. Refresh updates the
+          queue. Analyze all and Run all reassess reviews from older app versions once per release.
+          Use Analyze selected to reassess now.
+        </p>
         {/* verdict banner */}
         <div
           className="flex items-center gap-2 rounded-[6px] border px-3 py-2 text-[13px] font-medium"

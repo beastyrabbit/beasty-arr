@@ -3,7 +3,11 @@ import type { ManualImportCandidate, MediaService, QueueItem } from "../../share
 import type { ArrMediaInfo } from "../arr/http-util.js";
 import type { RadarrClient, RadarrMovieRecord } from "../arr/radarr-client.js";
 import { isDiscStreamPath } from "../arr/sample.js";
-import type { SonarrClient, SonarrEpisodeRecord } from "../arr/sonarr-client.js";
+import type {
+  SonarrClient,
+  SonarrEpisodeRecord,
+  SonarrSeriesRecord,
+} from "../arr/sonarr-client.js";
 import { germanTagTitleConflict } from "../media/probe.js";
 import type { MediaProbeResult, MediaProber, ProbeSubtitleStream } from "../media/types.js";
 
@@ -21,6 +25,10 @@ export interface InspectionFacts {
   parse?: IndependentParse;
   /** Queued movie or target episodes, keyed by movie id / episode id. */
   targets: Map<number, TargetFacts>;
+  /** Read-only episode/arc lookups used to back a wrong-placement verdict. */
+  episodeCatalog?: Map<number, SonarrEpisodeRecord>;
+  series?: SonarrSeriesRecord;
+  unmatchedEpisodeTitles?: string[];
 }
 
 export interface IndependentParse {
@@ -39,6 +47,11 @@ export interface IndependentParse {
 export interface TargetFacts {
   id: number;
   label: string;
+  seasonNumber?: number;
+  /** XEM scene season, which alternates bound only to a scene season use. */
+  sceneSeasonNumber?: number;
+  episodeNumber?: number;
+  episodeTitle?: string;
   /** Movie release year, or the year an episode first aired. */
   year?: number;
   /** The year the episode's series first aired (Sonarr); release names carry this year. */
@@ -191,6 +204,10 @@ function episodeTarget(episode: SonarrEpisodeRecord): TargetFacts | undefined {
   return {
     id: episode.id,
     label: [episodeCode(episode), episode.title].filter(Boolean).join(" "),
+    seasonNumber: episode.seasonNumber,
+    sceneSeasonNumber: episode.sceneSeasonNumber,
+    episodeNumber: episode.episodeNumber,
+    episodeTitle: episode.title,
     year: Number((episode.airDate ?? episode.airDateUtc)?.slice(0, 4)) || undefined,
     seriesYear: episode.series?.year || undefined,
     titles: knownTitles([
@@ -223,15 +240,37 @@ const GERMAN_LANGUAGE = { id: 4, name: "German" };
 /**
  * Adds German to the arr's language labels of candidates whose inspected audio
  * has German the labels missed (an untagged track titled "Deutsch", say), so
- * the arr-side upgrade and language checks judge the real file.
+ * the arr-side upgrade and language checks judge the real file, and marks
+ * candidates whose probe heard German audio.
  */
 export function withVerifiedGerman(
   candidates: ManualImportCandidate[],
   facts: InspectionFacts,
 ): ManualImportCandidate[] {
-  return candidates.map((candidate) => {
-    const probe = facts.probes.get(candidate.path);
-    if (!probe?.ok || !probe.hasGermanAudio || hasGermanAudio(candidate.languages)) {
+  // Library files the probe heard German in, whatever the arr's labels say.
+  const germanLibraryTargetIds = [...facts.targets.values()].flatMap((target) => {
+    const probe = target.currentFile?.path ? facts.probes.get(target.currentFile.path) : undefined;
+    return probe?.ok && probe.hasGermanAudio ? [target.id] : [];
+  });
+  return candidates.map((original) => {
+    const probe = facts.probes.get(original.path);
+    // The release-quality exception (upgrade.ts) exists for German audio, so it
+    // needs German the probe heard, not a release-name label (GERMAN.SUBBED),
+    // and a library file without German by inspection, not by label.
+    // Recomputed on every pass, so files probed late (packs over the upfront
+    // probe limit) gain it once inspected.
+    const heard = probe?.ok === true && probe.hasGermanAudio;
+    const {
+      germanAudioProbed: _previous,
+      germanLibraryTargetIds: _previousLibrary,
+      ...rest
+    } = original;
+    const candidate: ManualImportCandidate = {
+      ...rest,
+      ...(heard ? { germanAudioProbed: true } : {}),
+      ...(germanLibraryTargetIds.length > 0 ? { germanLibraryTargetIds } : {}),
+    };
+    if (!heard || hasGermanAudio(candidate.languages)) {
       return candidate;
     }
     return {

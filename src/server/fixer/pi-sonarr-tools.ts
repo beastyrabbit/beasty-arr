@@ -13,6 +13,7 @@ import type {
   SonarrSeriesRecord,
 } from "../arr/sonarr-client.js";
 import { compactCandidate, episodeLabel } from "../arr/sonarr-format.js";
+import { replacementFileSets } from "../arr/sonarr-replacement.js";
 import { assessImportMappings } from "./upgrade.js";
 
 type SonarrToolEvent = {
@@ -30,6 +31,9 @@ interface CreateSonarrLookupToolsInput {
   getCandidates: () => ManualImportCandidate[];
   refreshCandidates?: () => Promise<ManualImportCandidate[]>;
   rememberEpisodeIds?: (episodeIds: number[]) => void;
+  observeEpisodes?: (episodes: SonarrEpisodeRecord[]) => void;
+  observeSeries?: (series: SonarrSeriesRecord) => void;
+  observeUnmatchedTitle?: (title: string) => void;
   emit?: EmitEvent;
 }
 
@@ -197,6 +201,9 @@ export function createSonarrLookupTools({
   getCandidates,
   refreshCandidates,
   rememberEpisodeIds,
+  observeEpisodes,
+  observeSeries,
+  observeUnmatchedTitle,
   emit,
 }: CreateSonarrLookupToolsInput) {
   const getQueueContextTool = defineTool({
@@ -218,6 +225,8 @@ export function createSonarrLookupTools({
           : undefined,
       ]);
       rememberEpisodeIds?.(targetEpisodes.flatMap((episode) => (episode.id ? [episode.id] : [])));
+      observeEpisodes?.(targetEpisodes);
+      if (series) observeSeries?.(series);
       const details = {
         series: series ? compactSeries(series) : undefined,
         queueItem: {
@@ -292,6 +301,12 @@ export function createSonarrLookupTools({
         episodes = await safeGetTargetEpisodes(client, queueItem);
       }
 
+      observeEpisodes?.(episodes);
+      const series = seriesId
+        ? await client.getSeriesById?.(seriesId).catch(() => undefined)
+        : undefined;
+      if (series) observeSeries?.(series);
+
       const absoluteEpisodeNumber =
         typeof params.absoluteEpisodeNumber === "number" ? params.absoluteEpisodeNumber : undefined;
       if (absoluteEpisodeNumber !== undefined) {
@@ -308,12 +323,23 @@ export function createSonarrLookupTools({
         episodes = episodes.filter((episode) =>
           episode.title?.toLowerCase().includes(titleContains),
         );
+        // Only a whole-series search of the queued series shows it lacks the title.
+        if (
+          episodes.length === 0 &&
+          seriesId === queueItem.seriesId &&
+          params.seasonNumber === undefined &&
+          !exactEpisodeIds &&
+          absoluteEpisodeNumber === undefined
+        ) {
+          observeUnmatchedTitle?.(params.titleContains?.trim() ?? "");
+        }
       }
       rememberEpisodeIds?.(episodes.flatMap((episode) => (episode.id ? [episode.id] : [])));
 
       const truncated = episodes.length > 350;
       const details = {
         seriesId,
+        series: series ? compactSeries(series) : undefined,
         filter: params,
         truncated,
         count: episodes.length,
@@ -346,6 +372,8 @@ export function createSonarrLookupTools({
     async execute(_toolCallId, params) {
       const title = params.title?.trim() || queueItem.title;
       const result = await client.parseRelease(title);
+      if (result.series) observeSeries?.(result.series);
+      observeEpisodes?.(result.episodes ?? []);
       const info = result.parsedEpisodeInfo;
       const details = {
         title,
@@ -547,6 +575,7 @@ export function createSonarrLookupTools({
           statusMessages: queueItem.statusMessages,
         },
         upgradeAssessment,
+        replacementFileSets: await replacementFileSets(client, episodes),
         targetEpisodes: episodes.map((episode) => ({
           ...compactEpisode(episode),
           series: episode.series

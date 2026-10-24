@@ -10,6 +10,7 @@ import {
   realMentalistCandidate,
   realMentalistExistingEpisode,
   realMentalistQueueItem,
+  realReviewCapture,
 } from "./real-world-fixtures.js";
 
 type ExecutableTool = {
@@ -35,6 +36,69 @@ async function executeTool(
 }
 
 describe("fixer upgrade-context tools", () => {
+  it("shows Bleach's season-bound arc titles in episode lookups", async () => {
+    const capture = realReviewCapture("bleach-part4");
+    const client = {
+      getEpisodes: async () => capture.catalog,
+      getSeriesById: async () => capture.series,
+    } as unknown as SonarrClient;
+    const tools = createSonarrLookupTools({
+      client,
+      queueItem: capture.queueItem,
+      getCandidates: () => capture.candidates,
+    });
+    const details = await executeTool(tools, "sonarr_find_episodes");
+    const series = details.series as {
+      alternateTitles: Array<{ title: string; seasonNumber: number }>;
+    };
+    expect(series.alternateTitles).toContainEqual({
+      title: "Bleach - Sennen Kessen-hen",
+      seasonNumber: 17,
+    });
+  });
+
+  it.each([
+    ["the queued series", undefined, ["Ein ganz besonderes Geschenk"]],
+    // A sequel or other series lacking the title says nothing about the queued one.
+    ["another series", 999, []],
+  ] as const)("records an unmatched title searched in %s", async (_label, seriesId, expected) => {
+    const capture = realReviewCapture("benjamin");
+    const unmatched: string[] = [];
+    const client = {
+      getEpisodes: async () => capture.catalog,
+      getSeriesById: async () => capture.series,
+    } as unknown as SonarrClient;
+    const tools = createSonarrLookupTools({
+      client,
+      queueItem: capture.queueItem,
+      getCandidates: () => capture.candidates,
+      observeUnmatchedTitle: (title) => unmatched.push(title),
+    });
+    await executeTool(tools, "sonarr_find_episodes", {
+      titleContains: "Ein ganz besonderes Geschenk",
+      ...(seriesId ? { seriesId } : {}),
+    });
+    expect(unmatched).toEqual(expected);
+  });
+
+  it("shows every episode sharing Blacklist's wrongly associated season file", async () => {
+    const capture = realReviewCapture("blacklist");
+    const client = {
+      getEpisodes: async () => capture.episodes,
+      getQualityProfiles: async () => [],
+      getCustomFormats: async () => [],
+    } as unknown as SonarrClient;
+    const tools = createSonarrLookupTools({
+      client,
+      queueItem: capture.queueItem,
+      getCandidates: () => capture.candidates,
+    });
+    const details = await executeTool(tools, "sonarr_get_upgrade_context");
+    expect(details.replacementFileSets).toEqual([
+      { episodeFileId: 198627, episodeIds: Array.from({ length: 20 }, (_, index) => 8040 + index) },
+    ]);
+  });
+
   it("makes a Sonarr German-to-English conflict explicit to the model", async () => {
     const episodes: SonarrEpisodeRecord[] = [realMentalistExistingEpisode()];
     const client = {

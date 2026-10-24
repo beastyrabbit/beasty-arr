@@ -21,6 +21,7 @@ import type { EventBus } from "../events/bus.js";
 import { isAiVerdictValue } from "../hunt/state.js";
 import type { MediaProber } from "../media/types.js";
 import { reportError } from "../telemetry/report.js";
+import { APP_VERSION } from "../version.js";
 import type { FixerAnalysisEvent, FixerPiRunner } from "./ai-port.js";
 import { toResolverEvent } from "./events-map.js";
 import {
@@ -575,6 +576,18 @@ export class FixerService {
         .get();
       if (!row) return false;
     }
+    // Genuine holds cost nothing again until a new release can reconsider them.
+    // pendingOnly runs with auto-run off and must not spend AI on held proposals.
+    if (
+      row.status === "completed" &&
+      row.proposal &&
+      resultStatus(
+        row.proposal as unknown as ResolutionProposal,
+        (row.validation ?? { ok: false, issues: [] }) as unknown as ValidationResult,
+      ) === "needs_review" &&
+      row.proposal.analyzedByVersion !== APP_VERSION
+    )
+      return !pendingOnly && this.latestApply(row.id)?.result !== "ok";
     if (
       row.status !== "completed" ||
       !row.proposal ||
@@ -952,7 +965,7 @@ export class FixerService {
           status,
           completedAt: this.now(),
           events: [...events],
-          proposal: result ? (result.proposal as unknown as Record<string, unknown>) : null,
+          proposal: result ? { ...result.proposal, analyzedByVersion: APP_VERSION } : null,
           validation: result ? (result.validation as unknown as Record<string, unknown>) : null,
           candidates: result ? (result.candidates as unknown[]) : null,
           error: error ?? null,

@@ -36,6 +36,9 @@ export function animeTitleConflict(
     if (episode.id === selectedEpisode.id) return false;
     const title = usefulTitle(episode.title);
     if (title === null || title === seriesTitle) return false;
+    // A stem of the selected title ("The Last Battle" for "The Last Battle (2)")
+    // is in every file of a multipart episode, however its part is spelled.
+    if (selectedTitle.includes(title)) return false;
     return candidateText.includes(title);
   });
   if (!conflicting?.title) return null;

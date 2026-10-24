@@ -11,6 +11,7 @@ const profile: SonarrQualityProfileRecord = {
   cutoffFormatScore: 10_000,
   minUpgradeFormatScore: 1,
   items: [
+    { quality: { id: 5, name: "WEBDL-720p" }, allowed: false },
     { quality: { id: 1, name: "HDTV-720p" }, allowed: true },
     {
       id: 1000,
@@ -55,7 +56,7 @@ describe("assessCandidateUpgrade", () => {
     expect(result.decision).toBe("import");
   });
 
-  it("skips a file whose quality the profile does not allow, even for a missing target", () => {
+  it("skips a non-German file whose quality the profile does not allow, even for a missing target", () => {
     const result = assessCandidateUpgrade({
       candidate: candidate({ quality: quality(19, "Bluray-2160p") }),
       episode: episode({ hasFile: false }),
@@ -75,6 +76,62 @@ describe("assessCandidateUpgrade", () => {
     });
     expect(result).toMatchObject({ decision: "skip" });
     expect(result.reason).toContain("not an upgrade");
+  });
+
+  // Batman TAS and ER S10E14: German "1080p" releases that inspection measures
+  // as WEBDL-720p, which HD-1080p excludes, over English 1080p library files.
+  const releaseQuality = quality(3, "WEBDL-1080p");
+  it.each([
+    ["missing target", false, undefined, releaseQuality, true, "import"],
+    ["English library", true, [{ id: 1, name: "English" }], releaseQuality, true, "import"],
+    ["German library", true, [{ id: 4, name: "German" }], releaseQuality, true, "skip"],
+    ["unknown library language", true, [], releaseQuality, true, "skip"],
+    ["missing release quality", false, undefined, undefined, true, "skip"],
+    ["disallowed release quality", false, undefined, quality(19, "Bluray-2160p"), true, "skip"],
+    // A German release-name label the probe did not confirm (GERMAN.SUBBED).
+    ["German label without probed audio", false, undefined, releaseQuality, false, "skip"],
+  ] as const)(
+    "judges disallowed German quality for a %s",
+    (_label, hasFile, languages, release, probed, expected) => {
+      const result = assessCandidateUpgrade({
+        candidate: {
+          ...candidate({
+            quality: quality(5, "WEBDL-720p"),
+            languages: [{ id: 4, name: "German" }],
+          }),
+          releaseQuality: release,
+          germanAudioProbed: probed,
+        },
+        episode: episode({
+          hasFile,
+          episodeFile: hasFile
+            ? { quality: quality(3, "WEBDL-1080p"), languages: [...(languages ?? [])] }
+            : undefined,
+        }),
+        profile,
+      });
+      expect(result.decision).toBe(expected);
+      // A lower label would make the arr replace the German file with any
+      // non-German 1080p, so the import carries the release quality.
+      expect(result.importQuality).toEqual(expected === "import" ? releaseQuality : undefined);
+    },
+  );
+
+  it("refuses the override when inspection heard German in an English-labelled library file", () => {
+    const result = assessCandidateUpgrade({
+      candidate: {
+        ...candidate({ quality: quality(5, "WEBDL-720p"), languages: [{ id: 4, name: "German" }] }),
+        releaseQuality,
+        germanAudioProbed: true,
+        germanLibraryTargetIds: [101],
+      },
+      episode: episode({
+        episodeFile: { quality: quality(5, "WEBDL-720p"), languages: [{ id: 1, name: "English" }] },
+      }),
+      profile,
+    });
+    expect(result).toMatchObject({ decision: "skip" });
+    expect(result.importQuality).toBeUndefined();
   });
 
   it("imports a higher custom format score at equal quality", () => {
@@ -269,6 +326,48 @@ describe("assessCandidateUpgrade", () => {
 });
 
 describe("assessImportMappings", () => {
+  it.each([
+    ["one episode already German", [{ id: 4, name: "German" }], "skip", undefined],
+    ["both episodes lacking German", [{ id: 1, name: "English" }], "import", true],
+  ] as const)(
+    "judges the release-quality override for a two-episode file with %s",
+    (_label, secondLanguages, expected, relabeled) => {
+      // E01 is missing; E02 has a 720p file. The German file measures WEBDL-720p
+      // (outside HD-1080p) and was grabbed as WEBDL-1080p.
+      const file: ManualImportCandidate = {
+        id: "candidate_1",
+        service: "sonarr",
+        path: "/downloads/pack/e01e02.mkv",
+        episodeIds: [101, 102],
+        absoluteEpisodeNumbers: [],
+        episodeLabels: [],
+        languageLabels: ["German"],
+        rejections: [],
+        isLikelySample: false,
+        ...candidate({ quality: quality(5, "WEBDL-720p"), languages: [{ id: 4, name: "German" }] }),
+        releaseQuality: quality(3, "WEBDL-1080p"),
+        germanAudioProbed: true,
+      };
+      const [result] = assessImportMappings({
+        imports: [{ candidateId: "candidate_1", episodeIds: [101, 102] }],
+        candidatesById: new Map([["candidate_1", file]]),
+        episodesById: new Map<number, SonarrEpisodeRecord>([
+          [101, episode({ id: 101, hasFile: false })],
+          [
+            102,
+            episode({
+              id: 102,
+              episodeFile: { quality: quality(5, "WEBDL-720p"), languages: [...secondLanguages] },
+            }),
+          ],
+        ]),
+        profilesById: new Map([[6, profile]]),
+      });
+      expect(result?.assessment.decision).toBe(expected);
+      expect(result?.assessment.importQuality !== undefined || undefined).toBe(relabeled);
+    },
+  );
+
   it("aggregates per file: blocked, then unverified, then import; skip only when every target is satisfied", () => {
     const base: ManualImportCandidate = {
       id: "candidate_1",

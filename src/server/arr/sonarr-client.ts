@@ -20,6 +20,7 @@ import { type ArrClientOptions, type ArrMediaInfo, arrFetch } from "./http-util.
 import { type ImportVerificationOptions, verifyManualImport } from "./import-verification.js";
 import { detectLikelySample, isDiscStreamPath } from "./sample.js";
 import { episodeLabel } from "./sonarr-format.js";
+import { replacementFileSets } from "./sonarr-replacement.js";
 
 export class SonarrRequestError extends Error {
   constructor(
@@ -93,6 +94,7 @@ type SonarrQueueRecord = {
   outputPath?: string;
   downloadId?: string;
   added?: string;
+  quality?: unknown;
   seriesId?: number;
   series?: {
     id?: number;
@@ -138,6 +140,7 @@ export type SonarrSeriesRecord = {
   qualityProfileId?: number;
   languageProfileId?: number;
   seriesType?: string;
+  originalLanguage?: { id?: number; name?: string };
   path?: string;
 };
 
@@ -456,6 +459,7 @@ function normalizeQueueRecord(record: SonarrQueueRecord): QueueItem {
     isInProgress,
     size: record.size,
     outputPath: record.outputPath,
+    quality: record.quality,
     episodeIds,
     absoluteEpisodeNumbers,
     episodeLabels,
@@ -521,12 +525,13 @@ function normalizeManualImportRecord(
 
 function normalizeManualImportRecords(
   records: SonarrManualImportRecord[],
+  releaseQuality: unknown,
 ): ManualImportCandidate[] {
   const candidates: ManualImportCandidate[] = [];
   for (const [index, record] of records.entries()) {
     const candidate = normalizeManualImportRecord(record, index);
     if (candidate.path) {
-      candidates.push(candidate);
+      candidates.push(releaseQuality ? { ...candidate, releaseQuality } : candidate);
     }
   }
   return candidates;
@@ -892,7 +897,7 @@ export class SonarrClient {
         filterExistingFiles: false,
       });
       const records = await this.request<SonarrManualImportRecord[]>(path);
-      return normalizeManualImportRecords(records);
+      return normalizeManualImportRecords(records, queueItem.quality);
     };
 
     try {
@@ -902,7 +907,7 @@ export class SonarrClient {
           filterExistingFiles: false,
         }),
       );
-      const candidates = normalizeManualImportRecords(records);
+      const candidates = normalizeManualImportRecords(records, queueItem.quality);
       if (candidates.length === 0 && queueItem.outputPath) {
         return loadFromFolder();
       }
@@ -968,7 +973,7 @@ export class SonarrClient {
           folderName: candidate.folderName,
           seriesId: candidate.seriesId,
           episodeIds: resolveImportEpisodeIds(normalizedProposal, candidateId),
-          quality: candidate.quality,
+          quality: preflight.importQualities?.[candidateId] ?? candidate.quality,
           languages: candidate.languages,
           releaseGroup: candidate.releaseGroup,
           indexerFlags: candidate.indexerFlags,
@@ -1113,11 +1118,39 @@ export class SonarrClient {
     if (upgradeBlocks.length > 0) {
       return { ok: false, message: upgradeBlocks.join(" ") };
     }
+    const selectedEpisodes = new Set(
+      normalizedProposal.selectedImports.flatMap((i) => i.episodeIds),
+    );
+    const replacementSets = await replacementFileSets(
+      this,
+      [...episodesById.values()].filter((episode) => selectedEpisodes.has(episode.id ?? 0)),
+    );
+    const uncovered = replacementSets.flatMap((set) =>
+      set.episodeIds.filter((id) => !selectedEpisodes.has(id)),
+    );
+    if (uncovered.length > 0) {
+      return {
+        ok: false,
+        message: `Replacing a shared library file would lose episodes ${uncovered.join(", ")}. Select confirmed replacements for every episode sharing that file.`,
+      };
+    }
     const leftover = leftoverDisposition(
       leftovers,
       assessed.filter((item) => !selectedIds.has(item.candidateId)),
     );
-    return { ok: true, leftover, message: "Sonarr import proposal passed preflight." };
+    const importQualities = Object.fromEntries(
+      assessed.flatMap((item) =>
+        selectedIds.has(item.candidateId) && item.assessment.importQuality
+          ? [[item.candidateId, item.assessment.importQuality]]
+          : [],
+      ),
+    );
+    return {
+      ok: true,
+      leftover,
+      importQualities,
+      message: "Sonarr import proposal passed preflight.",
+    };
   }
 
   /**

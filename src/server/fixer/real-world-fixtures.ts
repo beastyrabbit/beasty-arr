@@ -6,7 +6,35 @@
  */
 import type { ManualImportCandidate, QueueItem } from "../../shared/fixer-types.js";
 import type { RadarrMovieRecord } from "../arr/radarr-client.js";
-import type { SonarrEpisodeRecord } from "../arr/sonarr-client.js";
+import type { SonarrEpisodeRecord, SonarrSeriesRecord } from "../arr/sonarr-client.js";
+import type { MediaProbeOk } from "../media/types.js";
+import type { IndependentParse } from "./inspection.js";
+import reviewCaptures from "./review-captures.json" with { type: "json" };
+
+/** Read-only 24 October queue/inspection captures. Only repeated path roots were sanitized.
+ * Batman S02 uses one representative of the five already-confirmed mapped imports;
+ * S03 keeps the three incorrectly mapped files plus the sequel episode catalog.
+ * The private replay retains every file.
+ */
+export function realReviewCapture(key: string) {
+  const capture = structuredClone(reviewCaptures.find((entry) => entry.key === key));
+  if (!capture) throw new Error(`Unknown review capture ${key}`);
+  return {
+    queueItem: capture.queueItem as QueueItem,
+    candidates: capture.candidates.map((candidate) => ({
+      absoluteEpisodeNumbers: [],
+      episodeLabels: [],
+      languageLabels: candidate.languages.map((language) => language.name),
+      ...candidate,
+    })) as ManualImportCandidate[],
+    episodes: capture.episodes as SonarrEpisodeRecord[],
+    series: capture.series as SonarrSeriesRecord,
+    catalog: capture.catalog as SonarrEpisodeRecord[],
+    probes: capture.probes as unknown as Record<string, Partial<MediaProbeOk>>,
+    parse: capture.parse as IndependentParse | undefined,
+    mapping: capture.mapping,
+  };
+}
 
 export function realMentalistQueueItem(): QueueItem {
   return {

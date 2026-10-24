@@ -1,0 +1,5074 @@
+[
+  {
+    "key": "batman2",
+    "queueItem": {
+      "id": 264411175,
+      "service": "sonarr",
+      "title": "Batman.The.Animated.Series.S02.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX",
+      "seriesId": 1064,
+      "seriesTitle": "Batman: The Animated Series",
+      "seriesType": "standard",
+      "downloadId": "0fa6b43c-efb6-4c5d-ba99-4e7d2b5dc50f",
+      "status": "completed",
+      "trackedDownloadStatus": "warning",
+      "trackedDownloadState": "importBlocked",
+      "outputPath": "/fixture/Batman.The.Animated.Series.S02.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX",
+      "episodeIds": [65874, 65873, 65871, 65867, 65868, 65872, 65866, 65869, 65870, 65875],
+      "absoluteEpisodeNumbers": [68],
+      "episodeLabels": ["S02E09 - Trial"],
+      "seasonEpisode": "S02E09",
+      "statusMessages": [
+        "One or more episodes expected in this release were not imported or missing from the release",
+        "Batman.The.Animated.Series.S02E01.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX.mkv"
+      ],
+      "canAnalyze": true
+    },
+    "candidates": [
+      {
+        "id": "candidate_1",
+        "service": "sonarr",
+        "path": "/fixture/Batman.The.Animated.Series.S02.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX/Batman.The.Animated.Series.S02E02.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX.mkv",
+        "relativePath": "Batman.The.Animated.Series.S02E02.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX.mkv",
+        "seriesId": 1064,
+        "episodeIds": [65867],
+        "quality": {
+          "quality": {
+            "id": 5,
+            "name": "WEBDL-720p",
+            "source": "web",
+            "resolution": 720
+          },
+          "revision": {
+            "version": 1,
+            "real": 0,
+            "isRepack": false
+          }
+        },
+        "qualityLabel": "WEBDL-720p",
+        "languages": [
+          {
+            "id": 4,
+            "name": "German"
+          },
+          {
+            "id": 1,
+            "name": "English"
+          }
+        ],
+        "customFormatScore": 12980,
+        "rejections": [
+          "Not an upgrade for existing episode file(s). Existing quality: WEBDL-1080p. New Quality WEBDL-720p."
+        ],
+        "isLikelySample": false
+      }
+    ],
+    "episodes": [
+      {
+        "seriesId": 1064,
+        "seasonNumber": 2,
+        "episodeNumber": 7,
+        "title": "Sideshow",
+        "airDate": "1994-05-03",
+        "runtime": 25,
+        "overview": "When pursuing the escaped convict Killer Croc, Batman encounters a small group of sideshow freaks who apparently trust Croc more than Batman.",
+        "episodeFile": {
+          "path": "/fixture/Batman - The Animated Series (1992) {imdb-tt0103359}/Season 02/Batman.The.Animated.Series.1992.S02E07.Sideshow.MAX.WEBDL-1080p.EAC3.2.0.x264-AndreMor.mkv",
+          "languages": [
+            {
+              "id": 3,
+              "name": "Spanish"
+            },
+            {
+              "id": 1,
+              "name": "English"
+            },
+            {
+              "id": 18,
+              "name": "Portuguese"
+            }
+          ],
+          "quality": {
+            "quality": {
+              "id": 3,
+              "name": "WEBDL-1080p",
+              "source": "web",
+              "resolution": 1080
+            },
+            "revision": {
+              "version": 1,
+              "real": 0,
+              "isRepack": false
+            }
+          },
+          "customFormatScore": 125,
+          "id": 202662
+        },
+        "hasFile": true,
+        "series": {
+          "title": "Batman: The Animated Series",
+          "year": 1992,
+          "qualityProfileId": 4,
+          "seriesType": "standard",
+          "id": 1064
+        },
+        "id": 65872
+      }
+    ],
+    "series": {
+      "id": 1064,
+      "title": "Batman: The Animated Series",
+      "qualityProfileId": 4
+    },
+    "catalog": [],
+    "probes": {
+      "/fixture/Batman.The.Animated.Series.S02.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX/Batman.The.Animated.Series.S02E02.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX.mkv": {
+        "ok": true,
+        "path": "/fixture/Batman.The.Animated.Series.S02.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX/Batman.The.Animated.Series.S02E02.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX.mkv",
+        "durationSeconds": 1333.536,
+        "video": {
+          "codec": "hevc",
+          "width": 1280,
+          "height": 960
+        },
+        "audio": [
+          {
+            "codec": "eac3",
+            "language": "ger",
+            "inferredLanguage": "ger",
+            "channels": 2
+          },
+          {
+            "codec": "eac3",
+            "language": "eng",
+            "inferredLanguage": "eng",
+            "channels": 2
+          }
+        ],
+        "hasGermanAudio": true
+      },
+      "/fixture/Batman - The Animated Series (1992) {imdb-tt0103359}/Season 02/Batman.The.Animated.Series.1992.S02E07.Sideshow.MAX.WEBDL-1080p.EAC3.2.0.x264-AndreMor.mkv": {
+        "ok": true,
+        "path": "/fixture/Batman - The Animated Series (1992) {imdb-tt0103359}/Season 02/Batman.The.Animated.Series.1992.S02E07.Sideshow.MAX.WEBDL-1080p.EAC3.2.0.x264-AndreMor.mkv",
+        "durationSeconds": 1260,
+        "video": {
+          "width": 1440,
+          "height": 1080
+        },
+        "containerTitle": "Batman The Animated Series S02E07 - Second Chance (1992)",
+        "audio": [
+          {
+            "language": "spa",
+            "title": "Spanish / Dolby Digital Plus / 2.0 / 48.000 kHz / 125 KiBs",
+            "codec": "eac3",
+            "channels": 2
+          },
+          {
+            "language": "eng",
+            "title": "English / Dolby Digital Plus / 2.0 / 48.000 kHz / 125 KiBs",
+            "codec": "eac3",
+            "channels": 2
+          },
+          {
+            "language": "por",
+            "title": "Portuguese / Dolby Digital Plus / 2.0 / 48.000 kHz / 125 KiBs",
+            "codec": "eac3",
+            "channels": 2
+          }
+        ],
+        "hasGermanAudio": false
+      }
+    },
+    "parse": {
+      "releaseTitle": "Batman.The.Animated.Series.S02.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX",
+      "parsedTitle": "Batman The Animated Series",
+      "parsedSeason": 2,
+      "parsedEpisodes": [],
+      "matchedId": 1064,
+      "matchedTitle": "Batman: The Animated Series",
+      "matchedEpisodeIds": [65866, 65867, 65868, 65869, 65870, 65871, 65872, 65873, 65874, 65875]
+    },
+    "mapping": [
+      {
+        "candidateId": "candidate_1",
+        "episodeIds": [65872]
+      }
+    ]
+  },
+  {
+    "key": "blacklist",
+    "queueItem": {
+      "id": 280742972,
+      "service": "sonarr",
+      "title": "The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX",
+      "seriesId": 117,
+      "seriesTitle": "The Blacklist",
+      "seriesType": "standard",
+      "downloadId": "d8f42630-1e07-4cf6-a4eb-039fa4a000c2",
+      "status": "completed",
+      "trackedDownloadStatus": "warning",
+      "trackedDownloadState": "importBlocked",
+      "outputPath": "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX",
+      "episodeIds": [8057],
+      "absoluteEpisodeNumbers": [172],
+      "episodeLabels": ["S08E20 - Godwin Page"],
+      "seasonEpisode": "S08E20",
+      "statusMessages": [
+        "One or more episodes expected in this release were not imported or missing from the release",
+        "The.Blacklist.2013.S08E03.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv"
+      ],
+      "canAnalyze": true
+    },
+    "candidates": [
+      {
+        "id": "candidate_1",
+        "service": "sonarr",
+        "path": "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E04.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E04.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "relativePath": "The.Blacklist.2013.S08E04.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E04.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "seriesId": 117,
+        "episodeIds": [8041],
+        "quality": {
+          "quality": {
+            "id": 3,
+            "name": "WEBDL-1080p",
+            "source": "web",
+            "resolution": 1080
+          },
+          "revision": {
+            "version": 1,
+            "real": 0,
+            "isRepack": false
+          }
+        },
+        "qualityLabel": "WEBDL-1080p",
+        "languages": [
+          {
+            "id": 4,
+            "name": "German"
+          },
+          {
+            "id": 1,
+            "name": "English"
+          }
+        ],
+        "customFormatScore": 13600,
+        "rejections": ["Episode file on disk contains more episodes than this file contains"],
+        "isLikelySample": false
+      },
+      {
+        "id": "candidate_2",
+        "service": "sonarr",
+        "path": "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E12.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E12.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "relativePath": "The.Blacklist.2013.S08E12.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E12.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "seriesId": 117,
+        "episodeIds": [8049],
+        "quality": {
+          "quality": {
+            "id": 3,
+            "name": "WEBDL-1080p",
+            "source": "web",
+            "resolution": 1080
+          },
+          "revision": {
+            "version": 1,
+            "real": 0,
+            "isRepack": false
+          }
+        },
+        "qualityLabel": "WEBDL-1080p",
+        "languages": [
+          {
+            "id": 4,
+            "name": "German"
+          },
+          {
+            "id": 1,
+            "name": "English"
+          }
+        ],
+        "customFormatScore": 13600,
+        "rejections": ["Episode file on disk contains more episodes than this file contains"],
+        "isLikelySample": false
+      },
+      {
+        "id": "candidate_3",
+        "service": "sonarr",
+        "path": "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E11.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E11.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "relativePath": "The.Blacklist.2013.S08E11.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E11.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "seriesId": 117,
+        "episodeIds": [8048],
+        "quality": {
+          "quality": {
+            "id": 3,
+            "name": "WEBDL-1080p",
+            "source": "web",
+            "resolution": 1080
+          },
+          "revision": {
+            "version": 1,
+            "real": 0,
+            "isRepack": false
+          }
+        },
+        "qualityLabel": "WEBDL-1080p",
+        "languages": [
+          {
+            "id": 4,
+            "name": "German"
+          },
+          {
+            "id": 1,
+            "name": "English"
+          }
+        ],
+        "customFormatScore": 13600,
+        "rejections": ["Episode file on disk contains more episodes than this file contains"],
+        "isLikelySample": false
+      },
+      {
+        "id": "candidate_4",
+        "service": "sonarr",
+        "path": "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E09.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E09.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "relativePath": "The.Blacklist.2013.S08E09.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E09.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "seriesId": 117,
+        "episodeIds": [8046],
+        "quality": {
+          "quality": {
+            "id": 3,
+            "name": "WEBDL-1080p",
+            "source": "web",
+            "resolution": 1080
+          },
+          "revision": {
+            "version": 1,
+            "real": 0,
+            "isRepack": false
+          }
+        },
+        "qualityLabel": "WEBDL-1080p",
+        "languages": [
+          {
+            "id": 4,
+            "name": "German"
+          },
+          {
+            "id": 1,
+            "name": "English"
+          }
+        ],
+        "customFormatScore": 13600,
+        "rejections": ["Episode file on disk contains more episodes than this file contains"],
+        "isLikelySample": false
+      },
+      {
+        "id": "candidate_5",
+        "service": "sonarr",
+        "path": "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E07.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E07.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "relativePath": "The.Blacklist.2013.S08E07.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E07.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "seriesId": 117,
+        "episodeIds": [8044],
+        "quality": {
+          "quality": {
+            "id": 3,
+            "name": "WEBDL-1080p",
+            "source": "web",
+            "resolution": 1080
+          },
+          "revision": {
+            "version": 1,
+            "real": 0,
+            "isRepack": false
+          }
+        },
+        "qualityLabel": "WEBDL-1080p",
+        "languages": [
+          {
+            "id": 4,
+            "name": "German"
+          },
+          {
+            "id": 1,
+            "name": "English"
+          }
+        ],
+        "customFormatScore": 13600,
+        "rejections": ["Episode file on disk contains more episodes than this file contains"],
+        "isLikelySample": false
+      },
+      {
+        "id": "candidate_6",
+        "service": "sonarr",
+        "path": "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E14.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E14.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "relativePath": "The.Blacklist.2013.S08E14.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E14.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "seriesId": 117,
+        "episodeIds": [8051],
+        "quality": {
+          "quality": {
+            "id": 3,
+            "name": "WEBDL-1080p",
+            "source": "web",
+            "resolution": 1080
+          },
+          "revision": {
+            "version": 1,
+            "real": 0,
+            "isRepack": false
+          }
+        },
+        "qualityLabel": "WEBDL-1080p",
+        "languages": [
+          {
+            "id": 4,
+            "name": "German"
+          },
+          {
+            "id": 1,
+            "name": "English"
+          }
+        ],
+        "customFormatScore": 13600,
+        "rejections": ["Episode file on disk contains more episodes than this file contains"],
+        "isLikelySample": false
+      },
+      {
+        "id": "candidate_7",
+        "service": "sonarr",
+        "path": "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E20.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E20.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "relativePath": "The.Blacklist.2013.S08E20.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E20.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "seriesId": 117,
+        "episodeIds": [8057],
+        "quality": {
+          "quality": {
+            "id": 3,
+            "name": "WEBDL-1080p",
+            "source": "web",
+            "resolution": 1080
+          },
+          "revision": {
+            "version": 1,
+            "real": 0,
+            "isRepack": false
+          }
+        },
+        "qualityLabel": "WEBDL-1080p",
+        "languages": [
+          {
+            "id": 4,
+            "name": "German"
+          },
+          {
+            "id": 1,
+            "name": "English"
+          }
+        ],
+        "customFormatScore": 13600,
+        "rejections": ["Episode file on disk contains more episodes than this file contains"],
+        "isLikelySample": false
+      },
+      {
+        "id": "candidate_8",
+        "service": "sonarr",
+        "path": "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E17.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E17.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "relativePath": "The.Blacklist.2013.S08E17.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E17.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "seriesId": 117,
+        "episodeIds": [8054],
+        "quality": {
+          "quality": {
+            "id": 3,
+            "name": "WEBDL-1080p",
+            "source": "web",
+            "resolution": 1080
+          },
+          "revision": {
+            "version": 1,
+            "real": 0,
+            "isRepack": false
+          }
+        },
+        "qualityLabel": "WEBDL-1080p",
+        "languages": [
+          {
+            "id": 4,
+            "name": "German"
+          },
+          {
+            "id": 1,
+            "name": "English"
+          }
+        ],
+        "customFormatScore": 13600,
+        "rejections": ["Episode file on disk contains more episodes than this file contains"],
+        "isLikelySample": false
+      },
+      {
+        "id": "candidate_9",
+        "service": "sonarr",
+        "path": "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E19.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E19.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "relativePath": "The.Blacklist.2013.S08E19.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E19.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "seriesId": 117,
+        "episodeIds": [8056],
+        "quality": {
+          "quality": {
+            "id": 3,
+            "name": "WEBDL-1080p",
+            "source": "web",
+            "resolution": 1080
+          },
+          "revision": {
+            "version": 1,
+            "real": 0,
+            "isRepack": false
+          }
+        },
+        "qualityLabel": "WEBDL-1080p",
+        "languages": [
+          {
+            "id": 4,
+            "name": "German"
+          },
+          {
+            "id": 1,
+            "name": "English"
+          }
+        ],
+        "customFormatScore": 13600,
+        "rejections": ["Episode file on disk contains more episodes than this file contains"],
+        "isLikelySample": false
+      },
+      {
+        "id": "candidate_10",
+        "service": "sonarr",
+        "path": "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E05.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E05.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "relativePath": "The.Blacklist.2013.S08E05.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E05.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "seriesId": 117,
+        "episodeIds": [8042],
+        "quality": {
+          "quality": {
+            "id": 3,
+            "name": "WEBDL-1080p",
+            "source": "web",
+            "resolution": 1080
+          },
+          "revision": {
+            "version": 1,
+            "real": 0,
+            "isRepack": false
+          }
+        },
+        "qualityLabel": "WEBDL-1080p",
+        "languages": [
+          {
+            "id": 4,
+            "name": "German"
+          },
+          {
+            "id": 1,
+            "name": "English"
+          }
+        ],
+        "customFormatScore": 13600,
+        "rejections": ["Episode file on disk contains more episodes than this file contains"],
+        "isLikelySample": false
+      },
+      {
+        "id": "candidate_11",
+        "service": "sonarr",
+        "path": "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E13.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E13.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "relativePath": "The.Blacklist.2013.S08E13.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E13.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "seriesId": 117,
+        "episodeIds": [8050],
+        "quality": {
+          "quality": {
+            "id": 3,
+            "name": "WEBDL-1080p",
+            "source": "web",
+            "resolution": 1080
+          },
+          "revision": {
+            "version": 1,
+            "real": 0,
+            "isRepack": false
+          }
+        },
+        "qualityLabel": "WEBDL-1080p",
+        "languages": [
+          {
+            "id": 4,
+            "name": "German"
+          },
+          {
+            "id": 1,
+            "name": "English"
+          }
+        ],
+        "customFormatScore": 13600,
+        "rejections": ["Episode file on disk contains more episodes than this file contains"],
+        "isLikelySample": false
+      },
+      {
+        "id": "candidate_12",
+        "service": "sonarr",
+        "path": "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E10.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E10.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "relativePath": "The.Blacklist.2013.S08E10.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E10.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "seriesId": 117,
+        "episodeIds": [8047],
+        "quality": {
+          "quality": {
+            "id": 3,
+            "name": "WEBDL-1080p",
+            "source": "web",
+            "resolution": 1080
+          },
+          "revision": {
+            "version": 1,
+            "real": 0,
+            "isRepack": false
+          }
+        },
+        "qualityLabel": "WEBDL-1080p",
+        "languages": [
+          {
+            "id": 4,
+            "name": "German"
+          },
+          {
+            "id": 1,
+            "name": "English"
+          }
+        ],
+        "customFormatScore": 13600,
+        "rejections": ["Episode file on disk contains more episodes than this file contains"],
+        "isLikelySample": false
+      },
+      {
+        "id": "candidate_13",
+        "service": "sonarr",
+        "path": "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E06.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E06.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "relativePath": "The.Blacklist.2013.S08E06.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E06.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "seriesId": 117,
+        "episodeIds": [8043],
+        "quality": {
+          "quality": {
+            "id": 3,
+            "name": "WEBDL-1080p",
+            "source": "web",
+            "resolution": 1080
+          },
+          "revision": {
+            "version": 1,
+            "real": 0,
+            "isRepack": false
+          }
+        },
+        "qualityLabel": "WEBDL-1080p",
+        "languages": [
+          {
+            "id": 4,
+            "name": "German"
+          },
+          {
+            "id": 1,
+            "name": "English"
+          }
+        ],
+        "customFormatScore": 13600,
+        "rejections": ["Episode file on disk contains more episodes than this file contains"],
+        "isLikelySample": false
+      },
+      {
+        "id": "candidate_14",
+        "service": "sonarr",
+        "path": "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "relativePath": "The.Blacklist.2013.S08E08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "seriesId": 117,
+        "episodeIds": [8045],
+        "quality": {
+          "quality": {
+            "id": 3,
+            "name": "WEBDL-1080p",
+            "source": "web",
+            "resolution": 1080
+          },
+          "revision": {
+            "version": 1,
+            "real": 0,
+            "isRepack": false
+          }
+        },
+        "qualityLabel": "WEBDL-1080p",
+        "languages": [
+          {
+            "id": 4,
+            "name": "German"
+          },
+          {
+            "id": 1,
+            "name": "English"
+          }
+        ],
+        "customFormatScore": 13600,
+        "rejections": ["Episode file on disk contains more episodes than this file contains"],
+        "isLikelySample": false
+      },
+      {
+        "id": "candidate_15",
+        "service": "sonarr",
+        "path": "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E21.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E21.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "relativePath": "The.Blacklist.2013.S08E21.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E21.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "seriesId": 117,
+        "episodeIds": [8058],
+        "quality": {
+          "quality": {
+            "id": 3,
+            "name": "WEBDL-1080p",
+            "source": "web",
+            "resolution": 1080
+          },
+          "revision": {
+            "version": 1,
+            "real": 0,
+            "isRepack": false
+          }
+        },
+        "qualityLabel": "WEBDL-1080p",
+        "languages": [
+          {
+            "id": 4,
+            "name": "German"
+          },
+          {
+            "id": 1,
+            "name": "English"
+          }
+        ],
+        "customFormatScore": 13600,
+        "rejections": ["Episode file on disk contains more episodes than this file contains"],
+        "isLikelySample": false
+      },
+      {
+        "id": "candidate_16",
+        "service": "sonarr",
+        "path": "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E15.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E15.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "relativePath": "The.Blacklist.2013.S08E15.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E15.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "seriesId": 117,
+        "episodeIds": [8052],
+        "quality": {
+          "quality": {
+            "id": 3,
+            "name": "WEBDL-1080p",
+            "source": "web",
+            "resolution": 1080
+          },
+          "revision": {
+            "version": 1,
+            "real": 0,
+            "isRepack": false
+          }
+        },
+        "qualityLabel": "WEBDL-1080p",
+        "languages": [
+          {
+            "id": 4,
+            "name": "German"
+          },
+          {
+            "id": 1,
+            "name": "English"
+          }
+        ],
+        "customFormatScore": 13600,
+        "rejections": ["Episode file on disk contains more episodes than this file contains"],
+        "isLikelySample": false
+      },
+      {
+        "id": "candidate_17",
+        "service": "sonarr",
+        "path": "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E03.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E03.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "relativePath": "The.Blacklist.2013.S08E03.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E03.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "seriesId": 117,
+        "episodeIds": [8040],
+        "quality": {
+          "quality": {
+            "id": 3,
+            "name": "WEBDL-1080p",
+            "source": "web",
+            "resolution": 1080
+          },
+          "revision": {
+            "version": 1,
+            "real": 0,
+            "isRepack": false
+          }
+        },
+        "qualityLabel": "WEBDL-1080p",
+        "languages": [
+          {
+            "id": 4,
+            "name": "German"
+          },
+          {
+            "id": 1,
+            "name": "English"
+          }
+        ],
+        "customFormatScore": 13600,
+        "rejections": ["Episode file on disk contains more episodes than this file contains"],
+        "isLikelySample": false
+      },
+      {
+        "id": "candidate_18",
+        "service": "sonarr",
+        "path": "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E22.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E22.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "relativePath": "The.Blacklist.2013.S08E22.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E22.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "seriesId": 117,
+        "episodeIds": [8059],
+        "quality": {
+          "quality": {
+            "id": 3,
+            "name": "WEBDL-1080p",
+            "source": "web",
+            "resolution": 1080
+          },
+          "revision": {
+            "version": 1,
+            "real": 0,
+            "isRepack": false
+          }
+        },
+        "qualityLabel": "WEBDL-1080p",
+        "languages": [
+          {
+            "id": 4,
+            "name": "German"
+          },
+          {
+            "id": 1,
+            "name": "English"
+          }
+        ],
+        "customFormatScore": 13600,
+        "rejections": ["Episode file on disk contains more episodes than this file contains"],
+        "isLikelySample": false
+      },
+      {
+        "id": "candidate_19",
+        "service": "sonarr",
+        "path": "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E18.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E18.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "relativePath": "The.Blacklist.2013.S08E18.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E18.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "seriesId": 117,
+        "episodeIds": [8055],
+        "quality": {
+          "quality": {
+            "id": 3,
+            "name": "WEBDL-1080p",
+            "source": "web",
+            "resolution": 1080
+          },
+          "revision": {
+            "version": 1,
+            "real": 0,
+            "isRepack": false
+          }
+        },
+        "qualityLabel": "WEBDL-1080p",
+        "languages": [
+          {
+            "id": 4,
+            "name": "German"
+          },
+          {
+            "id": 1,
+            "name": "English"
+          }
+        ],
+        "customFormatScore": 13600,
+        "rejections": ["Episode file on disk contains more episodes than this file contains"],
+        "isLikelySample": false
+      },
+      {
+        "id": "candidate_20",
+        "service": "sonarr",
+        "path": "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E16.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E16.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "relativePath": "The.Blacklist.2013.S08E16.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E16.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "seriesId": 117,
+        "episodeIds": [8053],
+        "quality": {
+          "quality": {
+            "id": 3,
+            "name": "WEBDL-1080p",
+            "source": "web",
+            "resolution": 1080
+          },
+          "revision": {
+            "version": 1,
+            "real": 0,
+            "isRepack": false
+          }
+        },
+        "qualityLabel": "WEBDL-1080p",
+        "languages": [
+          {
+            "id": 4,
+            "name": "German"
+          },
+          {
+            "id": 1,
+            "name": "English"
+          }
+        ],
+        "customFormatScore": 13600,
+        "rejections": ["Episode file on disk contains more episodes than this file contains"],
+        "isLikelySample": false
+      }
+    ],
+    "episodes": [
+      {
+        "seriesId": 117,
+        "episodeFileId": 198627,
+        "seasonNumber": 8,
+        "episodeNumber": 3,
+        "title": "16 Ounces",
+        "airDate": "2021-01-22",
+        "runtime": 42,
+        "hasFile": true,
+        "id": 8040,
+        "series": {
+          "id": 117,
+          "title": "The Blacklist",
+          "qualityProfileId": 4
+        },
+        "episodeFile": {
+          "path": "/fixture/The Blacklist (2013) {imdb-tt2741602}/Season 08/The.Blacklist.2013.S08E03-04-05-06-07-08-09-10-11-12-13-14-15-16-17-18-19-20-21-22.16.Ounces...Konets.German.WEBDL-1080p.EAC3.5.1.h265-FritzBox.mkv",
+          "languages": [
+            {
+              "id": 4,
+              "name": "German"
+            }
+          ],
+          "quality": {
+            "quality": {
+              "id": 3,
+              "name": "WEBDL-1080p",
+              "source": "web",
+              "resolution": 1080
+            },
+            "revision": {
+              "version": 1,
+              "real": 0,
+              "isRepack": false
+            }
+          },
+          "customFormatScore": 10050,
+          "id": 198627
+        }
+      },
+      {
+        "seriesId": 117,
+        "episodeFileId": 198627,
+        "seasonNumber": 8,
+        "episodeNumber": 4,
+        "title": "Elizabeth Keen",
+        "airDate": "2021-01-29",
+        "runtime": 42,
+        "hasFile": true,
+        "id": 8041,
+        "series": {
+          "id": 117,
+          "title": "The Blacklist",
+          "qualityProfileId": 4
+        },
+        "episodeFile": {
+          "path": "/fixture/The Blacklist (2013) {imdb-tt2741602}/Season 08/The.Blacklist.2013.S08E03-04-05-06-07-08-09-10-11-12-13-14-15-16-17-18-19-20-21-22.16.Ounces...Konets.German.WEBDL-1080p.EAC3.5.1.h265-FritzBox.mkv",
+          "languages": [
+            {
+              "id": 4,
+              "name": "German"
+            }
+          ],
+          "quality": {
+            "quality": {
+              "id": 3,
+              "name": "WEBDL-1080p",
+              "source": "web",
+              "resolution": 1080
+            },
+            "revision": {
+              "version": 1,
+              "real": 0,
+              "isRepack": false
+            }
+          },
+          "customFormatScore": 10050,
+          "id": 198627
+        }
+      },
+      {
+        "seriesId": 117,
+        "episodeFileId": 198627,
+        "seasonNumber": 8,
+        "episodeNumber": 5,
+        "title": "The Fribourg Confidence",
+        "airDate": "2021-02-05",
+        "runtime": 42,
+        "hasFile": true,
+        "id": 8042,
+        "series": {
+          "id": 117,
+          "title": "The Blacklist",
+          "qualityProfileId": 4
+        },
+        "episodeFile": {
+          "path": "/fixture/The Blacklist (2013) {imdb-tt2741602}/Season 08/The.Blacklist.2013.S08E03-04-05-06-07-08-09-10-11-12-13-14-15-16-17-18-19-20-21-22.16.Ounces...Konets.German.WEBDL-1080p.EAC3.5.1.h265-FritzBox.mkv",
+          "languages": [
+            {
+              "id": 4,
+              "name": "German"
+            }
+          ],
+          "quality": {
+            "quality": {
+              "id": 3,
+              "name": "WEBDL-1080p",
+              "source": "web",
+              "resolution": 1080
+            },
+            "revision": {
+              "version": 1,
+              "real": 0,
+              "isRepack": false
+            }
+          },
+          "customFormatScore": 10050,
+          "id": 198627
+        }
+      },
+      {
+        "seriesId": 117,
+        "episodeFileId": 198627,
+        "seasonNumber": 8,
+        "episodeNumber": 6,
+        "title": "The Wellstone Agency",
+        "airDate": "2021-02-12",
+        "runtime": 43,
+        "hasFile": true,
+        "id": 8043,
+        "series": {
+          "id": 117,
+          "title": "The Blacklist",
+          "qualityProfileId": 4
+        },
+        "episodeFile": {
+          "path": "/fixture/The Blacklist (2013) {imdb-tt2741602}/Season 08/The.Blacklist.2013.S08E03-04-05-06-07-08-09-10-11-12-13-14-15-16-17-18-19-20-21-22.16.Ounces...Konets.German.WEBDL-1080p.EAC3.5.1.h265-FritzBox.mkv",
+          "languages": [
+            {
+              "id": 4,
+              "name": "German"
+            }
+          ],
+          "quality": {
+            "quality": {
+              "id": 3,
+              "name": "WEBDL-1080p",
+              "source": "web",
+              "resolution": 1080
+            },
+            "revision": {
+              "version": 1,
+              "real": 0,
+              "isRepack": false
+            }
+          },
+          "customFormatScore": 10050,
+          "id": 198627
+        }
+      },
+      {
+        "seriesId": 117,
+        "episodeFileId": 198627,
+        "seasonNumber": 8,
+        "episodeNumber": 7,
+        "title": "Chemical Mary",
+        "airDate": "2021-02-19",
+        "runtime": 42,
+        "hasFile": true,
+        "id": 8044,
+        "series": {
+          "id": 117,
+          "title": "The Blacklist",
+          "qualityProfileId": 4
+        },
+        "episodeFile": {
+          "path": "/fixture/The Blacklist (2013) {imdb-tt2741602}/Season 08/The.Blacklist.2013.S08E03-04-05-06-07-08-09-10-11-12-13-14-15-16-17-18-19-20-21-22.16.Ounces...Konets.German.WEBDL-1080p.EAC3.5.1.h265-FritzBox.mkv",
+          "languages": [
+            {
+              "id": 4,
+              "name": "German"
+            }
+          ],
+          "quality": {
+            "quality": {
+              "id": 3,
+              "name": "WEBDL-1080p",
+              "source": "web",
+              "resolution": 1080
+            },
+            "revision": {
+              "version": 1,
+              "real": 0,
+              "isRepack": false
+            }
+          },
+          "customFormatScore": 10050,
+          "id": 198627
+        }
+      },
+      {
+        "seriesId": 117,
+        "episodeFileId": 198627,
+        "seasonNumber": 8,
+        "episodeNumber": 8,
+        "title": "Ogden Greeley",
+        "airDate": "2021-02-26",
+        "runtime": 42,
+        "hasFile": true,
+        "id": 8045,
+        "series": {
+          "id": 117,
+          "title": "The Blacklist",
+          "qualityProfileId": 4
+        },
+        "episodeFile": {
+          "path": "/fixture/The Blacklist (2013) {imdb-tt2741602}/Season 08/The.Blacklist.2013.S08E03-04-05-06-07-08-09-10-11-12-13-14-15-16-17-18-19-20-21-22.16.Ounces...Konets.German.WEBDL-1080p.EAC3.5.1.h265-FritzBox.mkv",
+          "languages": [
+            {
+              "id": 4,
+              "name": "German"
+            }
+          ],
+          "quality": {
+            "quality": {
+              "id": 3,
+              "name": "WEBDL-1080p",
+              "source": "web",
+              "resolution": 1080
+            },
+            "revision": {
+              "version": 1,
+              "real": 0,
+              "isRepack": false
+            }
+          },
+          "customFormatScore": 10050,
+          "id": 198627
+        }
+      },
+      {
+        "seriesId": 117,
+        "episodeFileId": 198627,
+        "seasonNumber": 8,
+        "episodeNumber": 9,
+        "title": "The Cyranoid",
+        "airDate": "2021-03-05",
+        "runtime": 42,
+        "hasFile": true,
+        "id": 8046,
+        "series": {
+          "id": 117,
+          "title": "The Blacklist",
+          "qualityProfileId": 4
+        },
+        "episodeFile": {
+          "path": "/fixture/The Blacklist (2013) {imdb-tt2741602}/Season 08/The.Blacklist.2013.S08E03-04-05-06-07-08-09-10-11-12-13-14-15-16-17-18-19-20-21-22.16.Ounces...Konets.German.WEBDL-1080p.EAC3.5.1.h265-FritzBox.mkv",
+          "languages": [
+            {
+              "id": 4,
+              "name": "German"
+            }
+          ],
+          "quality": {
+            "quality": {
+              "id": 3,
+              "name": "WEBDL-1080p",
+              "source": "web",
+              "resolution": 1080
+            },
+            "revision": {
+              "version": 1,
+              "real": 0,
+              "isRepack": false
+            }
+          },
+          "customFormatScore": 10050,
+          "id": 198627
+        }
+      },
+      {
+        "seriesId": 117,
+        "episodeFileId": 198627,
+        "seasonNumber": 8,
+        "episodeNumber": 10,
+        "title": "Dr. Laken Perillos",
+        "airDate": "2021-03-12",
+        "runtime": 43,
+        "hasFile": true,
+        "id": 8047,
+        "series": {
+          "id": 117,
+          "title": "The Blacklist",
+          "qualityProfileId": 4
+        },
+        "episodeFile": {
+          "path": "/fixture/The Blacklist (2013) {imdb-tt2741602}/Season 08/The.Blacklist.2013.S08E03-04-05-06-07-08-09-10-11-12-13-14-15-16-17-18-19-20-21-22.16.Ounces...Konets.German.WEBDL-1080p.EAC3.5.1.h265-FritzBox.mkv",
+          "languages": [
+            {
+              "id": 4,
+              "name": "German"
+            }
+          ],
+          "quality": {
+            "quality": {
+              "id": 3,
+              "name": "WEBDL-1080p",
+              "source": "web",
+              "resolution": 1080
+            },
+            "revision": {
+              "version": 1,
+              "real": 0,
+              "isRepack": false
+            }
+          },
+          "customFormatScore": 10050,
+          "id": 198627
+        }
+      },
+      {
+        "seriesId": 117,
+        "episodeFileId": 198627,
+        "seasonNumber": 8,
+        "episodeNumber": 11,
+        "title": "Captain Kidd",
+        "airDate": "2021-03-26",
+        "runtime": 43,
+        "hasFile": true,
+        "id": 8048,
+        "series": {
+          "id": 117,
+          "title": "The Blacklist",
+          "qualityProfileId": 4
+        },
+        "episodeFile": {
+          "path": "/fixture/The Blacklist (2013) {imdb-tt2741602}/Season 08/The.Blacklist.2013.S08E03-04-05-06-07-08-09-10-11-12-13-14-15-16-17-18-19-20-21-22.16.Ounces...Konets.German.WEBDL-1080p.EAC3.5.1.h265-FritzBox.mkv",
+          "languages": [
+            {
+              "id": 4,
+              "name": "German"
+            }
+          ],
+          "quality": {
+            "quality": {
+              "id": 3,
+              "name": "WEBDL-1080p",
+              "source": "web",
+              "resolution": 1080
+            },
+            "revision": {
+              "version": 1,
+              "real": 0,
+              "isRepack": false
+            }
+          },
+          "customFormatScore": 10050,
+          "id": 198627
+        }
+      },
+      {
+        "seriesId": 117,
+        "episodeFileId": 198627,
+        "seasonNumber": 8,
+        "episodeNumber": 12,
+        "title": "Rakitin",
+        "airDate": "2021-04-02",
+        "runtime": 43,
+        "hasFile": true,
+        "id": 8049,
+        "series": {
+          "id": 117,
+          "title": "The Blacklist",
+          "qualityProfileId": 4
+        },
+        "episodeFile": {
+          "path": "/fixture/The Blacklist (2013) {imdb-tt2741602}/Season 08/The.Blacklist.2013.S08E03-04-05-06-07-08-09-10-11-12-13-14-15-16-17-18-19-20-21-22.16.Ounces...Konets.German.WEBDL-1080p.EAC3.5.1.h265-FritzBox.mkv",
+          "languages": [
+            {
+              "id": 4,
+              "name": "German"
+            }
+          ],
+          "quality": {
+            "quality": {
+              "id": 3,
+              "name": "WEBDL-1080p",
+              "source": "web",
+              "resolution": 1080
+            },
+            "revision": {
+              "version": 1,
+              "real": 0,
+              "isRepack": false
+            }
+          },
+          "customFormatScore": 10050,
+          "id": 198627
+        }
+      },
+      {
+        "seriesId": 117,
+        "episodeFileId": 198627,
+        "seasonNumber": 8,
+        "episodeNumber": 13,
+        "title": "Anne",
+        "airDate": "2021-04-16",
+        "runtime": 42,
+        "hasFile": true,
+        "id": 8050,
+        "series": {
+          "id": 117,
+          "title": "The Blacklist",
+          "qualityProfileId": 4
+        },
+        "episodeFile": {
+          "path": "/fixture/The Blacklist (2013) {imdb-tt2741602}/Season 08/The.Blacklist.2013.S08E03-04-05-06-07-08-09-10-11-12-13-14-15-16-17-18-19-20-21-22.16.Ounces...Konets.German.WEBDL-1080p.EAC3.5.1.h265-FritzBox.mkv",
+          "languages": [
+            {
+              "id": 4,
+              "name": "German"
+            }
+          ],
+          "quality": {
+            "quality": {
+              "id": 3,
+              "name": "WEBDL-1080p",
+              "source": "web",
+              "resolution": 1080
+            },
+            "revision": {
+              "version": 1,
+              "real": 0,
+              "isRepack": false
+            }
+          },
+          "customFormatScore": 10050,
+          "id": 198627
+        }
+      },
+      {
+        "seriesId": 117,
+        "episodeFileId": 198627,
+        "seasonNumber": 8,
+        "episodeNumber": 14,
+        "title": "Misère",
+        "airDate": "2021-04-23",
+        "runtime": 43,
+        "hasFile": true,
+        "id": 8051,
+        "series": {
+          "id": 117,
+          "title": "The Blacklist",
+          "qualityProfileId": 4
+        },
+        "episodeFile": {
+          "path": "/fixture/The Blacklist (2013) {imdb-tt2741602}/Season 08/The.Blacklist.2013.S08E03-04-05-06-07-08-09-10-11-12-13-14-15-16-17-18-19-20-21-22.16.Ounces...Konets.German.WEBDL-1080p.EAC3.5.1.h265-FritzBox.mkv",
+          "languages": [
+            {
+              "id": 4,
+              "name": "German"
+            }
+          ],
+          "quality": {
+            "quality": {
+              "id": 3,
+              "name": "WEBDL-1080p",
+              "source": "web",
+              "resolution": 1080
+            },
+            "revision": {
+              "version": 1,
+              "real": 0,
+              "isRepack": false
+            }
+          },
+          "customFormatScore": 10050,
+          "id": 198627
+        }
+      },
+      {
+        "seriesId": 117,
+        "episodeFileId": 198627,
+        "seasonNumber": 8,
+        "episodeNumber": 15,
+        "title": "The Russian Knot",
+        "airDate": "2021-04-30",
+        "runtime": 43,
+        "hasFile": true,
+        "id": 8052,
+        "series": {
+          "id": 117,
+          "title": "The Blacklist",
+          "qualityProfileId": 4
+        },
+        "episodeFile": {
+          "path": "/fixture/The Blacklist (2013) {imdb-tt2741602}/Season 08/The.Blacklist.2013.S08E03-04-05-06-07-08-09-10-11-12-13-14-15-16-17-18-19-20-21-22.16.Ounces...Konets.German.WEBDL-1080p.EAC3.5.1.h265-FritzBox.mkv",
+          "languages": [
+            {
+              "id": 4,
+              "name": "German"
+            }
+          ],
+          "quality": {
+            "quality": {
+              "id": 3,
+              "name": "WEBDL-1080p",
+              "source": "web",
+              "resolution": 1080
+            },
+            "revision": {
+              "version": 1,
+              "real": 0,
+              "isRepack": false
+            }
+          },
+          "customFormatScore": 10050,
+          "id": 198627
+        }
+      },
+      {
+        "seriesId": 117,
+        "episodeFileId": 198627,
+        "seasonNumber": 8,
+        "episodeNumber": 16,
+        "title": "Nicholas Obenrader",
+        "airDate": "2021-05-07",
+        "runtime": 43,
+        "hasFile": true,
+        "id": 8053,
+        "series": {
+          "id": 117,
+          "title": "The Blacklist",
+          "qualityProfileId": 4
+        },
+        "episodeFile": {
+          "path": "/fixture/The Blacklist (2013) {imdb-tt2741602}/Season 08/The.Blacklist.2013.S08E03-04-05-06-07-08-09-10-11-12-13-14-15-16-17-18-19-20-21-22.16.Ounces...Konets.German.WEBDL-1080p.EAC3.5.1.h265-FritzBox.mkv",
+          "languages": [
+            {
+              "id": 4,
+              "name": "German"
+            }
+          ],
+          "quality": {
+            "quality": {
+              "id": 3,
+              "name": "WEBDL-1080p",
+              "source": "web",
+              "resolution": 1080
+            },
+            "revision": {
+              "version": 1,
+              "real": 0,
+              "isRepack": false
+            }
+          },
+          "customFormatScore": 10050,
+          "id": 198627
+        }
+      },
+      {
+        "seriesId": 117,
+        "episodeFileId": 198627,
+        "seasonNumber": 8,
+        "episodeNumber": 17,
+        "title": "Ivan Stepanov",
+        "airDate": "2021-05-14",
+        "runtime": 42,
+        "hasFile": true,
+        "id": 8054,
+        "series": {
+          "id": 117,
+          "title": "The Blacklist",
+          "qualityProfileId": 4
+        },
+        "episodeFile": {
+          "path": "/fixture/The Blacklist (2013) {imdb-tt2741602}/Season 08/The.Blacklist.2013.S08E03-04-05-06-07-08-09-10-11-12-13-14-15-16-17-18-19-20-21-22.16.Ounces...Konets.German.WEBDL-1080p.EAC3.5.1.h265-FritzBox.mkv",
+          "languages": [
+            {
+              "id": 4,
+              "name": "German"
+            }
+          ],
+          "quality": {
+            "quality": {
+              "id": 3,
+              "name": "WEBDL-1080p",
+              "source": "web",
+              "resolution": 1080
+            },
+            "revision": {
+              "version": 1,
+              "real": 0,
+              "isRepack": false
+            }
+          },
+          "customFormatScore": 10050,
+          "id": 198627
+        }
+      },
+      {
+        "seriesId": 117,
+        "episodeFileId": 198627,
+        "seasonNumber": 8,
+        "episodeNumber": 18,
+        "title": "The Protean",
+        "airDate": "2021-05-21",
+        "runtime": 42,
+        "hasFile": true,
+        "id": 8055,
+        "series": {
+          "id": 117,
+          "title": "The Blacklist",
+          "qualityProfileId": 4
+        },
+        "episodeFile": {
+          "path": "/fixture/The Blacklist (2013) {imdb-tt2741602}/Season 08/The.Blacklist.2013.S08E03-04-05-06-07-08-09-10-11-12-13-14-15-16-17-18-19-20-21-22.16.Ounces...Konets.German.WEBDL-1080p.EAC3.5.1.h265-FritzBox.mkv",
+          "languages": [
+            {
+              "id": 4,
+              "name": "German"
+            }
+          ],
+          "quality": {
+            "quality": {
+              "id": 3,
+              "name": "WEBDL-1080p",
+              "source": "web",
+              "resolution": 1080
+            },
+            "revision": {
+              "version": 1,
+              "real": 0,
+              "isRepack": false
+            }
+          },
+          "customFormatScore": 10050,
+          "id": 198627
+        }
+      },
+      {
+        "seriesId": 117,
+        "episodeFileId": 198627,
+        "seasonNumber": 8,
+        "episodeNumber": 19,
+        "title": "Balthazar 'Bino' Baker",
+        "airDate": "2021-05-28",
+        "runtime": 42,
+        "hasFile": true,
+        "id": 8056,
+        "series": {
+          "id": 117,
+          "title": "The Blacklist",
+          "qualityProfileId": 4
+        },
+        "episodeFile": {
+          "path": "/fixture/The Blacklist (2013) {imdb-tt2741602}/Season 08/The.Blacklist.2013.S08E03-04-05-06-07-08-09-10-11-12-13-14-15-16-17-18-19-20-21-22.16.Ounces...Konets.German.WEBDL-1080p.EAC3.5.1.h265-FritzBox.mkv",
+          "languages": [
+            {
+              "id": 4,
+              "name": "German"
+            }
+          ],
+          "quality": {
+            "quality": {
+              "id": 3,
+              "name": "WEBDL-1080p",
+              "source": "web",
+              "resolution": 1080
+            },
+            "revision": {
+              "version": 1,
+              "real": 0,
+              "isRepack": false
+            }
+          },
+          "customFormatScore": 10050,
+          "id": 198627
+        }
+      },
+      {
+        "seriesId": 117,
+        "episodeFileId": 198627,
+        "seasonNumber": 8,
+        "episodeNumber": 20,
+        "title": "Godwin Page",
+        "airDate": "2021-06-04",
+        "runtime": 42,
+        "hasFile": true,
+        "id": 8057,
+        "series": {
+          "id": 117,
+          "title": "The Blacklist",
+          "qualityProfileId": 4
+        },
+        "episodeFile": {
+          "path": "/fixture/The Blacklist (2013) {imdb-tt2741602}/Season 08/The.Blacklist.2013.S08E03-04-05-06-07-08-09-10-11-12-13-14-15-16-17-18-19-20-21-22.16.Ounces...Konets.German.WEBDL-1080p.EAC3.5.1.h265-FritzBox.mkv",
+          "languages": [
+            {
+              "id": 4,
+              "name": "German"
+            }
+          ],
+          "quality": {
+            "quality": {
+              "id": 3,
+              "name": "WEBDL-1080p",
+              "source": "web",
+              "resolution": 1080
+            },
+            "revision": {
+              "version": 1,
+              "real": 0,
+              "isRepack": false
+            }
+          },
+          "customFormatScore": 10050,
+          "id": 198627
+        }
+      },
+      {
+        "seriesId": 117,
+        "episodeFileId": 198627,
+        "seasonNumber": 8,
+        "episodeNumber": 21,
+        "title": "Nachalo",
+        "airDate": "2021-06-16",
+        "runtime": 43,
+        "hasFile": true,
+        "id": 8058,
+        "series": {
+          "id": 117,
+          "title": "The Blacklist",
+          "qualityProfileId": 4
+        },
+        "episodeFile": {
+          "path": "/fixture/The Blacklist (2013) {imdb-tt2741602}/Season 08/The.Blacklist.2013.S08E03-04-05-06-07-08-09-10-11-12-13-14-15-16-17-18-19-20-21-22.16.Ounces...Konets.German.WEBDL-1080p.EAC3.5.1.h265-FritzBox.mkv",
+          "languages": [
+            {
+              "id": 4,
+              "name": "German"
+            }
+          ],
+          "quality": {
+            "quality": {
+              "id": 3,
+              "name": "WEBDL-1080p",
+              "source": "web",
+              "resolution": 1080
+            },
+            "revision": {
+              "version": 1,
+              "real": 0,
+              "isRepack": false
+            }
+          },
+          "customFormatScore": 10050,
+          "id": 198627
+        }
+      },
+      {
+        "seriesId": 117,
+        "episodeFileId": 198627,
+        "seasonNumber": 8,
+        "episodeNumber": 22,
+        "title": "Konets",
+        "airDate": "2021-06-23",
+        "runtime": 43,
+        "hasFile": true,
+        "id": 8059,
+        "series": {
+          "id": 117,
+          "title": "The Blacklist",
+          "qualityProfileId": 4
+        },
+        "episodeFile": {
+          "path": "/fixture/The Blacklist (2013) {imdb-tt2741602}/Season 08/The.Blacklist.2013.S08E03-04-05-06-07-08-09-10-11-12-13-14-15-16-17-18-19-20-21-22.16.Ounces...Konets.German.WEBDL-1080p.EAC3.5.1.h265-FritzBox.mkv",
+          "languages": [
+            {
+              "id": 4,
+              "name": "German"
+            }
+          ],
+          "quality": {
+            "quality": {
+              "id": 3,
+              "name": "WEBDL-1080p",
+              "source": "web",
+              "resolution": 1080
+            },
+            "revision": {
+              "version": 1,
+              "real": 0,
+              "isRepack": false
+            }
+          },
+          "customFormatScore": 10050,
+          "id": 198627
+        }
+      }
+    ],
+    "series": {
+      "title": "The Blacklist",
+      "alternateTitles": [
+        {
+          "title": "Feketelista",
+          "seasonNumber": -1
+        }
+      ],
+      "year": 2013,
+      "qualityProfileId": 1,
+      "runtime": 43,
+      "seriesType": "standard",
+      "id": 117
+    },
+    "catalog": [],
+    "probes": {
+      "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E20.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E20.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv": {
+        "ok": true,
+        "path": "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E20.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E20.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "durationSeconds": 2590.88,
+        "video": {
+          "codec": "h264",
+          "width": 1920,
+          "height": 1080
+        },
+        "audio": [
+          {
+            "codec": "eac3",
+            "language": "ger",
+            "title": "German",
+            "inferredLanguage": "ger",
+            "channels": 6
+          },
+          {
+            "codec": "eac3",
+            "language": "eng",
+            "title": "English",
+            "inferredLanguage": "eng",
+            "channels": 6
+          }
+        ],
+        "hasGermanAudio": true
+      },
+      "/fixture/The Blacklist (2013) {imdb-tt2741602}/Season 08/The.Blacklist.2013.S08E03-04-05-06-07-08-09-10-11-12-13-14-15-16-17-18-19-20-21-22.16.Ounces...Konets.German.WEBDL-1080p.EAC3.5.1.h265-FritzBox.mkv": {
+        "ok": true,
+        "path": "/fixture/The Blacklist (2013) {imdb-tt2741602}/Season 08/The.Blacklist.2013.S08E03-04-05-06-07-08-09-10-11-12-13-14-15-16-17-18-19-20-21-22.16.Ounces...Konets.German.WEBDL-1080p.EAC3.5.1.h265-FritzBox.mkv",
+        "durationSeconds": 2496.416,
+        "containerTitle": "Fritzi",
+        "video": {
+          "codec": "hevc",
+          "width": 1920,
+          "height": 1080
+        },
+        "audio": [
+          {
+            "codec": "eac3",
+            "channels": 6
+          }
+        ],
+        "hasGermanAudio": false
+      },
+      "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E07.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E07.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv": {
+        "ok": true,
+        "path": "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E07.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E07.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "durationSeconds": 2588.96,
+        "video": {
+          "codec": "h264",
+          "width": 1920,
+          "height": 1080
+        },
+        "audio": [
+          {
+            "codec": "eac3",
+            "language": "ger",
+            "title": "German",
+            "inferredLanguage": "ger",
+            "channels": 6
+          },
+          {
+            "codec": "eac3",
+            "language": "eng",
+            "title": "English",
+            "inferredLanguage": "eng",
+            "channels": 6
+          }
+        ],
+        "hasGermanAudio": true
+      },
+      "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E06.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E06.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv": {
+        "ok": true,
+        "path": "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E06.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E06.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "durationSeconds": 2620.448,
+        "video": {
+          "codec": "h264",
+          "width": 1920,
+          "height": 1080
+        },
+        "audio": [
+          {
+            "codec": "eac3",
+            "language": "ger",
+            "title": "German",
+            "inferredLanguage": "ger",
+            "channels": 6
+          },
+          {
+            "codec": "eac3",
+            "language": "eng",
+            "title": "English",
+            "inferredLanguage": "eng",
+            "channels": 6
+          }
+        ],
+        "hasGermanAudio": true
+      },
+      "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E13.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E13.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv": {
+        "ok": true,
+        "path": "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E13.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E13.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "durationSeconds": 2563.232,
+        "video": {
+          "codec": "h264",
+          "width": 1920,
+          "height": 1080
+        },
+        "audio": [
+          {
+            "codec": "eac3",
+            "language": "ger",
+            "title": "German",
+            "inferredLanguage": "ger",
+            "channels": 6
+          },
+          {
+            "codec": "eac3",
+            "language": "eng",
+            "title": "English",
+            "inferredLanguage": "eng",
+            "channels": 6
+          }
+        ],
+        "hasGermanAudio": true
+      },
+      "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E21.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E21.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv": {
+        "ok": true,
+        "path": "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E21.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E21.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "durationSeconds": 2590.112,
+        "video": {
+          "codec": "h264",
+          "width": 1920,
+          "height": 1080
+        },
+        "audio": [
+          {
+            "codec": "eac3",
+            "language": "ger",
+            "title": "German",
+            "inferredLanguage": "ger",
+            "channels": 6
+          },
+          {
+            "codec": "eac3",
+            "language": "eng",
+            "title": "English",
+            "inferredLanguage": "eng",
+            "channels": 6
+          }
+        ],
+        "hasGermanAudio": true
+      },
+      "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E09.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E09.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv": {
+        "ok": true,
+        "path": "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E09.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E09.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "durationSeconds": 2590.88,
+        "video": {
+          "codec": "h264",
+          "width": 1920,
+          "height": 1080
+        },
+        "audio": [
+          {
+            "codec": "eac3",
+            "language": "ger",
+            "title": "German",
+            "inferredLanguage": "ger",
+            "channels": 6
+          },
+          {
+            "codec": "eac3",
+            "language": "eng",
+            "title": "English",
+            "inferredLanguage": "eng",
+            "channels": 6
+          }
+        ],
+        "hasGermanAudio": true
+      },
+      "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E19.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E19.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv": {
+        "ok": true,
+        "path": "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E19.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E19.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "durationSeconds": 2545.568,
+        "video": {
+          "codec": "h264",
+          "width": 1920,
+          "height": 1080
+        },
+        "audio": [
+          {
+            "codec": "eac3",
+            "language": "ger",
+            "title": "German",
+            "inferredLanguage": "ger",
+            "channels": 6
+          },
+          {
+            "codec": "eac3",
+            "language": "eng",
+            "title": "English",
+            "inferredLanguage": "eng",
+            "channels": 6
+          }
+        ],
+        "hasGermanAudio": true
+      },
+      "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E22.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E22.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv": {
+        "ok": true,
+        "path": "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E22.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E22.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "durationSeconds": 2614.688,
+        "video": {
+          "codec": "h264",
+          "width": 1920,
+          "height": 1080
+        },
+        "audio": [
+          {
+            "codec": "eac3",
+            "language": "ger",
+            "title": "German",
+            "inferredLanguage": "ger",
+            "channels": 6
+          },
+          {
+            "codec": "eac3",
+            "language": "eng",
+            "title": "English",
+            "inferredLanguage": "eng",
+            "channels": 6
+          }
+        ],
+        "hasGermanAudio": true
+      },
+      "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E04.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E04.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv": {
+        "ok": true,
+        "path": "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E04.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E04.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "durationSeconds": 2590.112,
+        "video": {
+          "codec": "h264",
+          "width": 1920,
+          "height": 1080
+        },
+        "audio": [
+          {
+            "codec": "eac3",
+            "language": "ger",
+            "title": "German",
+            "inferredLanguage": "ger",
+            "channels": 6
+          },
+          {
+            "codec": "eac3",
+            "language": "eng",
+            "title": "English",
+            "inferredLanguage": "eng",
+            "channels": 6
+          }
+        ],
+        "hasGermanAudio": true
+      },
+      "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E05.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E05.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv": {
+        "ok": true,
+        "path": "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E05.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E05.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "durationSeconds": 2591.648,
+        "video": {
+          "codec": "h264",
+          "width": 1920,
+          "height": 1080
+        },
+        "audio": [
+          {
+            "codec": "eac3",
+            "language": "ger",
+            "title": "German",
+            "inferredLanguage": "ger",
+            "channels": 6
+          },
+          {
+            "codec": "eac3",
+            "language": "eng",
+            "title": "English",
+            "inferredLanguage": "eng",
+            "channels": 6
+          }
+        ],
+        "hasGermanAudio": true
+      },
+      "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E18.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E18.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv": {
+        "ok": true,
+        "path": "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E18.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E18.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "durationSeconds": 2593.952,
+        "video": {
+          "codec": "h264",
+          "width": 1920,
+          "height": 1080
+        },
+        "audio": [
+          {
+            "codec": "eac3",
+            "language": "ger",
+            "title": "German",
+            "inferredLanguage": "ger",
+            "channels": 6
+          },
+          {
+            "codec": "eac3",
+            "language": "eng",
+            "title": "English",
+            "inferredLanguage": "eng",
+            "channels": 6
+          }
+        ],
+        "hasGermanAudio": true
+      },
+      "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E03.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E03.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv": {
+        "ok": true,
+        "path": "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E03.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E03.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "durationSeconds": 2591.648,
+        "video": {
+          "codec": "h264",
+          "width": 1920,
+          "height": 1080
+        },
+        "audio": [
+          {
+            "codec": "eac3",
+            "language": "ger",
+            "title": "German",
+            "inferredLanguage": "ger",
+            "channels": 6
+          },
+          {
+            "codec": "eac3",
+            "language": "eng",
+            "title": "English",
+            "inferredLanguage": "eng",
+            "channels": 6
+          }
+        ],
+        "hasGermanAudio": true
+      },
+      "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E12.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E12.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv": {
+        "ok": true,
+        "path": "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E12.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E12.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "durationSeconds": 2590.112,
+        "video": {
+          "codec": "h264",
+          "width": 1920,
+          "height": 1080
+        },
+        "audio": [
+          {
+            "codec": "eac3",
+            "language": "ger",
+            "title": "German",
+            "inferredLanguage": "ger",
+            "channels": 6
+          },
+          {
+            "codec": "eac3",
+            "language": "eng",
+            "title": "English",
+            "inferredLanguage": "eng",
+            "channels": 6
+          }
+        ],
+        "hasGermanAudio": true
+      },
+      "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv": {
+        "ok": true,
+        "path": "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "durationSeconds": 2593.568,
+        "video": {
+          "codec": "h264",
+          "width": 1920,
+          "height": 1080
+        },
+        "audio": [
+          {
+            "codec": "eac3",
+            "language": "ger",
+            "title": "German",
+            "inferredLanguage": "ger",
+            "channels": 6
+          },
+          {
+            "codec": "eac3",
+            "language": "eng",
+            "title": "English",
+            "inferredLanguage": "eng",
+            "channels": 6
+          }
+        ],
+        "hasGermanAudio": true
+      },
+      "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E15.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E15.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv": {
+        "ok": true,
+        "path": "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E15.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E15.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "durationSeconds": 2590.88,
+        "video": {
+          "codec": "h264",
+          "width": 1920,
+          "height": 1080
+        },
+        "audio": [
+          {
+            "codec": "eac3",
+            "language": "ger",
+            "title": "German",
+            "inferredLanguage": "ger",
+            "channels": 6
+          },
+          {
+            "codec": "eac3",
+            "language": "eng",
+            "title": "English",
+            "inferredLanguage": "eng",
+            "channels": 6
+          }
+        ],
+        "hasGermanAudio": true
+      },
+      "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E10.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E10.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv": {
+        "ok": true,
+        "path": "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E10.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E10.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "durationSeconds": 2590.496,
+        "video": {
+          "codec": "h264",
+          "width": 1920,
+          "height": 1080
+        },
+        "audio": [
+          {
+            "codec": "eac3",
+            "language": "ger",
+            "title": "German",
+            "inferredLanguage": "ger",
+            "channels": 6
+          },
+          {
+            "codec": "eac3",
+            "language": "eng",
+            "title": "English",
+            "inferredLanguage": "eng",
+            "channels": 6
+          }
+        ],
+        "hasGermanAudio": true
+      },
+      "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E11.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E11.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv": {
+        "ok": true,
+        "path": "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E11.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E11.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "durationSeconds": 2593.184,
+        "video": {
+          "codec": "h264",
+          "width": 1920,
+          "height": 1080
+        },
+        "audio": [
+          {
+            "codec": "eac3",
+            "language": "ger",
+            "title": "German",
+            "inferredLanguage": "ger",
+            "channels": 6
+          },
+          {
+            "codec": "eac3",
+            "language": "eng",
+            "title": "English",
+            "inferredLanguage": "eng",
+            "channels": 6
+          }
+        ],
+        "hasGermanAudio": true
+      },
+      "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E16.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E16.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv": {
+        "ok": true,
+        "path": "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E16.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E16.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "durationSeconds": 2592.8,
+        "video": {
+          "codec": "h264",
+          "width": 1920,
+          "height": 1080
+        },
+        "audio": [
+          {
+            "codec": "eac3",
+            "language": "ger",
+            "title": "German",
+            "inferredLanguage": "ger",
+            "channels": 6
+          },
+          {
+            "codec": "eac3",
+            "language": "eng",
+            "title": "English",
+            "inferredLanguage": "eng",
+            "channels": 6
+          }
+        ],
+        "hasGermanAudio": true
+      },
+      "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E17.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E17.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv": {
+        "ok": true,
+        "path": "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E17.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E17.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "durationSeconds": 2592.416,
+        "video": {
+          "codec": "h264",
+          "width": 1920,
+          "height": 1080
+        },
+        "audio": [
+          {
+            "codec": "eac3",
+            "language": "ger",
+            "title": "German",
+            "inferredLanguage": "ger",
+            "channels": 6
+          },
+          {
+            "codec": "eac3",
+            "language": "eng",
+            "title": "English",
+            "inferredLanguage": "eng",
+            "channels": 6
+          }
+        ],
+        "hasGermanAudio": true
+      },
+      "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E14.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E14.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv": {
+        "ok": true,
+        "path": "/fixture/The.Blacklist.2013.S08.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E14.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX/The.Blacklist.2013.S08E14.German.DL.EAC3.1080p.NF.WEB.H264-WAREZCX.mkv",
+        "durationSeconds": 2592.416,
+        "video": {
+          "codec": "h264",
+          "width": 1920,
+          "height": 1080
+        },
+        "audio": [
+          {
+            "codec": "eac3",
+            "language": "ger",
+            "title": "German",
+            "inferredLanguage": "ger",
+            "channels": 6
+          },
+          {
+            "codec": "eac3",
+            "language": "eng",
+            "title": "English",
+            "inferredLanguage": "eng",
+            "channels": 6
+          }
+        ],
+        "hasGermanAudio": true
+      }
+    },
+    "parse": null,
+    "mapping": [
+      {
+        "candidateId": "candidate_1",
+        "episodeIds": [8041]
+      },
+      {
+        "candidateId": "candidate_2",
+        "episodeIds": [8049]
+      },
+      {
+        "candidateId": "candidate_3",
+        "episodeIds": [8048]
+      },
+      {
+        "candidateId": "candidate_4",
+        "episodeIds": [8046]
+      },
+      {
+        "candidateId": "candidate_5",
+        "episodeIds": [8044]
+      },
+      {
+        "candidateId": "candidate_6",
+        "episodeIds": [8051]
+      },
+      {
+        "candidateId": "candidate_7",
+        "episodeIds": [8057]
+      },
+      {
+        "candidateId": "candidate_8",
+        "episodeIds": [8054]
+      },
+      {
+        "candidateId": "candidate_9",
+        "episodeIds": [8056]
+      },
+      {
+        "candidateId": "candidate_10",
+        "episodeIds": [8042]
+      },
+      {
+        "candidateId": "candidate_11",
+        "episodeIds": [8050]
+      },
+      {
+        "candidateId": "candidate_12",
+        "episodeIds": [8047]
+      },
+      {
+        "candidateId": "candidate_13",
+        "episodeIds": [8043]
+      },
+      {
+        "candidateId": "candidate_14",
+        "episodeIds": [8045]
+      },
+      {
+        "candidateId": "candidate_15",
+        "episodeIds": [8058]
+      },
+      {
+        "candidateId": "candidate_16",
+        "episodeIds": [8052]
+      },
+      {
+        "candidateId": "candidate_17",
+        "episodeIds": [8040]
+      },
+      {
+        "candidateId": "candidate_18",
+        "episodeIds": [8059]
+      },
+      {
+        "candidateId": "candidate_19",
+        "episodeIds": [8055]
+      },
+      {
+        "candidateId": "candidate_20",
+        "episodeIds": [8053]
+      }
+    ]
+  },
+  {
+    "key": "batman3",
+    "queueItem": {
+      "id": 389206548,
+      "service": "sonarr",
+      "title": "Batman.The.Animated.Series.S03.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX",
+      "seriesId": 1064,
+      "seriesTitle": "Batman: The Animated Series",
+      "seriesType": "standard",
+      "downloadId": "15ce917c-4280-4f1f-b513-6b1e5ec15875",
+      "status": "completed",
+      "trackedDownloadStatus": "warning",
+      "trackedDownloadState": "importBlocked",
+      "outputPath": "/fixture/Batman.The.Animated.Series.S03.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX",
+      "episodeIds": [65881, 65877, 65883, 65876, 65880, 65879, 65882, 65878, 65885, 65884],
+      "absoluteEpisodeNumbers": [81],
+      "episodeLabels": ["S03E06 - Harley's Holiday"],
+      "seasonEpisode": "S03E06",
+      "statusMessages": [
+        "One or more episodes expected in this release were not imported or missing from the release",
+        "Batman.The.Animated.Series.S03E01.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX.mkv"
+      ],
+      "canAnalyze": true
+    },
+    "candidates": [
+      {
+        "id": "candidate_4",
+        "service": "sonarr",
+        "path": "/fixture/Batman.The.Animated.Series.S03.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX/Batman.The.Animated.Series.S03E20.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX.mkv",
+        "relativePath": "Batman.The.Animated.Series.S03E20.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX.mkv",
+        "seriesId": 1064,
+        "episodeIds": [],
+        "quality": {
+          "quality": {
+            "id": 5,
+            "name": "WEBDL-720p",
+            "source": "web",
+            "resolution": 720
+          },
+          "revision": {
+            "version": 1,
+            "real": 0,
+            "isRepack": false
+          }
+        },
+        "qualityLabel": "WEBDL-720p",
+        "languages": [
+          {
+            "id": 4,
+            "name": "German"
+          },
+          {
+            "id": 1,
+            "name": "English"
+          }
+        ],
+        "customFormatScore": 12980,
+        "rejections": ["Invalid season or episode"],
+        "isLikelySample": false
+      },
+      {
+        "id": "candidate_8",
+        "service": "sonarr",
+        "path": "/fixture/Batman.The.Animated.Series.S03.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX/Batman.The.Animated.Series.S03E22.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX.mkv",
+        "relativePath": "Batman.The.Animated.Series.S03E22.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX.mkv",
+        "seriesId": 1064,
+        "episodeIds": [],
+        "quality": {
+          "quality": {
+            "id": 5,
+            "name": "WEBDL-720p",
+            "source": "web",
+            "resolution": 720
+          },
+          "revision": {
+            "version": 1,
+            "real": 0,
+            "isRepack": false
+          }
+        },
+        "qualityLabel": "WEBDL-720p",
+        "languages": [
+          {
+            "id": 4,
+            "name": "German"
+          },
+          {
+            "id": 1,
+            "name": "English"
+          }
+        ],
+        "customFormatScore": 12980,
+        "rejections": ["Invalid season or episode"],
+        "isLikelySample": false
+      },
+      {
+        "id": "candidate_11",
+        "service": "sonarr",
+        "path": "/fixture/Batman.The.Animated.Series.S03.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX/Batman.The.Animated.Series.S03E13.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX.mkv",
+        "relativePath": "Batman.The.Animated.Series.S03E13.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX.mkv",
+        "seriesId": 1064,
+        "episodeIds": [],
+        "quality": {
+          "quality": {
+            "id": 5,
+            "name": "WEBDL-720p",
+            "source": "web",
+            "resolution": 720
+          },
+          "revision": {
+            "version": 1,
+            "real": 0,
+            "isRepack": false
+          }
+        },
+        "qualityLabel": "WEBDL-720p",
+        "languages": [
+          {
+            "id": 4,
+            "name": "German"
+          },
+          {
+            "id": 1,
+            "name": "English"
+          }
+        ],
+        "customFormatScore": 12980,
+        "rejections": ["Invalid season or episode"],
+        "isLikelySample": false
+      }
+    ],
+    "episodes": [
+      {
+        "seriesId": 1064,
+        "seasonNumber": 3,
+        "episodeNumber": 2,
+        "title": "Second Chance",
+        "airDate": "1994-09-17",
+        "runtime": 25,
+        "overview": "Harvey Dent (Two-Face) is kidnapped by a mysterious villian before he has an operation that will restore his face.",
+        "episodeFile": {
+          "path": "/fixture/Batman - The Animated Series (1992) {imdb-tt0103359}/Season 03/Batman.The.Animated.Series.1992.S03E02.Second.Chance.MAX.WEBDL-1080p.EAC3.2.0.x264-AndreMor.mkv",
+          "languages": [
+            {
+              "id": 3,
+              "name": "Spanish"
+            },
+            {
+              "id": 18,
+              "name": "Portuguese"
+            },
+            {
+              "id": 1,
+              "name": "English"
+            }
+          ],
+          "quality": {
+            "quality": {
+              "id": 3,
+              "name": "WEBDL-1080p",
+              "source": "web",
+              "resolution": 1080
+            },
+            "revision": {
+              "version": 1,
+              "real": 0,
+              "isRepack": false
+            }
+          },
+          "customFormatScore": 125,
+          "id": 202676
+        },
+        "hasFile": true,
+        "series": {
+          "title": "Batman: The Animated Series",
+          "year": 1992,
+          "qualityProfileId": 4,
+          "seriesType": "standard",
+          "id": 1064
+        },
+        "id": 65877
+      },
+      {
+        "seriesId": 1064,
+        "seasonNumber": 3,
+        "episodeNumber": 4,
+        "title": "Baby-Doll",
+        "airDate": "1994-10-01",
+        "runtime": 25,
+        "overview": "A tiny former child star kidnaps her TV family and holds them prisoner in a reconstruction of her old TV home.",
+        "episodeFile": {
+          "path": "/fixture/Batman - The Animated Series (1992) {imdb-tt0103359}/Season 03/Batman.The.Animated.Series.1992.S03E04.Baby-Doll.MAX.WEBDL-1080p.EAC3.2.0.x264-AndreMor.mkv",
+          "languages": [
+            {
+              "id": 18,
+              "name": "Portuguese"
+            },
+            {
+              "id": 1,
+              "name": "English"
+            },
+            {
+              "id": 3,
+              "name": "Spanish"
+            }
+          ],
+          "quality": {
+            "quality": {
+              "id": 3,
+              "name": "WEBDL-1080p",
+              "source": "web",
+              "resolution": 1080
+            },
+            "revision": {
+              "version": 1,
+              "real": 0,
+              "isRepack": false
+            }
+          },
+          "customFormatScore": 125,
+          "id": 202664
+        },
+        "hasFile": true,
+        "series": {
+          "title": "Batman: The Animated Series",
+          "year": 1992,
+          "qualityProfileId": 4,
+          "seriesType": "standard",
+          "id": 1064
+        },
+        "id": 65879
+      },
+      {
+        "seriesId": 1064,
+        "seasonNumber": 3,
+        "episodeNumber": 10,
+        "title": "Deep Freeze",
+        "airDate": "1994-11-26",
+        "runtime": 25,
+        "overview": "Aging billionaire Grant Walker breaks Mr. Freeze out of prison so he can use the scientist's knowledge to can gain immortality and cover the world in a new ice age.",
+        "episodeFile": {
+          "path": "/fixture/Batman - The Animated Series (1992) {imdb-tt0103359}/Season 03/Batman.The.Animated.Series.1992.S03E10.Deep.Freeze.MAX.WEBDL-1080p.EAC3.2.0.x264-Kitsune.mkv",
+          "languages": [
+            {
+              "id": 1,
+              "name": "English"
+            }
+          ],
+          "quality": {
+            "quality": {
+              "id": 3,
+              "name": "WEBDL-1080p",
+              "source": "web",
+              "resolution": 1080
+            },
+            "revision": {
+              "version": 1,
+              "real": 0,
+              "isRepack": false
+            }
+          },
+          "customFormatScore": 1825,
+          "id": 202657
+        },
+        "hasFile": true,
+        "series": {
+          "title": "Batman: The Animated Series",
+          "year": 1992,
+          "qualityProfileId": 4,
+          "seriesType": "standard",
+          "id": 1064
+        },
+        "id": 65885
+      }
+    ],
+    "series": {
+      "id": 1064,
+      "title": "Batman: The Animated Series",
+      "qualityProfileId": 4
+    },
+    "catalog": [
+      {
+        "seriesId": 1293,
+        "seasonNumber": 1,
+        "episodeNumber": 13,
+        "title": "Love is a Croc",
+        "runtime": 20,
+        "overview": "Baby Doll becomes enamored of Killer Croc, and the pair forms a very unlikely yet very successful criminal duo. However, their partnership soon falls apart when Baby Doll learns that Croc is only using her to further his own criminal career.",
+        "id": 78242
+      },
+      {
+        "seriesId": 1293,
+        "seasonNumber": 2,
+        "episodeNumber": 7,
+        "title": "Girl's Night Out",
+        "runtime": 20,
+        "overview": "Livewire escapes during a prison transfer and runs amok in Gotham, joining forces with Poison Ivy and Harley Quinn. With the Dark Knight away, Batgirl teams up with Supergirl to face the deadly trio.",
+        "id": 78249
+      },
+      {
+        "seriesId": 1293,
+        "seasonNumber": 2,
+        "episodeNumber": 9,
+        "title": "Judgment Day",
+        "runtime": 20,
+        "overview": "A new, mysterious vigilante known as the Judge appears and targets Gotham's rogue's gallery with ruthless fury.",
+        "id": 78251
+      }
+    ],
+    "probes": {
+      "/fixture/Batman - The Animated Series (1992) {imdb-tt0103359}/Season 03/Batman.The.Animated.Series.1992.S03E02.Second.Chance.MAX.WEBDL-1080p.EAC3.2.0.x264-AndreMor.mkv": {
+        "ok": true,
+        "path": "/fixture/Batman - The Animated Series (1992) {imdb-tt0103359}/Season 03/Batman.The.Animated.Series.1992.S03E02.Second.Chance.MAX.WEBDL-1080p.EAC3.2.0.x264-AndreMor.mkv",
+        "durationSeconds": 1260,
+        "video": {
+          "width": 1440,
+          "height": 1080
+        },
+        "containerTitle": "Batman The Animated Series S03E02 - Sins of the Father (1997)",
+        "audio": [
+          {
+            "language": "spa",
+            "title": "Spanish / Dolby Digital Plus / 2.0 / 48.000 kHz / 125 KiBs",
+            "codec": "eac3",
+            "channels": 2
+          },
+          {
+            "language": "por",
+            "title": "Portuguese / Dolby Digital Plus / 2.0 / 48.000 kHz / 125 KiBs",
+            "codec": "eac3",
+            "channels": 2
+          },
+          {
+            "language": "eng",
+            "title": "English / Dolby Digital Plus / 2.0 / 48.000 kHz / 125 KiBs",
+            "codec": "eac3",
+            "channels": 2
+          }
+        ],
+        "hasGermanAudio": false
+      },
+      "/fixture/Batman.The.Animated.Series.S03.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX/Batman.The.Animated.Series.S03E20.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX.mkv": {
+        "ok": true,
+        "subtitleExcerpt": {
+          "streamIndex": 3,
+          "language": "eng",
+          "lines": [
+            "[theme music]",
+            "boom",
+            "[music continues]",
+            "[thunder cracking]",
+            "[instrumental music]",
+            "splash",
+            "Five more miles, missy.",
+            "Hey, you should be happy.",
+            "If GothCorp Labs",
+            "can undo your condition",
+            "you could be back to normal",
+            "this time tomorrow.",
+            "'If you ever were normal.'",
+            "Yeah, I love you too,",
+            "jerk-face.",
+            "[instrumental music]",
+            "Metropolis SCU.",
+            "What's the problem?",
+            "Accident up ahead.",
+            "Uh, where you headin'?",
+            "Escorting a prisoner",
+            "to GothCorp for treatment.",
+            "Go ahead. Just watch out",
+            "for the downed power lines.",
+            "Hello!",
+            "[music continues]",
+            "[electricity crackling]",
+            "Come on.",
+            "- What the...Whoa!",
+            "- Hey!",
+            "[electricity crackling]",
+            "Whoa!",
+            "Huh? What?",
+            "And the hits",
+            "just keep on comin'.",
+            "[grunts]",
+            "[crackling continues]",
+            "crash",
+            "[crackling]",
+            "[revving]"
+          ]
+        },
+        "path": "/fixture/Batman.The.Animated.Series.S03.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX/Batman.The.Animated.Series.S03E20.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX.mkv",
+        "durationSeconds": 1270.4,
+        "video": {
+          "codec": "hevc",
+          "width": 1280,
+          "height": 960
+        },
+        "audio": [
+          {
+            "codec": "eac3",
+            "language": "ger",
+            "inferredLanguage": "ger",
+            "channels": 2
+          },
+          {
+            "codec": "eac3",
+            "language": "eng",
+            "inferredLanguage": "eng",
+            "channels": 2
+          }
+        ],
+        "hasGermanAudio": true
+      },
+      "/fixture/Batman.The.Animated.Series.S03.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX/Batman.The.Animated.Series.S03E13.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX.mkv": {
+        "ok": true,
+        "subtitleExcerpt": {
+          "streamIndex": 3,
+          "language": "eng",
+          "lines": [
+            "[theme music]",
+            "boom",
+            "[music continues]",
+            "[thunder cracking]",
+            "[instrumental music]",
+            "blurb blurb",
+            "[gasps]",
+            "Hey!",
+            "[groans]",
+            "Baby, did you use the whole box",
+            "of bubble bath?",
+            "I didn't mean to.",
+            "[canned laughter]",
+            "You sure",
+            "this is the right hotel?",
+            "I don't remember",
+            "the floor goin' uphill.",
+            "(female #1)",
+            "It's your head",
+            "that's tilting, Harry.",
+            "- Oh, what now?",
+            "- The key.",
+            "It must have fell out",
+            "when the sidewalk hit me.",
+            "My husband lost our room key.",
+            "Fedders, 703.",
+            "I'll get you a duplicate.",
+            "(Harry)",
+            "'You used to be somebody,",
+            "didn't ya?",
+            "'On TV?'",
+            "Yeah, yeah, you were Baby Doll.",
+            "You got that disease.",
+            "It's a condition,",
+            "not a disease.",
+            "- I don't grow.",
+            "- Right, right.",
+            "So you went nuts",
+            "and tried to kill Batman.",
+            "Harry, that's enough."
+          ]
+        },
+        "path": "/fixture/Batman.The.Animated.Series.S03.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX/Batman.The.Animated.Series.S03E13.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX.mkv",
+        "durationSeconds": 1282.272,
+        "video": {
+          "codec": "hevc",
+          "width": 1280,
+          "height": 960
+        },
+        "audio": [
+          {
+            "codec": "eac3",
+            "language": "ger",
+            "inferredLanguage": "ger",
+            "channels": 2
+          },
+          {
+            "codec": "eac3",
+            "language": "eng",
+            "inferredLanguage": "eng",
+            "channels": 2
+          }
+        ],
+        "hasGermanAudio": true
+      },
+      "/fixture/Batman - The Animated Series (1992) {imdb-tt0103359}/Season 03/Batman.The.Animated.Series.1992.S03E04.Baby-Doll.MAX.WEBDL-1080p.EAC3.2.0.x264-AndreMor.mkv": {
+        "ok": true,
+        "path": "/fixture/Batman - The Animated Series (1992) {imdb-tt0103359}/Season 03/Batman.The.Animated.Series.1992.S03E04.Baby-Doll.MAX.WEBDL-1080p.EAC3.2.0.x264-AndreMor.mkv",
+        "durationSeconds": 1260,
+        "video": {
+          "width": 1440,
+          "height": 1080
+        },
+        "containerTitle": "Batman The Animated Series S03E04 - Never Fear (1997)",
+        "audio": [
+          {
+            "language": "por",
+            "title": "Portuguese / Dolby Digital Plus / 2.0 / 48.000 kHz / 125 KiBs",
+            "codec": "eac3",
+            "channels": 2
+          },
+          {
+            "language": "eng",
+            "title": "English / Dolby Digital Plus / 2.0 / 48.000 kHz / 125 KiBs",
+            "codec": "eac3",
+            "channels": 2
+          },
+          {
+            "language": "spa",
+            "title": "Spanish / Dolby Digital Plus / 2.0 / 48.000 kHz / 125 KiBs",
+            "codec": "eac3",
+            "channels": 2
+          }
+        ],
+        "hasGermanAudio": false
+      },
+      "/fixture/Batman.The.Animated.Series.S03.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX/Batman.The.Animated.Series.S03E22.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX.mkv": {
+        "ok": true,
+        "subtitleExcerpt": {
+          "streamIndex": 3,
+          "language": "eng",
+          "lines": [
+            "[theme music]",
+            "boom",
+            "[music continues]",
+            "[thunder cracking]",
+            "[instrumental music]",
+            "My dear fellow, I contacted",
+            "all my usual sources",
+            "but I'm afraid it's just",
+            "not a seller's market.",
+            "What's that supposed to mean?",
+            "$50,000 for the diamond.",
+            "- Not a penny more.",
+            "- That's robbery!",
+            "That rock's worth",
+            "ten times that much!",
+            "Don't forget,",
+            "as a legitimate businessman",
+            "I have my expenses, too.",
+            "Taxes, overhead, labor.",
+            "And they call me two-faced.",
+            "Harvey, you're early.",
+            "I was able to procure",
+            "a slightly better price",
+            "on your items.",
+            "I see you do have",
+            "half a brain.",
+            "Enough not to low-ball me.",
+            "- Naturally.",
+            "- So, what am I, a sap?",
+            "You're free to take",
+            "your business elsewhere.",
+            "But of course,",
+            "who else can guarantee",
+            "'my level of confidentiality?'",
+            "[grunts]",
+            "As always, gentlemen",
+            "it was a pleasure",
+            "doing business.",
+            "See that they find",
+            "their way out."
+          ]
+        },
+        "path": "/fixture/Batman.The.Animated.Series.S03.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX/Batman.The.Animated.Series.S03E22.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX.mkv",
+        "durationSeconds": 1261.152,
+        "video": {
+          "codec": "hevc",
+          "width": 1280,
+          "height": 960
+        },
+        "audio": [
+          {
+            "codec": "eac3",
+            "language": "ger",
+            "inferredLanguage": "ger",
+            "channels": 2
+          },
+          {
+            "codec": "eac3",
+            "language": "eng",
+            "inferredLanguage": "eng",
+            "channels": 2
+          }
+        ],
+        "hasGermanAudio": true
+      },
+      "/fixture/Batman - The Animated Series (1992) {imdb-tt0103359}/Season 03/Batman.The.Animated.Series.1992.S03E10.Deep.Freeze.MAX.WEBDL-1080p.EAC3.2.0.x264-Kitsune.mkv": {
+        "ok": true,
+        "path": "/fixture/Batman - The Animated Series (1992) {imdb-tt0103359}/Season 03/Batman.The.Animated.Series.1992.S03E10.Deep.Freeze.MAX.WEBDL-1080p.EAC3.2.0.x264-Kitsune.mkv",
+        "durationSeconds": 1260,
+        "video": {
+          "width": 1440,
+          "height": 1080
+        },
+        "containerTitle": null,
+        "audio": [
+          {
+            "language": "eng",
+            "codec": "eac3",
+            "channels": 2
+          }
+        ],
+        "hasGermanAudio": false
+      }
+    },
+    "parse": {
+      "releaseTitle": "Batman.The.Animated.Series.S03.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX",
+      "parsedTitle": "Batman The Animated Series",
+      "parsedSeason": 3,
+      "parsedEpisodes": [],
+      "matchedId": 1064,
+      "matchedTitle": "Batman: The Animated Series",
+      "matchedEpisodeIds": [65876, 65877, 65878, 65879, 65880, 65881, 65882, 65883, 65884, 65885]
+    },
+    "mapping": [
+      {
+        "candidateId": "candidate_4",
+        "episodeIds": [65885],
+        "reason": "Filename E20 is invalid for Sonarr's season, but its inspected dialogue identifies the Mr. Freeze/GothCorp prison story as Deep Freeze (S03E10)."
+      },
+      {
+        "candidateId": "candidate_8",
+        "episodeIds": [65877],
+        "reason": "Filename E22 is invalid, but inspected dialogue identifies Harvey Dent/Two-Face's Second Chance story."
+      },
+      {
+        "candidateId": "candidate_11",
+        "episodeIds": [65879],
+        "reason": "Filename E13 is invalid, but inspected dialogue explicitly identifies Baby Doll and matches the Baby-Doll synopsis."
+      }
+    ]
+  },
+  {
+    "key": "macgyver",
+    "queueItem": {
+      "id": 600732252,
+      "service": "sonarr",
+      "title": "MacGyver.S06E07.PROPER.1080p.BluRay.x265-KONTRAST",
+      "seriesId": 868,
+      "seriesTitle": "MacGyver",
+      "seriesType": "standard",
+      "downloadId": "cda04b9a-f27a-49cd-9e18-364e5c566098",
+      "status": "completed",
+      "trackedDownloadStatus": "warning",
+      "trackedDownloadState": "importPending",
+      "outputPath": "/fixture/MacGyver.S06E07.PROPER.1080p.BluRay.x265-KONTRAST/",
+      "episodeIds": [53422],
+      "absoluteEpisodeNumbers": [111],
+      "episodeLabels": ["S06E07 - Harry's Will"],
+      "seasonEpisode": "S06E07",
+      "statusMessages": [
+        "MacGyver.S06E07.PROPER.1080p.BluRay.x265-KONTRAST",
+        "Not a Custom Format upgrade for existing episode file(s). New: [1080p, Repack/Proper, v2, x265 (HD), x265 (no HDR/DV)] (57) do not improve on Existing: [1080p, German Scene, German Subbed] (9050)"
+      ],
+      "canAnalyze": true
+    },
+    "candidates": [
+      {
+        "id": "candidate_1",
+        "service": "sonarr",
+        "path": "/fixture/MacGyver.S06E07.PROPER.1080p.BluRay.x265-KONTRAST/MacGyver.S06E07.PROPER.1080p.BluRay.x265-KONTRAST.mp4",
+        "relativePath": "MacGyver.S06E07.PROPER.1080p.BluRay.x265-KONTRAST.mp4",
+        "seriesId": 868,
+        "episodeIds": [53422],
+        "quality": {
+          "quality": {
+            "id": 7,
+            "name": "Bluray-1080p",
+            "source": "bluray",
+            "resolution": 1080
+          },
+          "revision": {
+            "version": 2,
+            "real": 0,
+            "isRepack": false
+          }
+        },
+        "qualityLabel": "Bluray-1080p",
+        "languages": [
+          {
+            "id": 1,
+            "name": "English"
+          }
+        ],
+        "customFormatScore": 57,
+        "rejections": [
+          "Not a Custom Format upgrade for existing episode file(s). New: [1080p, Repack/Proper, v2, x265 (HD), x265 (no HDR/DV)] (57) do not improve on Existing: [1080p, German Scene, German Subbed] (9050)"
+        ],
+        "isLikelySample": false
+      }
+    ],
+    "episodes": [
+      {
+        "id": 53422,
+        "seriesId": 868,
+        "seasonNumber": 6,
+        "episodeNumber": 7,
+        "title": "Harry's Will",
+        "runtime": 45,
+        "overview": "When Mac tries to claim the station wagon left to him by his late Grandpa Harry, it starts a strange chase that leads him to an ex-con with a dream of running a restaurant, a soup kitchen in need of money, and a gang of crooks out for themselves.",
+        "hasFile": true,
+        "series": {
+          "id": 868,
+          "title": "MacGyver",
+          "year": null,
+          "qualityProfileId": 4
+        },
+        "episodeFile": {
+          "path": "/fixture/MacGyver (1985) {imdb-tt0088559}/Season 06/MacGyver (1985) - S06E07 - Harrys Will [Bluray-1080p][DTS 2.0][x264]-TV4A.mkv",
+          "quality": {
+            "quality": {
+              "name": "Bluray-1080p"
+            }
+          },
+          "languages": ["English"],
+          "customFormatScore": 9050
+        }
+      }
+    ],
+    "series": {
+      "title": "MacGyver",
+      "alternateTitles": [],
+      "year": 1985,
+      "qualityProfileId": 1,
+      "runtime": 45,
+      "seriesType": "standard",
+      "id": 868
+    },
+    "catalog": [],
+    "probes": {
+      "/fixture/MacGyver.S06E07.PROPER.1080p.BluRay.x265-KONTRAST/MacGyver.S06E07.PROPER.1080p.BluRay.x265-KONTRAST.mp4": {
+        "ok": true,
+        "path": "/fixture/MacGyver.S06E07.PROPER.1080p.BluRay.x265-KONTRAST/MacGyver.S06E07.PROPER.1080p.BluRay.x265-KONTRAST.mp4",
+        "durationSeconds": 3240,
+        "video": {
+          "width": 1920,
+          "height": 1080
+        },
+        "containerTitle": "MacGyver.S06E07.1080p.BluRay.x265-KONTRAST",
+        "audio": [
+          {
+            "language": "eng",
+            "codec": "aac",
+            "channels": 2
+          }
+        ],
+        "hasGermanAudio": false
+      },
+      "/fixture/MacGyver (1985) {imdb-tt0088559}/Season 06/MacGyver (1985) - S06E07 - Harrys Will [Bluray-1080p][DTS 2.0][x264]-TV4A.mkv": {
+        "ok": true,
+        "path": "/fixture/MacGyver (1985) {imdb-tt0088559}/Season 06/MacGyver (1985) - S06E07 - Harrys Will [Bluray-1080p][DTS 2.0][x264]-TV4A.mkv",
+        "durationSeconds": 2880,
+        "video": {
+          "width": 1436,
+          "height": 1080
+        },
+        "containerTitle": null,
+        "audio": [
+          {
+            "language": "eng",
+            "codec": "dts",
+            "channels": 2
+          }
+        ],
+        "hasGermanAudio": false
+      }
+    },
+    "parse": {
+      "releaseTitle": "MacGyver.S06E07.PROPER.1080p.BluRay.x265-KONTRAST",
+      "parsedTitle": "MacGyver",
+      "parsedSeason": 6,
+      "parsedEpisodes": [7],
+      "matchedId": 868,
+      "matchedTitle": "MacGyver",
+      "matchedEpisodeIds": [53422]
+    },
+    "mapping": [
+      {
+        "candidateId": "candidate_1",
+        "episodeIds": [53422]
+      }
+    ]
+  },
+  {
+    "key": "batman4",
+    "queueItem": {
+      "id": 1075250229,
+      "service": "sonarr",
+      "title": "Batman.The.Animated.Series.S04.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX",
+      "seriesId": 1064,
+      "seriesTitle": "Batman: The Animated Series",
+      "seriesType": "standard",
+      "downloadId": "2d882ac3-835b-4956-a278-b82b87450efc",
+      "status": "completed",
+      "trackedDownloadStatus": "warning",
+      "trackedDownloadState": "importBlocked",
+      "outputPath": "/fixture/Batman.The.Animated.Series.S04.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX",
+      "episodeIds": [65888, 65887, 65889, 65886, 65890],
+      "absoluteEpisodeNumbers": [74],
+      "episodeLabels": ["S04E03 - Catwalk"],
+      "seasonEpisode": "S04E03",
+      "statusMessages": [
+        "One or more episodes expected in this release were not imported or missing from the release",
+        "Batman.The.Animated.Series.S04E01.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX.mkv"
+      ],
+      "canAnalyze": true
+    },
+    "candidates": [
+      {
+        "id": "candidate_1",
+        "service": "sonarr",
+        "path": "/fixture/Batman.The.Animated.Series.S04.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX/Batman.The.Animated.Series.S04E01.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX.mkv",
+        "relativePath": "Batman.The.Animated.Series.S04E01.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX.mkv",
+        "seriesId": 1064,
+        "episodeIds": [65886],
+        "quality": {
+          "quality": {
+            "id": 5,
+            "name": "WEBDL-720p",
+            "source": "web",
+            "resolution": 720
+          },
+          "revision": {
+            "version": 1,
+            "real": 0,
+            "isRepack": false
+          }
+        },
+        "qualityLabel": "WEBDL-720p",
+        "languages": [
+          {
+            "id": 4,
+            "name": "German"
+          },
+          {
+            "id": 1,
+            "name": "English"
+          }
+        ],
+        "customFormatScore": 12980,
+        "rejections": [
+          "Not an upgrade for existing episode file(s). Existing quality: Bluray-1080p. New Quality WEBDL-720p."
+        ],
+        "isLikelySample": false
+      },
+      {
+        "id": "candidate_2",
+        "service": "sonarr",
+        "path": "/fixture/Batman.The.Animated.Series.S04.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX/Batman.The.Animated.Series.S04E03.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX.mkv",
+        "relativePath": "Batman.The.Animated.Series.S04E03.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX.mkv",
+        "seriesId": 1064,
+        "episodeIds": [65888],
+        "quality": {
+          "quality": {
+            "id": 5,
+            "name": "WEBDL-720p",
+            "source": "web",
+            "resolution": 720
+          },
+          "revision": {
+            "version": 1,
+            "real": 0,
+            "isRepack": false
+          }
+        },
+        "qualityLabel": "WEBDL-720p",
+        "languages": [
+          {
+            "id": 4,
+            "name": "German"
+          },
+          {
+            "id": 1,
+            "name": "English"
+          }
+        ],
+        "customFormatScore": 12980,
+        "rejections": [
+          "Not an upgrade for existing episode file(s). Existing quality: Bluray-1080p. New Quality WEBDL-720p."
+        ],
+        "isLikelySample": false
+      },
+      {
+        "id": "candidate_3",
+        "service": "sonarr",
+        "path": "/fixture/Batman.The.Animated.Series.S04.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX/Batman.The.Animated.Series.S04E02.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX.mkv",
+        "relativePath": "Batman.The.Animated.Series.S04E02.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX.mkv",
+        "seriesId": 1064,
+        "episodeIds": [65887],
+        "quality": {
+          "quality": {
+            "id": 5,
+            "name": "WEBDL-720p",
+            "source": "web",
+            "resolution": 720
+          },
+          "revision": {
+            "version": 1,
+            "real": 0,
+            "isRepack": false
+          }
+        },
+        "qualityLabel": "WEBDL-720p",
+        "languages": [
+          {
+            "id": 4,
+            "name": "German"
+          },
+          {
+            "id": 1,
+            "name": "English"
+          }
+        ],
+        "customFormatScore": 12980,
+        "rejections": [
+          "Not an upgrade for existing episode file(s). Existing quality: Bluray-1080p. New Quality WEBDL-720p."
+        ],
+        "isLikelySample": false
+      },
+      {
+        "id": "candidate_4",
+        "service": "sonarr",
+        "path": "/fixture/Batman.The.Animated.Series.S04.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX/Batman.The.Animated.Series.S04E05.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX.mkv",
+        "relativePath": "Batman.The.Animated.Series.S04E05.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX.mkv",
+        "seriesId": 1064,
+        "episodeIds": [65890],
+        "quality": {
+          "quality": {
+            "id": 5,
+            "name": "WEBDL-720p",
+            "source": "web",
+            "resolution": 720
+          },
+          "revision": {
+            "version": 1,
+            "real": 0,
+            "isRepack": false
+          }
+        },
+        "qualityLabel": "WEBDL-720p",
+        "languages": [
+          {
+            "id": 4,
+            "name": "German"
+          },
+          {
+            "id": 1,
+            "name": "English"
+          }
+        ],
+        "customFormatScore": 12980,
+        "rejections": [
+          "Not an upgrade for existing episode file(s). Existing quality: Bluray-1080p. New Quality WEBDL-720p."
+        ],
+        "isLikelySample": false
+      },
+      {
+        "id": "candidate_5",
+        "service": "sonarr",
+        "path": "/fixture/Batman.The.Animated.Series.S04.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX/Batman.The.Animated.Series.S04E04.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX.mkv",
+        "relativePath": "Batman.The.Animated.Series.S04E04.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX.mkv",
+        "seriesId": 1064,
+        "episodeIds": [65889],
+        "quality": {
+          "quality": {
+            "id": 5,
+            "name": "WEBDL-720p",
+            "source": "web",
+            "resolution": 720
+          },
+          "revision": {
+            "version": 1,
+            "real": 0,
+            "isRepack": false
+          }
+        },
+        "qualityLabel": "WEBDL-720p",
+        "languages": [
+          {
+            "id": 4,
+            "name": "German"
+          },
+          {
+            "id": 1,
+            "name": "English"
+          }
+        ],
+        "customFormatScore": 12980,
+        "rejections": [
+          "Not an upgrade for existing episode file(s). Existing quality: Bluray-1080p. New Quality WEBDL-720p."
+        ],
+        "isLikelySample": false
+      }
+    ],
+    "episodes": [
+      {
+        "seriesId": 1064,
+        "seasonNumber": 4,
+        "episodeNumber": 1,
+        "title": "The Terrible Trio",
+        "airDate": "1995-09-11",
+        "runtime": 25,
+        "overview": "Batman tracks three wealthy playboys who commit crimes out of boredom.",
+        "episodeFile": {
+          "path": "/fixture/Batman - The Animated Series (1992) {imdb-tt0103359}/Season 04/Batman - The Animated Series (1992) - S04E01 - The Terrible Trio [Bluray-1080p][DTS-HD MA 2.0][h264]-NTb.mkv",
+          "languages": [
+            {
+              "id": 1,
+              "name": "English"
+            },
+            {
+              "id": 2,
+              "name": "French"
+            },
+            {
+              "id": 3,
+              "name": "Spanish"
+            }
+          ],
+          "quality": {
+            "quality": {
+              "id": 7,
+              "name": "Bluray-1080p",
+              "source": "bluray",
+              "resolution": 1080
+            },
+            "revision": {
+              "version": 1,
+              "real": 0,
+              "isRepack": false
+            }
+          },
+          "customFormatScore": 50,
+          "id": 145325
+        },
+        "hasFile": true,
+        "series": {
+          "title": "Batman: The Animated Series",
+          "year": 1992,
+          "qualityProfileId": 4,
+          "seriesType": "standard",
+          "id": 1064
+        },
+        "id": 65886
+      },
+      {
+        "seriesId": 1064,
+        "seasonNumber": 4,
+        "episodeNumber": 2,
+        "title": "Showdown",
+        "airDate": "1995-09-12",
+        "runtime": 25,
+        "overview": "Batman and Robin learn about the exploits of Jonah Hex an Old West crimefighter who once dealt with the immortal Ra's Al Ghul.",
+        "episodeFile": {
+          "path": "/fixture/Batman - The Animated Series (1992) {imdb-tt0103359}/Season 04/Batman - The Animated Series (1992) - S04E02 - Showdown [Bluray-1080p][DTS-HD MA 2.0][h264]-NTb.mkv",
+          "languages": [
+            {
+              "id": 1,
+              "name": "English"
+            },
+            {
+              "id": 2,
+              "name": "French"
+            },
+            {
+              "id": 3,
+              "name": "Spanish"
+            }
+          ],
+          "quality": {
+            "quality": {
+              "id": 7,
+              "name": "Bluray-1080p",
+              "source": "bluray",
+              "resolution": 1080
+            },
+            "revision": {
+              "version": 1,
+              "real": 0,
+              "isRepack": false
+            }
+          },
+          "customFormatScore": 50,
+          "id": 145326
+        },
+        "hasFile": true,
+        "series": {
+          "title": "Batman: The Animated Series",
+          "year": 1992,
+          "qualityProfileId": 4,
+          "seriesType": "standard",
+          "id": 1064
+        },
+        "id": 65887
+      },
+      {
+        "seriesId": 1064,
+        "seasonNumber": 4,
+        "episodeNumber": 3,
+        "title": "Catwalk",
+        "airDate": "1995-09-13",
+        "runtime": 25,
+        "overview": "Catwoman's attempt to go straight runs into problems when she is enticed into one last job by the Ventriloquist.",
+        "episodeFile": {
+          "path": "/fixture/Batman - The Animated Series (1992) {imdb-tt0103359}/Season 04/Batman - The Animated Series (1992) - S04E03 - Catwalk [Bluray-1080p][DTS-HD MA 2.0][h264]-NTb.mkv",
+          "languages": [
+            {
+              "id": 1,
+              "name": "English"
+            },
+            {
+              "id": 2,
+              "name": "French"
+            },
+            {
+              "id": 3,
+              "name": "Spanish"
+            }
+          ],
+          "quality": {
+            "quality": {
+              "id": 7,
+              "name": "Bluray-1080p",
+              "source": "bluray",
+              "resolution": 1080
+            },
+            "revision": {
+              "version": 1,
+              "real": 0,
+              "isRepack": false
+            }
+          },
+          "customFormatScore": 50,
+          "id": 145328
+        },
+        "hasFile": true,
+        "series": {
+          "title": "Batman: The Animated Series",
+          "year": 1992,
+          "qualityProfileId": 4,
+          "seriesType": "standard",
+          "id": 1064
+        },
+        "id": 65888
+      },
+      {
+        "seriesId": 1064,
+        "seasonNumber": 4,
+        "episodeNumber": 4,
+        "title": "A Bullet for Bullock",
+        "airDate": "1995-09-14",
+        "runtime": 25,
+        "overview": "Batman helps Detective Harvey Bullock who appears to be the target of someone's revenge.",
+        "episodeFile": {
+          "path": "/fixture/Batman - The Animated Series (1992) {imdb-tt0103359}/Season 04/Batman - The Animated Series (1992) - S04E04 - A Bullet for Bullock [Bluray-1080p][DTS-HD MA 2.0][h264]-NTb.mkv",
+          "languages": [
+            {
+              "id": 1,
+              "name": "English"
+            },
+            {
+              "id": 2,
+              "name": "French"
+            },
+            {
+              "id": 3,
+              "name": "Spanish"
+            }
+          ],
+          "quality": {
+            "quality": {
+              "id": 7,
+              "name": "Bluray-1080p",
+              "source": "bluray",
+              "resolution": 1080
+            },
+            "revision": {
+              "version": 1,
+              "real": 0,
+              "isRepack": false
+            }
+          },
+          "customFormatScore": 50,
+          "id": 145327
+        },
+        "hasFile": true,
+        "series": {
+          "title": "Batman: The Animated Series",
+          "year": 1992,
+          "qualityProfileId": 4,
+          "seriesType": "standard",
+          "id": 1064
+        },
+        "id": 65889
+      },
+      {
+        "seriesId": 1064,
+        "seasonNumber": 4,
+        "episodeNumber": 5,
+        "title": "The Lion and the Unicorn",
+        "airDate": "1995-09-15",
+        "runtime": 25,
+        "overview": "Alfred, a former British spy, is called into duty and becomes of the target of the Red Claw.",
+        "episodeFile": {
+          "path": "/fixture/Batman - The Animated Series (1992) {imdb-tt0103359}/Season 04/Batman - The Animated Series (1992) - S04E05 - The Lion and the Unicorn [Bluray-1080p][DTS-HD MA 2.0][h264]-NTb.mkv",
+          "languages": [
+            {
+              "id": 1,
+              "name": "English"
+            },
+            {
+              "id": 2,
+              "name": "French"
+            },
+            {
+              "id": 3,
+              "name": "Spanish"
+            }
+          ],
+          "quality": {
+            "quality": {
+              "id": 7,
+              "name": "Bluray-1080p",
+              "source": "bluray",
+              "resolution": 1080
+            },
+            "revision": {
+              "version": 1,
+              "real": 0,
+              "isRepack": false
+            }
+          },
+          "customFormatScore": 50,
+          "id": 145329
+        },
+        "hasFile": true,
+        "series": {
+          "title": "Batman: The Animated Series",
+          "year": 1992,
+          "qualityProfileId": 4,
+          "seriesType": "standard",
+          "id": 1064
+        },
+        "id": 65890
+      }
+    ],
+    "series": {
+      "id": 1064,
+      "title": "Batman: The Animated Series",
+      "qualityProfileId": 4
+    },
+    "catalog": [],
+    "probes": {
+      "/fixture/Batman.The.Animated.Series.S04.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX/Batman.The.Animated.Series.S04E05.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX.mkv": {
+        "ok": true,
+        "path": "/fixture/Batman.The.Animated.Series.S04.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX/Batman.The.Animated.Series.S04E05.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX.mkv",
+        "durationSeconds": 1280.384,
+        "video": {
+          "codec": "hevc",
+          "width": 1280,
+          "height": 960
+        },
+        "audio": [
+          {
+            "codec": "eac3",
+            "language": "ger",
+            "inferredLanguage": "ger",
+            "channels": 2
+          },
+          {
+            "codec": "eac3",
+            "language": "eng",
+            "inferredLanguage": "eng",
+            "channels": 2
+          }
+        ],
+        "hasGermanAudio": true
+      },
+      "/fixture/Batman - The Animated Series (1992) {imdb-tt0103359}/Season 04/Batman - The Animated Series (1992) - S04E05 - The Lion and the Unicorn [Bluray-1080p][DTS-HD MA 2.0][h264]-NTb.mkv": {
+        "ok": true,
+        "path": "/fixture/Batman - The Animated Series (1992) {imdb-tt0103359}/Season 04/Batman - The Animated Series (1992) - S04E05 - The Lion and the Unicorn [Bluray-1080p][DTS-HD MA 2.0][h264]-NTb.mkv",
+        "durationSeconds": 1288.8,
+        "video": {
+          "codec": "h264",
+          "width": 1920,
+          "height": 1080
+        },
+        "audio": [
+          {
+            "codec": "dts",
+            "language": "eng",
+            "inferredLanguage": "eng",
+            "channels": 2
+          },
+          {
+            "codec": "ac3",
+            "language": "fre",
+            "inferredLanguage": "fre",
+            "channels": 2
+          },
+          {
+            "codec": "ac3",
+            "language": "spa",
+            "inferredLanguage": "spa",
+            "channels": 2
+          }
+        ],
+        "hasGermanAudio": false
+      },
+      "/fixture/Batman.The.Animated.Series.S04.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX/Batman.The.Animated.Series.S04E04.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX.mkv": {
+        "ok": true,
+        "path": "/fixture/Batman.The.Animated.Series.S04.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX/Batman.The.Animated.Series.S04E04.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX.mkv",
+        "durationSeconds": 1267.68,
+        "video": {
+          "codec": "hevc",
+          "width": 1280,
+          "height": 960
+        },
+        "audio": [
+          {
+            "codec": "eac3",
+            "language": "ger",
+            "inferredLanguage": "ger",
+            "channels": 2
+          },
+          {
+            "codec": "eac3",
+            "language": "eng",
+            "inferredLanguage": "eng",
+            "channels": 2
+          }
+        ],
+        "hasGermanAudio": true
+      },
+      "/fixture/Batman - The Animated Series (1992) {imdb-tt0103359}/Season 04/Batman - The Animated Series (1992) - S04E02 - Showdown [Bluray-1080p][DTS-HD MA 2.0][h264]-NTb.mkv": {
+        "ok": true,
+        "path": "/fixture/Batman - The Animated Series (1992) {imdb-tt0103359}/Season 04/Batman - The Animated Series (1992) - S04E02 - Showdown [Bluray-1080p][DTS-HD MA 2.0][h264]-NTb.mkv",
+        "durationSeconds": 1260,
+        "video": {
+          "width": 1920,
+          "height": 1080
+        },
+        "containerTitle": null,
+        "audio": [
+          {
+            "language": "eng",
+            "codec": "dts",
+            "channels": 2
+          },
+          {
+            "language": "fre",
+            "codec": "ac3",
+            "channels": 2
+          },
+          {
+            "language": "spa",
+            "codec": "ac3",
+            "channels": 2
+          }
+        ],
+        "hasGermanAudio": false
+      },
+      "/fixture/Batman - The Animated Series (1992) {imdb-tt0103359}/Season 04/Batman - The Animated Series (1992) - S04E01 - The Terrible Trio [Bluray-1080p][DTS-HD MA 2.0][h264]-NTb.mkv": {
+        "ok": true,
+        "path": "/fixture/Batman - The Animated Series (1992) {imdb-tt0103359}/Season 04/Batman - The Animated Series (1992) - S04E01 - The Terrible Trio [Bluray-1080p][DTS-HD MA 2.0][h264]-NTb.mkv",
+        "durationSeconds": 1260,
+        "video": {
+          "width": 1920,
+          "height": 1080
+        },
+        "containerTitle": null,
+        "audio": [
+          {
+            "language": "eng",
+            "codec": "dts",
+            "channels": 2
+          },
+          {
+            "language": "fre",
+            "codec": "ac3",
+            "channels": 2
+          },
+          {
+            "language": "spa",
+            "codec": "ac3",
+            "channels": 2
+          }
+        ],
+        "hasGermanAudio": false
+      },
+      "/fixture/Batman.The.Animated.Series.S04.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX/Batman.The.Animated.Series.S04E01.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX.mkv": {
+        "ok": true,
+        "path": "/fixture/Batman.The.Animated.Series.S04.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX/Batman.The.Animated.Series.S04E01.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX.mkv",
+        "durationSeconds": 1270.496,
+        "video": {
+          "codec": "hevc",
+          "width": 1280,
+          "height": 960
+        },
+        "audio": [
+          {
+            "codec": "eac3",
+            "language": "ger",
+            "inferredLanguage": "ger",
+            "channels": 2
+          },
+          {
+            "codec": "eac3",
+            "language": "eng",
+            "inferredLanguage": "eng",
+            "channels": 2
+          }
+        ],
+        "hasGermanAudio": true
+      },
+      "/fixture/Batman.The.Animated.Series.S04.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX/Batman.The.Animated.Series.S04E03.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX.mkv": {
+        "ok": true,
+        "path": "/fixture/Batman.The.Animated.Series.S04.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX/Batman.The.Animated.Series.S04E03.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX.mkv",
+        "durationSeconds": 1270.368,
+        "video": {
+          "codec": "hevc",
+          "width": 1280,
+          "height": 960
+        },
+        "audio": [
+          {
+            "codec": "eac3",
+            "language": "ger",
+            "inferredLanguage": "ger",
+            "channels": 2
+          },
+          {
+            "codec": "eac3",
+            "language": "eng",
+            "inferredLanguage": "eng",
+            "channels": 2
+          }
+        ],
+        "hasGermanAudio": true
+      },
+      "/fixture/Batman.The.Animated.Series.S04.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX/Batman.The.Animated.Series.S04E02.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX.mkv": {
+        "ok": true,
+        "path": "/fixture/Batman.The.Animated.Series.S04.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX/Batman.The.Animated.Series.S04E02.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX.mkv",
+        "durationSeconds": 1268.288,
+        "video": {
+          "codec": "hevc",
+          "width": 1280,
+          "height": 960
+        },
+        "audio": [
+          {
+            "codec": "eac3",
+            "language": "ger",
+            "inferredLanguage": "ger",
+            "channels": 2
+          },
+          {
+            "codec": "eac3",
+            "language": "eng",
+            "inferredLanguage": "eng",
+            "channels": 2
+          }
+        ],
+        "hasGermanAudio": true
+      },
+      "/fixture/Batman - The Animated Series (1992) {imdb-tt0103359}/Season 04/Batman - The Animated Series (1992) - S04E03 - Catwalk [Bluray-1080p][DTS-HD MA 2.0][h264]-NTb.mkv": {
+        "ok": true,
+        "path": "/fixture/Batman - The Animated Series (1992) {imdb-tt0103359}/Season 04/Batman - The Animated Series (1992) - S04E03 - Catwalk [Bluray-1080p][DTS-HD MA 2.0][h264]-NTb.mkv",
+        "durationSeconds": 1260,
+        "video": {
+          "width": 1920,
+          "height": 1080
+        },
+        "containerTitle": null,
+        "audio": [
+          {
+            "language": "eng",
+            "codec": "dts",
+            "channels": 2
+          },
+          {
+            "language": "fre",
+            "codec": "ac3",
+            "channels": 2
+          },
+          {
+            "language": "spa",
+            "codec": "ac3",
+            "channels": 2
+          }
+        ],
+        "hasGermanAudio": false
+      },
+      "/fixture/Batman - The Animated Series (1992) {imdb-tt0103359}/Season 04/Batman - The Animated Series (1992) - S04E04 - A Bullet for Bullock [Bluray-1080p][DTS-HD MA 2.0][h264]-NTb.mkv": {
+        "ok": true,
+        "path": "/fixture/Batman - The Animated Series (1992) {imdb-tt0103359}/Season 04/Batman - The Animated Series (1992) - S04E04 - A Bullet for Bullock [Bluray-1080p][DTS-HD MA 2.0][h264]-NTb.mkv",
+        "durationSeconds": 1260,
+        "video": {
+          "width": 1920,
+          "height": 1080
+        },
+        "containerTitle": null,
+        "audio": [
+          {
+            "language": "eng",
+            "codec": "dts",
+            "channels": 2
+          },
+          {
+            "language": "fre",
+            "codec": "ac3",
+            "channels": 2
+          },
+          {
+            "language": "spa",
+            "codec": "ac3",
+            "channels": 2
+          }
+        ],
+        "hasGermanAudio": false
+      }
+    },
+    "parse": {
+      "releaseTitle": "Batman.The.Animated.Series.S04.GERMAN.DL.1080p.MAX.WEB-DL.DDP2.0.H265-FLORiX",
+      "parsedTitle": "Batman The Animated Series",
+      "parsedSeason": 4,
+      "parsedEpisodes": [],
+      "matchedId": 1064,
+      "matchedTitle": "Batman: The Animated Series",
+      "matchedEpisodeIds": [65886, 65887, 65888, 65889, 65890]
+    },
+    "mapping": [
+      {
+        "candidateId": "candidate_1",
+        "episodeIds": [65886]
+      },
+      {
+        "candidateId": "candidate_2",
+        "episodeIds": [65888]
+      },
+      {
+        "candidateId": "candidate_3",
+        "episodeIds": [65887]
+      },
+      {
+        "candidateId": "candidate_4",
+        "episodeIds": [65890]
+      },
+      {
+        "candidateId": "candidate_5",
+        "episodeIds": [65889]
+      }
+    ]
+  },
+  {
+    "key": "ubel",
+    "queueItem": {
+      "id": 1100565227,
+      "service": "sonarr",
+      "title": "Uebel.Blatt.2024.S01E09.German.ML.ANiME.1080p.WEB.H264-SkittleChan",
+      "seriesId": 1245,
+      "seriesTitle": "Übel Blatt",
+      "seriesType": "anime",
+      "downloadId": "2c3f730f-5954-4b23-880a-2ee1efd75ac9",
+      "status": "completed",
+      "trackedDownloadStatus": "warning",
+      "trackedDownloadState": "importBlocked",
+      "outputPath": "/fixture/Uebel.Blatt.2024.S01E09.German.ML.ANiME.1080p.WEB.H264-SkittleChan",
+      "episodeIds": [76069],
+      "absoluteEpisodeNumbers": [9],
+      "episodeLabels": ["S01E09 - Junge Blätter (Young Leaves)"],
+      "seasonEpisode": "S01E09",
+      "statusMessages": [
+        "Uebel.Blatt.2024.S01E09.German.ML.ANiME.1080p.WEB.H264-SkittleChan",
+        "Found matching series via grab history, but release was matched to series by ID. Automatic import is not possible. See the FAQ for details."
+      ],
+      "canAnalyze": true
+    },
+    "candidates": [
+      {
+        "id": "candidate_1",
+        "service": "sonarr",
+        "path": "/fixture/Uebel.Blatt.2024.S01E09.German.ML.ANiME.1080p.WEB.H264-SkittleChan/Uebel.Blatt.2024.S01E09.German.ML.ANiME.1080p.WEB.H264-SkittleChan.mkv",
+        "relativePath": "Uebel.Blatt.2024.S01E09.German.ML.ANiME.1080p.WEB.H264-SkittleChan.mkv",
+        "seriesId": 1245,
+        "episodeIds": [76069],
+        "quality": {
+          "quality": {
+            "id": 3,
+            "name": "WEBDL-1080p",
+            "source": "web",
+            "resolution": 1080
+          },
+          "revision": {
+            "version": 1,
+            "real": 0,
+            "isRepack": false
+          }
+        },
+        "qualityLabel": "WEBDL-1080p",
+        "languages": [
+          {
+            "id": 4,
+            "name": "German"
+          },
+          {
+            "id": 8,
+            "name": "Japanese"
+          },
+          {
+            "id": 1,
+            "name": "English"
+          }
+        ],
+        "customFormatScore": 11700,
+        "rejections": [],
+        "isLikelySample": false
+      }
+    ],
+    "episodes": [
+      {
+        "id": 76069,
+        "seriesId": 1245,
+        "seasonNumber": 1,
+        "episodeNumber": 9,
+        "title": "Junge Blätter (Young Leaves)",
+        "runtime": 24,
+        "overview": "At the Hall of Swords, Glenn entrusts a manhunt mission to Ichfeis, a slave knight vying to restore the title Blatt Meister. Meanwhile, in the Free City Jullas-Abllas, Köinzell's fight against Elsaria and company takes a desperate turn. Eager to prove herself, Aht recklessly charges in, only to sust",
+        "hasFile": true,
+        "series": {
+          "id": 1245,
+          "title": "Übel Blatt",
+          "year": null,
+          "qualityProfileId": 4
+        },
+        "episodeFile": {
+          "path": "/fixture/Übel Blatt (2025) {imdb-tt32581027}/Season 01/Übel Blatt (2025) - S01E09 - Junge Blätter Young Leaves [AMZN WEBDL-1080p][EAC3 2.0][h264]-Kitsune.mkv",
+          "quality": {
+            "quality": {
+              "name": "WEBDL-1080p"
+            }
+          },
+          "languages": ["Japanese"],
+          "customFormatScore": -33175
+        }
+      }
+    ],
+    "series": {
+      "title": "Übel Blatt",
+      "alternateTitles": [
+        {
+          "title": "Übel Blatt Yûberu Buratto",
+          "seasonNumber": -1
+        },
+        {
+          "title": "Uebel Blatt",
+          "seasonNumber": -1
+        }
+      ],
+      "year": 2025,
+      "qualityProfileId": 4,
+      "runtime": 24,
+      "seriesType": "anime",
+      "id": 1245
+    },
+    "catalog": [
+      {
+        "seriesId": 1245,
+        "seasonNumber": 1,
+        "episodeNumber": 8,
+        "title": "Der Heldmörder (The Hero-Killer)",
+        "airDate": "2025-03-01",
+        "runtime": 24,
+        "overview": "In a fit of paranoia, the deranged Batterygrave Barestar commands his men to search for the Hero-Killer in the Free City Jullas-Abllas, where Köinzell sought shelter. Meanwhile, under Glenn's leadership, Elsaria's company hunts for the treacherous rebel.",
+        "id": 76068
+      },
+      {
+        "seriesId": 1245,
+        "seasonNumber": 1,
+        "episodeNumber": 9,
+        "title": "Junge Blätter (Young Leaves)",
+        "airDate": "2025-03-08",
+        "runtime": 24,
+        "overview": "At the Hall of Swords, Glenn entrusts a manhunt mission to Ichfeis, a slave knight vying to restore the title Blatt Meister. Meanwhile, in the Free City Jullas-Abllas, Köinzell's fight against Elsaria and company takes a desperate turn. Eager to prove herself, Aht recklessly charges in, only to sustain an injury.",
+        "id": 76069
+      }
+    ],
+    "probes": {
+      "/fixture/Uebel.Blatt.2024.S01E09.German.ML.ANiME.1080p.WEB.H264-SkittleChan/Uebel.Blatt.2024.S01E09.German.ML.ANiME.1080p.WEB.H264-SkittleChan.mkv": {
+        "ok": true,
+        "path": "/fixture/Uebel.Blatt.2024.S01E09.German.ML.ANiME.1080p.WEB.H264-SkittleChan/Uebel.Blatt.2024.S01E09.German.ML.ANiME.1080p.WEB.H264-SkittleChan.mkv",
+        "durationSeconds": 1450.048,
+        "video": {
+          "codec": "h264",
+          "width": 1920,
+          "height": 1080
+        },
+        "audio": [
+          {
+            "codec": "eac3",
+            "language": "ger",
+            "title": "German",
+            "inferredLanguage": "ger",
+            "channels": 2
+          },
+          {
+            "codec": "eac3",
+            "language": "jpn",
+            "title": "Japanese",
+            "inferredLanguage": "jpn",
+            "channels": 2
+          },
+          {
+            "codec": "eac3",
+            "language": "eng",
+            "title": "English",
+            "inferredLanguage": "eng",
+            "channels": 2
+          }
+        ],
+        "hasGermanAudio": true,
+        "subtitleExcerpt": {
+          "streamIndex": 8,
+          "language": "eng",
+          "lines": [
+            "I have personally requested the aid",
+            "of four knights,",
+            "who are now searching the city.",
+            "There's no reason for concern.",
+            "Is this Hero Killer guy strong?",
+            "Yes. He dealt a blow to my leg.",
+            "You fought him?",
+            "It was one-on-one.",
+            "In a single strike, he sliced my leg",
+            "and ran away.",
+            "You want me to sit this one out",
+            "and let those four enjoy the hunt, huh?",
+            "What a shame.",
+            "They tracked me down. How?",
+            "Are you hiding your scar under the makeup,",
+            "Mr. Hero-Killing Rebel?",
+            "I am Elsaria,",
+            "a knight of the Order of the Seven Spears.",
+            "As a noble of the empire",
+            "and to fulfill my friend's request",
+            "who wants nothing but to maintain",
+            "the empire's order,",
+            "I will deliver judgment upon you!",
+            "Prepare yourself!",
+            "I must say, Rozen was right in warning us",
+            "to engage as a group.",
+            "I see.",
+            "So Rozen's the one who sent them after me.",
+            "I won't let you get away,",
+            "Hero-Killing Rebel!",
+            "Sorry, but I don't intend",
+            "to go down just yet.",
+            "Look, that's our home.",
+            "The maschinendrache sure speeds up travel.",
+            "Oh, boy. I can't wait.",
+            "The world mirrored in my eyes",
+            "Is upside-down",
+            "I fall",
+            "And my body is completely upside-down",
+            "(Only the moon knows"
+          ]
+        }
+      },
+      "/fixture/Übel Blatt (2025) {imdb-tt32581027}/Season 01/Übel Blatt (2025) - S01E09 - Junge Blätter Young Leaves [AMZN WEBDL-1080p][EAC3 2.0][h264]-Kitsune.mkv": {
+        "ok": true,
+        "path": "/fixture/Übel Blatt (2025) {imdb-tt32581027}/Season 01/Übel Blatt (2025) - S01E09 - Junge Blätter Young Leaves [AMZN WEBDL-1080p][EAC3 2.0][h264]-Kitsune.mkv",
+        "durationSeconds": 1420.032,
+        "video": {
+          "codec": "h264",
+          "width": 1920,
+          "height": 1080
+        },
+        "audio": [
+          {
+            "codec": "eac3",
+            "language": "jpn",
+            "inferredLanguage": "jpn",
+            "channels": 2
+          }
+        ],
+        "hasGermanAudio": false,
+        "subtitleExcerpt": {
+          "streamIndex": 2,
+          "language": "eng",
+          "lines": [
+            "I have personally requested the aid",
+            "of four knights,",
+            "who are now searching the city.",
+            "There's no reason for concern.",
+            "Is this Hero Killer guy strong?",
+            "Yes. He dealt a blow to my leg.",
+            "You fought him?",
+            "It was one-on-one.",
+            "In a single strike, he sliced my leg",
+            "and ran away.",
+            "You want me to sit this one out",
+            "and let those four enjoy the hunt, huh?",
+            "What a shame.",
+            "They tracked me down. How?",
+            "Are you hiding your scar under the makeup,",
+            "Mr. Hero-Killing Rebel?",
+            "I am Elsaria,",
+            "a knight of the Order of the Seven Spears.",
+            "As a noble of the empire",
+            "and to fulfill my friend's request",
+            "who wants nothing but to maintain",
+            "the empire's order,",
+            "I will deliver judgment upon you!",
+            "Prepare yourself!",
+            "I must say, Rozen was right in warning us",
+            "to engage as a group.",
+            "I see.",
+            "So Rozen's the one who sent them after me.",
+            "I won't let you get away,",
+            "Hero-Killing Rebel!",
+            "Sorry, but I don't intend",
+            "to go down just yet.",
+            "Look, that's our home.",
+            "The maschinendrache sure speeds up travel.",
+            "Oh, boy. I can't wait.",
+            "The world mirrored in my eyes",
+            "Is upside-down",
+            "I fall",
+            "And my body is completely upside-down",
+            "(Only the moon knows"
+          ]
+        }
+      }
+    },
+    "parse": {
+      "releaseTitle": "Uebel.Blatt.2024.S01E09.German.ML.ANiME.1080p.WEB.H264-SkittleChan",
+      "parsedTitle": "Uebel Blatt 2024",
+      "parsedYear": 2024,
+      "parsedSeason": 1,
+      "parsedEpisodes": [9],
+      "matchedEpisodeIds": []
+    },
+    "mapping": [
+      {
+        "candidateId": "candidate_1",
+        "episodeIds": [76069]
+      }
+    ]
+  },
+  {
+    "key": "bleach-part4",
+    "queueItem": {
+      "id": 1350504005,
+      "service": "sonarr",
+      "title": "Bleach.Thousand-Year.Blood.War.Part.4.E05.MULTi.1080p.WEB.H264-AMB3R",
+      "seriesId": 8,
+      "seriesTitle": "Bleach",
+      "seriesType": "anime",
+      "downloadId": "2ffb5ee8-8be7-42a5-b521-e79eb8232cd9",
+      "status": "completed",
+      "trackedDownloadStatus": "warning",
+      "trackedDownloadState": "importBlocked",
+      "outputPath": "/fixture/Bleach.Thousand-Year.Blood.War.Part.4.E05.MULTi.1080p.WEB.H264-AMB3R",
+      "episodeIds": [353],
+      "absoluteEpisodeNumbers": [68],
+      "episodeLabels": ["S04E05 - True Identity of the Devil, the Secret Which Is Revealed"],
+      "seasonEpisode": "S04E05",
+      "statusMessages": [
+        "Bleach.Thousand-Year.Blood.War.Part.4.E05.MULTi.1080p.WEB.H264-AMB3R",
+        "Found matching series via grab history, but release was matched to series by ID. Automatic import is not possible. See the FAQ for details."
+      ],
+      "canAnalyze": true
+    },
+    "candidates": [
+      {
+        "id": "candidate_1",
+        "service": "sonarr",
+        "path": "/fixture/Bleach.Thousand-Year.Blood.War.Part.4.E05.MULTi.1080p.WEB.H264-AMB3R/bleach.thousand-year.blood.war.part.4.e05.multi.1080p.web.h264-amb3r.mkv",
+        "relativePath": "bleach.thousand-year.blood.war.part.4.e05.multi.1080p.web.h264-amb3r.mkv",
+        "seriesId": 8,
+        "episodeIds": [353],
+        "quality": {
+          "quality": {
+            "id": 3,
+            "name": "WEBDL-1080p",
+            "source": "web",
+            "resolution": 1080
+          },
+          "revision": {
+            "version": 1,
+            "real": 0,
+            "isRepack": false
+          }
+        },
+        "qualityLabel": "WEBDL-1080p",
+        "languages": [
+          {
+            "id": 2,
+            "name": "French"
+          },
+          {
+            "id": 8,
+            "name": "Japanese"
+          }
+        ],
+        "customFormatScore": 50,
+        "rejections": [],
+        "isLikelySample": false
+      }
+    ],
+    "episodes": [
+      {
+        "id": 353,
+        "seriesId": 8,
+        "seasonNumber": 4,
+        "episodeNumber": 5,
+        "title": "True Identity of the Devil, the Secret Which Is Revealed",
+        "runtime": 25,
+        "overview": "RinRin, Cloud, Nova are on their final game. Orihime, Ishida, Renji, Kon and Ichigo make there attempt to save Chad. It turns out that Urahara has been the one behind it all, but then they find out there new enemies they must beat.",
+        "hasFile": false,
+        "series": {
+          "id": 8,
+          "title": "Bleach",
+          "year": 2004,
+          "qualityProfileId": 4
+        },
+        "airDate": "2006-01-01"
+      }
+    ],
+    "series": {
+      "title": "Bleach",
+      "alternateTitles": [
+        {
+          "title": "Bleach - Thousand-Year Blood War",
+          "sceneSeasonNumber": 17
+        },
+        {
+          "title": "Bleach Thousand-Year Blood War",
+          "sceneSeasonNumber": 17
+        },
+        {
+          "title": "Bleach Thousand Year Blood Arc",
+          "sceneSeasonNumber": 17
+        },
+        {
+          "title": "Bleach - Sennen Kessen-hen",
+          "sceneSeasonNumber": 17
+        },
+        {
+          "title": "Bleach Thousand Year Blood War",
+          "sceneSeasonNumber": 17
+        },
+        {
+          "title": "Bleach: Thousand Year Blood War",
+          "sceneSeasonNumber": 17
+        },
+        {
+          "title": "Bleach Sennen Kessen-hen",
+          "sceneSeasonNumber": 17
+        },
+        {
+          "title": "Bleach: Thousand-Year Blood War",
+          "sceneSeasonNumber": 17
+        },
+        {
+          "title": "Bleach",
+          "seasonNumber": -1,
+          "sceneOrigin": "tvdb",
+          "comment": "playWEB"
+        }
+      ],
+      "year": 2004,
+      "qualityProfileId": 1,
+      "runtime": 24,
+      "seriesType": "anime",
+      "id": 8
+    },
+    "catalog": [
+      {
+        "seriesId": 8,
+        "seasonNumber": 1,
+        "episodeNumber": 9,
+        "title": "Unbeatable Enemy",
+        "airDate": "2004-11-30",
+        "runtime": 23,
+        "overview": "Ichigo finds out that the Hollow attacking his sisters is the same Hollow that killed his mother 5 years earlier. This Hollow is called the Grandfisher and has evaded the Shinigami for over 50 years. Because of the fact that this Hollow killed his mother to defend his pride Ichigo must fight it alone.",
+        "id": 294
+      },
+      {
+        "seriesId": 8,
+        "seasonNumber": 4,
+        "episodeNumber": 5,
+        "title": "True Identity of the Devil, the Secret Which Is Revealed",
+        "airDate": "2006-02-14",
+        "runtime": 25,
+        "overview": "RinRin, Cloud, Nova are on their final game. Orihime, Ishida, Renji, Kon and Ichigo make there attempt to save Chad. It turns out that Urahara has been the one behind it all, but then they find out there new enemies they must beat.",
+        "id": 353
+      },
+      {
+        "seriesId": 8,
+        "seasonNumber": 17,
+        "episodeNumber": 35,
+        "title": "DON'T CHASE A SHADOW",
+        "airDate": "2024-11-30",
+        "runtime": 24,
+        "overview": "The change in Mayuri's Spiritual Pressure is also felt elsewhere by Urahara and Kyoraku.",
+        "id": 62843
+      }
+    ],
+    "probes": {
+      "/fixture/Bleach.Thousand-Year.Blood.War.Part.4.E05.MULTi.1080p.WEB.H264-AMB3R/bleach.thousand-year.blood.war.part.4.e05.multi.1080p.web.h264-amb3r.mkv": {
+        "ok": true,
+        "path": "/fixture/Bleach.Thousand-Year.Blood.War.Part.4.E05.MULTi.1080p.WEB.H264-AMB3R/bleach.thousand-year.blood.war.part.4.e05.multi.1080p.web.h264-amb3r.mkv",
+        "durationSeconds": 1680,
+        "video": {
+          "width": 1920,
+          "height": 1080
+        },
+        "containerTitle": null,
+        "audio": [
+          {
+            "language": "fre",
+            "title": "French (France)",
+            "codec": "aac",
+            "channels": 2
+          },
+          {
+            "language": "jpn",
+            "title": "Japanese",
+            "codec": "aac",
+            "channels": 2
+          }
+        ],
+        "hasGermanAudio": false
+      }
+    },
+    "parse": {
+      "releaseTitle": "Bleach.Thousand-Year.Blood.War.Part.4.E05.MULTi.1080p.WEB.H264-AMB3R",
+      "parsedTitle": "Bleach Thousand-Year Blood War Part",
+      "parsedSeason": 4,
+      "parsedEpisodes": [5],
+      "matchedEpisodeIds": []
+    },
+    "mapping": [
+      {
+        "candidateId": "candidate_1",
+        "episodeIds": [353]
+      }
+    ]
+  },
+  {
+    "key": "benjamin",
+    "queueItem": {
+      "id": 1358634832,
+      "service": "sonarr",
+      "title": "Benjamin.Blumchen.S02E02.Ein.ganz.besonderes.Geschenk.German.1080p.RTLP.WEB-DL.AAC2.0.H.264-GLOTZE",
+      "seriesId": 573,
+      "seriesTitle": "Benjamin the Elephant (2002)",
+      "seriesType": "standard",
+      "downloadId": "72d458c3-b732-45e2-acf6-e2a47cd1a038",
+      "status": "completed",
+      "trackedDownloadStatus": "warning",
+      "trackedDownloadState": "importBlocked",
+      "outputPath": "/fixture/Benjamin.Blumchen.S02E02.Ein.ganz.besonderes.Geschenk.German.1080p.RTLP.WEB-DL.AAC2.0.H.264-GLOTZE/",
+      "episodeIds": [44741],
+      "absoluteEpisodeNumbers": [],
+      "episodeLabels": ["S02E02 - Benjamin Blümchen als Nachtwächter"],
+      "seasonEpisode": "S02E02",
+      "statusMessages": [
+        "Benjamin.Blumchen.S02E02.Ein.ganz.besonderes.Geschenk.German.1080p.RTLP.WEB-DL.AAC2.0.H.264-GLOTZE",
+        "Found matching series via grab history, but release was matched to series by ID. Automatic import is not possible. See the FAQ for details."
+      ],
+      "canAnalyze": true
+    },
+    "candidates": [
+      {
+        "id": "candidate_1",
+        "service": "sonarr",
+        "path": "/fixture/Benjamin.Blumchen.S02E02.Ein.ganz.besonderes.Geschenk.German.1080p.RTLP.WEB-DL.AAC2.0.H.264-GLOTZE/Benjamin.Blumchen.S02E02.Ein.ganz.besonderes.Geschenk.German.1080p.RTLP.WEB-DL.AAC2.0.H.264-GLOTZE.mkv",
+        "relativePath": "Benjamin.Blumchen.S02E02.Ein.ganz.besonderes.Geschenk.German.1080p.RTLP.WEB-DL.AAC2.0.H.264-GLOTZE.mkv",
+        "seriesId": 573,
+        "episodeIds": [44741],
+        "quality": {
+          "quality": {
+            "id": 3,
+            "name": "WEBDL-1080p",
+            "source": "web",
+            "resolution": 1080
+          },
+          "revision": {
+            "version": 1,
+            "real": 0,
+            "isRepack": false
+          }
+        },
+        "qualityLabel": "WEBDL-1080p",
+        "languages": [
+          {
+            "id": 4,
+            "name": "German"
+          }
+        ],
+        "customFormatScore": 11700,
+        "rejections": [],
+        "isLikelySample": false
+      }
+    ],
+    "episodes": [
+      {
+        "id": 44741,
+        "seriesId": 573,
+        "seasonNumber": 2,
+        "episodeNumber": 2,
+        "title": "Benjamin Blümchen als Nachtwächter",
+        "runtime": 26,
+        "overview": null,
+        "hasFile": true,
+        "series": {
+          "id": 573,
+          "title": "Benjamin the Elephant (2002)",
+          "year": null,
+          "qualityProfileId": 4
+        },
+        "episodeFile": {
+          "path": "/fixture/Benjamin Blümchen (2002) {imdb-tt0413540}/Season 02/Benjamin Blümchen (2002) - S02E02 - Benjamin Blümchen als Nachtwächter [WEBDL-1080p][AC3 2.0][x265]-FuN.mkv",
+          "quality": {
+            "quality": {
+              "name": "WEBDL-1080p"
+            }
+          },
+          "languages": ["German"],
+          "customFormatScore": -23300
+        }
+      }
+    ],
+    "series": {
+      "title": "Benjamin the Elephant (2002)",
+      "alternateTitles": [
+        {
+          "title": "Benjamin Bluemchen 2002",
+          "seasonNumber": -1
+        }
+      ],
+      "year": 2002,
+      "qualityProfileId": 1,
+      "runtime": 26,
+      "seriesType": "standard",
+      "id": 573
+    },
+    "catalog": [],
+    "probes": {
+      "/fixture/Benjamin.Blumchen.S02E02.Ein.ganz.besonderes.Geschenk.German.1080p.RTLP.WEB-DL.AAC2.0.H.264-GLOTZE/Benjamin.Blumchen.S02E02.Ein.ganz.besonderes.Geschenk.German.1080p.RTLP.WEB-DL.AAC2.0.H.264-GLOTZE.mkv": {
+        "ok": true,
+        "path": "/fixture/Benjamin.Blumchen.S02E02.Ein.ganz.besonderes.Geschenk.German.1080p.RTLP.WEB-DL.AAC2.0.H.264-GLOTZE/Benjamin.Blumchen.S02E02.Ein.ganz.besonderes.Geschenk.German.1080p.RTLP.WEB-DL.AAC2.0.H.264-GLOTZE.mkv",
+        "durationSeconds": 1560.042,
+        "video": {
+          "codec": "h264",
+          "width": 1920,
+          "height": 1080
+        },
+        "audio": [
+          {
+            "codec": "aac",
+            "language": "ger",
+            "inferredLanguage": "ger",
+            "channels": 2
+          }
+        ],
+        "hasGermanAudio": true
+      },
+      "/fixture/Benjamin Blümchen (2002) {imdb-tt0413540}/Season 02/Benjamin Blümchen (2002) - S02E02 - Benjamin Blümchen als Nachtwächter [WEBDL-1080p][AC3 2.0][x265]-FuN.mkv": {
+        "ok": true,
+        "path": "/fixture/Benjamin Blümchen (2002) {imdb-tt0413540}/Season 02/Benjamin Blümchen (2002) - S02E02 - Benjamin Blümchen als Nachtwächter [WEBDL-1080p][AC3 2.0][x265]-FuN.mkv",
+        "durationSeconds": 1560.736,
+        "video": {
+          "codec": "hevc",
+          "width": 1920,
+          "height": 1080
+        },
+        "audio": [
+          {
+            "codec": "ac3",
+            "language": "ger",
+            "inferredLanguage": "ger",
+            "channels": 2
+          }
+        ],
+        "hasGermanAudio": true
+      }
+    },
+    "parse": {
+      "releaseTitle": "Benjamin.Blumchen.S02E02.Ein.ganz.besonderes.Geschenk.German.1080p.RTLP.WEB-DL.AAC2.0.H.264-GLOTZE",
+      "parsedTitle": "Benjamin Blumchen",
+      "parsedSeason": 2,
+      "parsedEpisodes": [2],
+      "matchedEpisodeIds": []
+    },
+    "mapping": [
+      {
+        "candidateId": "candidate_1",
+        "episodeIds": [44741]
+      }
+    ]
+  },
+  {
+    "key": "er-1465308286",
+    "queueItem": {
+      "id": 1465308286,
+      "service": "sonarr",
+      "title": "Emergency.Room.S10E14.Kontrollverlust.GERMAN.AC3.1080p.WEB-DL.h264-TvR",
+      "seriesId": 1044,
+      "seriesTitle": "ER",
+      "seriesType": "standard",
+      "downloadId": "eb27dcea-ec95-4c7a-b4b3-b70235968ca3",
+      "status": "completed",
+      "trackedDownloadStatus": "warning",
+      "trackedDownloadState": "importPending",
+      "outputPath": "/fixture/Emergency.Room.S10E14.Kontrollverlust.GERMAN.AC3.1080p.WEB-DL.h264-TvR/",
+      "episodeIds": [64417],
+      "absoluteEpisodeNumbers": [],
+      "episodeLabels": ["S10E14 - Impulse Control"],
+      "seasonEpisode": "S10E14",
+      "statusMessages": [
+        "Emergency.Room.S10E14.Kontrollverlust.GERMAN.AC3.1080p.WEB-DL.h264-TvR",
+        "Not an upgrade for existing episode file(s). Existing quality: WEBDL-1080p. New Quality WEBDL-720p."
+      ],
+      "canAnalyze": true
+    },
+    "candidates": [
+      {
+        "id": "candidate_1",
+        "service": "sonarr",
+        "path": "/fixture/Emergency.Room.S10E14.Kontrollverlust.GERMAN.AC3.1080p.WEB-DL.h264-TvR/Emergency.Room.S10E14.Kontrollverlust.GERMAN.AC3.1080p.WEB-DL.h264-TvR.mkv",
+        "relativePath": "Emergency.Room.S10E14.Kontrollverlust.GERMAN.AC3.1080p.WEB-DL.h264-TvR.mkv",
+        "seriesId": 1044,
+        "episodeIds": [64417],
+        "quality": {
+          "quality": {
+            "id": 5,
+            "name": "WEBDL-720p",
+            "source": "web",
+            "resolution": 720
+          },
+          "revision": {
+            "version": 1,
+            "real": 0,
+            "isRepack": false
+          }
+        },
+        "qualityLabel": "WEBDL-720p",
+        "languages": [
+          {
+            "id": 4,
+            "name": "German"
+          }
+        ],
+        "customFormatScore": 12105,
+        "rejections": [
+          "Not an upgrade for existing episode file(s). Existing quality: WEBDL-1080p. New Quality WEBDL-720p."
+        ],
+        "isLikelySample": false
+      }
+    ],
+    "episodes": [
+      {
+        "id": 64417,
+        "seriesId": 1044,
+        "seasonNumber": 10,
+        "episodeNumber": 14,
+        "title": "Impulse Control",
+        "runtime": 45,
+        "overview": "Sam treats a mother whose family was in a car accident and a 16-year-old pregnant girl whose boyfriend loaned her out to his friends. With Alex at a sleepover, she gets lonely and heads over to Luka's, where they end up sleeping together. Carter shows Kem the city and proposes they move into a townh",
+        "hasFile": true,
+        "series": {
+          "id": 1044,
+          "title": "ER",
+          "year": null,
+          "qualityProfileId": 4
+        },
+        "episodeFile": {
+          "path": "/fixture/ER (1994) {imdb-tt0108757}/Season 10/ER.1994.S10E14.Impulse.Control.NF.WEBDL-1080p.AAC.2.0.x264-playWEB.mkv",
+          "quality": {
+            "quality": {
+              "name": "WEBDL-1080p"
+            }
+          },
+          "languages": ["English"],
+          "customFormatScore": 1775
+        }
+      }
+    ],
+    "series": {
+      "id": 1044,
+      "title": "ER",
+      "qualityProfileId": 4
+    },
+    "catalog": [],
+    "probes": {
+      "/fixture/Emergency.Room.S10E14.Kontrollverlust.GERMAN.AC3.1080p.WEB-DL.h264-TvR/Emergency.Room.S10E14.Kontrollverlust.GERMAN.AC3.1080p.WEB-DL.h264-TvR.mkv": {
+        "ok": true,
+        "path": "/fixture/Emergency.Room.S10E14.Kontrollverlust.GERMAN.AC3.1080p.WEB-DL.h264-TvR/Emergency.Room.S10E14.Kontrollverlust.GERMAN.AC3.1080p.WEB-DL.h264-TvR.mkv",
+        "durationSeconds": 2580,
+        "video": {
+          "width": 1280,
+          "height": 720
+        },
+        "containerTitle": "Emergency Room - S10E14 - Kontrollverlust",
+        "audio": [
+          {
+            "language": "ger",
+            "title": "AC3 2.0 @ 448 kbps",
+            "codec": "ac3",
+            "channels": 2
+          }
+        ],
+        "hasGermanAudio": true
+      },
+      "/fixture/ER (1994) {imdb-tt0108757}/Season 10/ER.1994.S10E14.Impulse.Control.NF.WEBDL-1080p.AAC.2.0.x264-playWEB.mkv": {
+        "ok": true,
+        "path": "/fixture/ER (1994) {imdb-tt0108757}/Season 10/ER.1994.S10E14.Impulse.Control.NF.WEBDL-1080p.AAC.2.0.x264-playWEB.mkv",
+        "durationSeconds": 2640,
+        "video": {
+          "width": 1920,
+          "height": 1080
+        },
+        "containerTitle": null,
+        "audio": [
+          {
+            "language": "eng",
+            "codec": "aac",
+            "channels": 2
+          }
+        ],
+        "hasGermanAudio": false
+      }
+    },
+    "parse": {
+      "releaseTitle": "Emergency.Room.S10E14.Kontrollverlust.GERMAN.AC3.1080p.WEB-DL.h264-TvR",
+      "parsedTitle": "Emergency Room",
+      "parsedSeason": 10,
+      "parsedEpisodes": [14],
+      "matchedId": 1044,
+      "matchedTitle": "ER",
+      "matchedEpisodeIds": [64417]
+    },
+    "mapping": [
+      {
+        "candidateId": "candidate_1",
+        "episodeIds": [64417]
+      }
+    ]
+  },
+  {
+    "key": "er-1702876019",
+    "queueItem": {
+      "id": 1702876019,
+      "service": "sonarr",
+      "title": "Emergency.Room.S10E14.Kontrollverlust.GERMAN.AC3.1080p.WEB-DL.h264-TvR",
+      "seriesId": 1044,
+      "seriesTitle": "ER",
+      "seriesType": "standard",
+      "downloadId": "c257c013-b87a-40d3-b0a6-d123a3680671",
+      "status": "completed",
+      "trackedDownloadStatus": "warning",
+      "trackedDownloadState": "importPending",
+      "outputPath": "/fixture/Emergency.Room.S10E14.Kontrollverlust.GERMAN.AC3.1080p.WEB-DL.h264-TvR.2/Emergency.Room.S10E14.Kontrollverlust.GERMAN.AC3.1080p.WEB-DL.h264-TvR.mkv",
+      "episodeIds": [64417],
+      "absoluteEpisodeNumbers": [],
+      "episodeLabels": ["S10E14 - Impulse Control"],
+      "seasonEpisode": "S10E14",
+      "statusMessages": [
+        "Emergency.Room.S10E14.Kontrollverlust.GERMAN.AC3.1080p.WEB-DL.h264-TvR",
+        "Not an upgrade for existing episode file(s). Existing quality: WEBDL-1080p. New Quality WEBDL-720p."
+      ],
+      "canAnalyze": true
+    },
+    "candidates": [
+      {
+        "id": "candidate_1",
+        "service": "sonarr",
+        "path": "/fixture/Emergency.Room.S10E14.Kontrollverlust.GERMAN.AC3.1080p.WEB-DL.h264-TvR.2/Emergency.Room.S10E14.Kontrollverlust.GERMAN.AC3.1080p.WEB-DL.h264-TvR.mkv",
+        "relativePath": "Emergency.Room.S10E14.Kontrollverlust.GERMAN.AC3.1080p.WEB-DL.h264-TvR.mkv",
+        "seriesId": 1044,
+        "episodeIds": [64417],
+        "quality": {
+          "quality": {
+            "id": 5,
+            "name": "WEBDL-720p",
+            "source": "web",
+            "resolution": 720
+          },
+          "revision": {
+            "version": 1,
+            "real": 0,
+            "isRepack": false
+          }
+        },
+        "qualityLabel": "WEBDL-720p",
+        "languages": [
+          {
+            "id": 4,
+            "name": "German"
+          }
+        ],
+        "customFormatScore": 12105,
+        "rejections": [
+          "Not an upgrade for existing episode file(s). Existing quality: WEBDL-1080p. New Quality WEBDL-720p."
+        ],
+        "isLikelySample": false
+      }
+    ],
+    "episodes": [
+      {
+        "id": 64417,
+        "seriesId": 1044,
+        "seasonNumber": 10,
+        "episodeNumber": 14,
+        "title": "Impulse Control",
+        "runtime": 45,
+        "overview": "Sam treats a mother whose family was in a car accident and a 16-year-old pregnant girl whose boyfriend loaned her out to his friends. With Alex at a sleepover, she gets lonely and heads over to Luka's, where they end up sleeping together. Carter shows Kem the city and proposes they move into a townh",
+        "hasFile": true,
+        "series": {
+          "id": 1044,
+          "title": "ER",
+          "year": null,
+          "qualityProfileId": 4
+        },
+        "episodeFile": {
+          "path": "/fixture/ER (1994) {imdb-tt0108757}/Season 10/ER.1994.S10E14.Impulse.Control.NF.WEBDL-1080p.AAC.2.0.x264-playWEB.mkv",
+          "quality": {
+            "quality": {
+              "name": "WEBDL-1080p"
+            }
+          },
+          "languages": ["English"],
+          "customFormatScore": 1775
+        }
+      }
+    ],
+    "series": {
+      "id": 1044,
+      "title": "ER",
+      "qualityProfileId": 4
+    },
+    "catalog": [],
+    "probes": {
+      "/fixture/Emergency.Room.S10E14.Kontrollverlust.GERMAN.AC3.1080p.WEB-DL.h264-TvR.2/Emergency.Room.S10E14.Kontrollverlust.GERMAN.AC3.1080p.WEB-DL.h264-TvR.mkv": {
+        "ok": true,
+        "path": "/fixture/Emergency.Room.S10E14.Kontrollverlust.GERMAN.AC3.1080p.WEB-DL.h264-TvR.2/Emergency.Room.S10E14.Kontrollverlust.GERMAN.AC3.1080p.WEB-DL.h264-TvR.mkv",
+        "durationSeconds": 2580,
+        "video": {
+          "width": 1280,
+          "height": 720
+        },
+        "containerTitle": "Emergency Room - S10E14 - Kontrollverlust",
+        "audio": [
+          {
+            "language": "ger",
+            "title": "AC3 2.0 @ 448 kbps",
+            "codec": "ac3",
+            "channels": 2
+          }
+        ],
+        "hasGermanAudio": true
+      },
+      "/fixture/ER (1994) {imdb-tt0108757}/Season 10/ER.1994.S10E14.Impulse.Control.NF.WEBDL-1080p.AAC.2.0.x264-playWEB.mkv": {
+        "ok": true,
+        "path": "/fixture/ER (1994) {imdb-tt0108757}/Season 10/ER.1994.S10E14.Impulse.Control.NF.WEBDL-1080p.AAC.2.0.x264-playWEB.mkv",
+        "durationSeconds": 2640,
+        "video": {
+          "width": 1920,
+          "height": 1080
+        },
+        "containerTitle": null,
+        "audio": [
+          {
+            "language": "eng",
+            "codec": "aac",
+            "channels": 2
+          }
+        ],
+        "hasGermanAudio": false
+      }
+    },
+    "parse": {
+      "releaseTitle": "Emergency.Room.S10E14.Kontrollverlust.GERMAN.AC3.1080p.WEB-DL.h264-TvR",
+      "parsedTitle": "Emergency Room",
+      "parsedSeason": 10,
+      "parsedEpisodes": [14],
+      "matchedId": 1044,
+      "matchedTitle": "ER",
+      "matchedEpisodeIds": [64417]
+    },
+    "mapping": [
+      {
+        "candidateId": "candidate_1",
+        "episodeIds": [64417]
+      }
+    ]
+  },
+  {
+    "key": "bleach-kashin",
+    "queueItem": {
+      "id": 1803093397,
+      "service": "sonarr",
+      "title": "[Erai-raws].Bleach.-.Sennen.Kessen.Hen.-.Kashin.Tan.-.09.[1080p.DSNP.WEB-DL.AVC.AAC][MultiSub][9896BE87]",
+      "seriesId": 8,
+      "seriesTitle": "Bleach",
+      "seriesType": "anime",
+      "downloadId": "79968ec5-2044-44c0-ad2d-b7b28388dc60",
+      "status": "completed",
+      "trackedDownloadStatus": "warning",
+      "trackedDownloadState": "importBlocked",
+      "outputPath": "/fixture/[Erai-raws].Bleach.-.Sennen.Kessen.Hen.-.Kashin.Tan.-.09.[1080p.DSNP.WEB-DL.AVC.AAC][MultiSub][9896BE87]/",
+      "episodeIds": [294],
+      "absoluteEpisodeNumbers": [9],
+      "episodeLabels": ["S01E09 - Unbeatable Enemy"],
+      "seasonEpisode": "S01E09",
+      "statusMessages": [
+        "[Erai-raws].Bleach.-.Sennen.Kessen.Hen.-.Kashin.Tan.-.09.[1080p.DSNP.WEB-DL.AVC.AAC][MultiSub][9896BE87]",
+        "Found matching series via grab history, but release was matched to series by ID. Automatic import is not possible. See the FAQ for details."
+      ],
+      "canAnalyze": true
+    },
+    "candidates": [
+      {
+        "id": "candidate_1",
+        "service": "sonarr",
+        "path": "/fixture/[Erai-raws].Bleach.-.Sennen.Kessen.Hen.-.Kashin.Tan.-.09.[1080p.DSNP.WEB-DL.AVC.AAC][MultiSub][9896BE87]/[Erai-raws] Bleach - Sennen Kessen Hen - Kashin Tan - 09 [1080p DSNP WEB-DL AVC AAC][MultiSub][9896BE87].mkv",
+        "relativePath": "[Erai-raws] Bleach - Sennen Kessen Hen - Kashin Tan - 09 [1080p DSNP WEB-DL AVC AAC][MultiSub][9896BE87].mkv",
+        "seriesId": 8,
+        "episodeIds": [294],
+        "quality": {
+          "quality": {
+            "id": 3,
+            "name": "WEBDL-1080p",
+            "source": "web",
+            "resolution": 1080
+          },
+          "revision": {
+            "version": 1,
+            "real": 0,
+            "isRepack": false
+          }
+        },
+        "qualityLabel": "WEBDL-1080p",
+        "languages": [
+          {
+            "id": 8,
+            "name": "Japanese"
+          }
+        ],
+        "customFormatScore": 350,
+        "rejections": [],
+        "isLikelySample": false
+      }
+    ],
+    "episodes": [
+      {
+        "id": 294,
+        "seriesId": 8,
+        "seasonNumber": 1,
+        "episodeNumber": 9,
+        "title": "Unbeatable Enemy",
+        "runtime": 23,
+        "overview": "Ichigo finds out that the Hollow attacking his sisters is the same Hollow that killed his mother 5 years earlier. This Hollow is called the Grandfisher and has evaded the Shinigami for over 50 years. Because of the fact that this Hollow killed his mother to defend his pride Ichigo must fight it alon",
+        "hasFile": false,
+        "series": {
+          "id": 8,
+          "title": "Bleach",
+          "year": 2004,
+          "qualityProfileId": 4
+        },
+        "airDate": "2004-01-01"
+      }
+    ],
+    "series": {
+      "title": "Bleach",
+      "alternateTitles": [
+        {
+          "title": "Bleach - Thousand-Year Blood War",
+          "sceneSeasonNumber": 17
+        },
+        {
+          "title": "Bleach Thousand-Year Blood War",
+          "sceneSeasonNumber": 17
+        },
+        {
+          "title": "Bleach Thousand Year Blood Arc",
+          "sceneSeasonNumber": 17
+        },
+        {
+          "title": "Bleach - Sennen Kessen-hen",
+          "sceneSeasonNumber": 17
+        },
+        {
+          "title": "Bleach Thousand Year Blood War",
+          "sceneSeasonNumber": 17
+        },
+        {
+          "title": "Bleach: Thousand Year Blood War",
+          "sceneSeasonNumber": 17
+        },
+        {
+          "title": "Bleach Sennen Kessen-hen",
+          "sceneSeasonNumber": 17
+        },
+        {
+          "title": "Bleach: Thousand-Year Blood War",
+          "sceneSeasonNumber": 17
+        },
+        {
+          "title": "Bleach",
+          "seasonNumber": -1,
+          "sceneOrigin": "tvdb",
+          "comment": "playWEB"
+        }
+      ],
+      "year": 2004,
+      "qualityProfileId": 1,
+      "runtime": 24,
+      "seriesType": "anime",
+      "id": 8
+    },
+    "catalog": [
+      {
+        "seriesId": 8,
+        "seasonNumber": 1,
+        "episodeNumber": 9,
+        "title": "Unbeatable Enemy",
+        "airDate": "2004-11-30",
+        "runtime": 23,
+        "overview": "Ichigo finds out that the Hollow attacking his sisters is the same Hollow that killed his mother 5 years earlier. This Hollow is called the Grandfisher and has evaded the Shinigami for over 50 years. Because of the fact that this Hollow killed his mother to defend his pride Ichigo must fight it alone.",
+        "id": 294
+      },
+      {
+        "seriesId": 8,
+        "seasonNumber": 4,
+        "episodeNumber": 5,
+        "title": "True Identity of the Devil, the Secret Which Is Revealed",
+        "airDate": "2006-02-14",
+        "runtime": 25,
+        "overview": "RinRin, Cloud, Nova are on their final game. Orihime, Ishida, Renji, Kon and Ichigo make there attempt to save Chad. It turns out that Urahara has been the one behind it all, but then they find out there new enemies they must beat.",
+        "id": 353
+      },
+      {
+        "seriesId": 8,
+        "seasonNumber": 17,
+        "episodeNumber": 35,
+        "title": "DON'T CHASE A SHADOW",
+        "airDate": "2024-11-30",
+        "runtime": 24,
+        "overview": "The change in Mayuri's Spiritual Pressure is also felt elsewhere by Urahara and Kyoraku.",
+        "id": 62843
+      }
+    ],
+    "probes": {
+      "/fixture/[Erai-raws].Bleach.-.Sennen.Kessen.Hen.-.Kashin.Tan.-.09.[1080p.DSNP.WEB-DL.AVC.AAC][MultiSub][9896BE87]/[Erai-raws] Bleach - Sennen Kessen Hen - Kashin Tan - 09 [1080p DSNP WEB-DL AVC AAC][MultiSub][9896BE87].mkv": {
+        "ok": true,
+        "path": "/fixture/[Erai-raws].Bleach.-.Sennen.Kessen.Hen.-.Kashin.Tan.-.09.[1080p.DSNP.WEB-DL.AVC.AAC][MultiSub][9896BE87]/[Erai-raws] Bleach - Sennen Kessen Hen - Kashin Tan - 09 [1080p DSNP WEB-DL AVC AAC][MultiSub][9896BE87].mkv",
+        "durationSeconds": 1620,
+        "video": {
+          "width": 1920,
+          "height": 1080
+        },
+        "containerTitle": null,
+        "audio": [
+          {
+            "language": "jpn",
+            "title": "[Erai-raws]_AAC_DSNP",
+            "codec": "aac",
+            "channels": 2
+          }
+        ],
+        "hasGermanAudio": false
+      }
+    },
+    "parse": {
+      "releaseTitle": "[Erai-raws].Bleach.-.Sennen.Kessen.Hen.-.Kashin.Tan.-.09.[1080p.DSNP.WEB-DL.AVC.AAC][MultiSub][9896BE87]",
+      "parsedTitle": "Bleach - Sennen Kessen Hen - Kashin Tan",
+      "parsedSeason": 0,
+      "parsedEpisodes": [],
+      "matchedEpisodeIds": []
+    },
+    "mapping": [
+      {
+        "candidateId": "candidate_1",
+        "episodeIds": [294]
+      }
+    ]
+  }
+]

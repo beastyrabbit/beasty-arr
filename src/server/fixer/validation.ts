@@ -112,6 +112,18 @@ function normalizeIdentity(value: unknown): ProposalIdentity | undefined {
       : "uncertain",
     actualWork: String(record.actualWork ?? "").trim(),
     evidence: normalizeStrings(record.evidence),
+    ...(Array.isArray(record.episodeMatches)
+      ? {
+          episodeMatches: record.episodeMatches.filter(
+            (match) =>
+              match &&
+              typeof match.candidateId === "string" &&
+              Number.isSafeInteger(match.episodeId) &&
+              match.episodeId > 0 &&
+              typeof match.dialogueQuote === "string",
+          ),
+        }
+      : {}),
   };
 }
 

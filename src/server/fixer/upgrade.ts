@@ -20,6 +20,8 @@ export type UpgradeDecision = "import" | "skip" | "blocked" | "unverified";
 export interface UpgradeAssessment {
   decision: UpgradeDecision;
   reason: string;
+  /** Quality to send with the import when it differs from the detected one. */
+  importQuality?: unknown;
 }
 
 type ParsedQuality = {
@@ -115,12 +117,68 @@ function describeQuality(quality: ParsedQuality | undefined): string {
 }
 
 export interface AssessUpgradeInput {
-  candidate: Pick<ManualImportCandidate, "quality" | "customFormatScore" | "languages">;
+  candidate: Pick<
+    ManualImportCandidate,
+    | "quality"
+    | "releaseQuality"
+    | "germanAudioProbed"
+    | "germanLibraryTargetIds"
+    | "customFormatScore"
+    | "languages"
+  >;
   episode: SonarrEpisodeRecord | undefined;
   profile: SonarrQualityProfileRecord | undefined;
 }
 
+/**
+ * German audio the library lacks outranks the profile, but only at a quality
+ * the profile allows: a file labelled below the cutoff is replaced by the
+ * arr's next non-German quality upgrade, which re-grabs the German release in
+ * a loop. So when inspection hears German in a file rated outside the profile (a
+ * "1080p" release that is really 1280x960) and the quality the arr parsed
+ * from the release name at grab time is allowed, assess and import it at that
+ * release quality, as the arr itself rated it when grabbing.
+ */
 export function assessCandidateUpgrade(input: AssessUpgradeInput): UpgradeAssessment {
+  const { candidate, episode, profile } = input;
+  const ranking = profile ? rankProfile(profile) : undefined;
+  const detected = parseQuality(candidate.quality);
+  const release = parseQuality(candidate.releaseQuality);
+  const existingLanguages = episode?.episodeFile?.languages ?? [];
+  const libraryHeardGerman =
+    episode?.id !== undefined && (candidate.germanLibraryTargetIds ?? []).includes(episode.id);
+  const addsGerman =
+    hasGermanAudio(candidate.languages) &&
+    ((episode?.hasFile !== true && episode?.episodeFile === undefined) ||
+      (!libraryHeardGerman &&
+        hasKnownLanguageMetadata(existingLanguages) &&
+        !hasGermanAudio(existingLanguages)));
+  if (
+    !episode ||
+    !ranking ||
+    !detected ||
+    !release ||
+    !addsGerman ||
+    candidate.germanAudioProbed !== true ||
+    qualityRank(ranking, detected) === undefined ||
+    qualityAllowed(ranking, detected) ||
+    !qualityAllowed(ranking, release)
+  ) {
+    return assessDetectedUpgrade(input);
+  }
+  const result = assessDetectedUpgrade({
+    ...input,
+    candidate: { ...candidate, quality: candidate.releaseQuality },
+  });
+  if (result.decision !== "import") return result;
+  return {
+    ...result,
+    reason: `${result.reason} It is imported as ${describeQuality(release)}, the quality parsed from the release name, because the inspected ${describeQuality(detected)} is outside quality profile ${profileLabel(profile)} and the arr would replace it with a non-German upgrade.`,
+    importQuality: candidate.releaseQuality,
+  };
+}
+
+function assessDetectedUpgrade(input: AssessUpgradeInput): UpgradeAssessment {
   const { candidate, episode, profile } = input;
   if (!episode) {
     return { decision: "unverified", reason: "Sonarr did not return the target episode." };
@@ -334,6 +392,22 @@ export function assessImportMappings(input: {
     });
     const pick = (decision: UpgradeDecision) =>
       perEpisode.find((entry) => entry.decision === decision);
+    // The release quality is file-wide, so it may replace the detected one only
+    // when every mapped episode qualifies; otherwise a missing episode would
+    // carry the file past the profile for an episode that already has German.
+    const unqualified = perEpisode.some((entry) => entry.importQuality !== undefined)
+      ? perEpisode.find((entry) => entry.importQuality === undefined)
+      : undefined;
+    if (unqualified) {
+      return {
+        candidateId,
+        episodeIds,
+        assessment: {
+          decision: unqualified.decision === "import" ? "skip" : unqualified.decision,
+          reason: `${unqualified.reason} The release-quality exception must hold for every episode the file covers.`,
+        },
+      };
+    }
     const assessment = pick("blocked") ??
       pick("unverified") ??
       pick("import") ??

@@ -75,8 +75,14 @@ to skipRedownload=true with a warning instead of waiting for a person. Files tha
 ffprobe rejects as invalid data no longer count as possibly German. A PROPER/REPACK
 of the same quality is an upgrade only when its custom-format score is not lower,
 and the Radarr upgrade check and preflight now load the library file's real score
-(/movie/{id} omits it). The AI prompt tells the Fixer that a profile-disallowed
-quality can never be imported, that a non-upgrade may be removed with an uncertain
+(/movie/{id} omits it). When inspection rates a German file outside the profile (a
+"1080p" release measuring 1280x960 reads as WEBDL-720p) but the release-name quality
+from the queue is allowed and the target is missing or has no German, the Fixer
+imports it at that release quality. Both Arr ManualImport command paths keep the
+supplied quality and skip profile specifications. Imported as 720p, the file would
+miss the cutoff, the arr would replace the German audio with any non-German 1080p, and
+the German release would be grabbed again. A quality outside the profile by both
+measures is still refused. A non-upgrade may be removed with an uncertain
 identity, and that a Dub Oracle "exists" verdict triggers a new search only when the
 target has no library file (the arr's own search re-grabbed the same duplicate
 repeatedly). Codex "overloaded" errors are retried and an attempt with no session

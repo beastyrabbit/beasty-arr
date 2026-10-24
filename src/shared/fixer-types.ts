@@ -47,6 +47,8 @@ export interface QueueItem {
   isInProgress?: boolean;
   size?: number;
   outputPath?: string;
+  /** The quality the arr parsed from the release name when it grabbed it. */
+  quality?: unknown;
   /**
    * Every Sonarr queue row that belongs to this download. Sonarr lists a
    * season pack as one row per episode; the fixer merges them into one item
@@ -90,6 +92,12 @@ export interface ManualImportCandidate {
   episodeLabels: string[];
   quality?: unknown;
   qualityLabel?: string;
+  /** The download's grab-time release quality (QueueItem.quality). */
+  releaseQuality?: unknown;
+  /** Inspection heard German audio in this file (not just a release-name label). */
+  germanAudioProbed?: boolean;
+  /** Queued targets whose library file inspection heard German in, despite arr labels. */
+  germanLibraryTargetIds?: number[];
   languages: unknown[];
   languageLabels: string[];
   releaseGroup?: string;
@@ -165,6 +173,8 @@ export interface ProposalIdentity {
   actualWork: string;
   /** Independent observations (probe, parse, lookup), not the arr's grab mapping. */
   evidence: string[];
+  /** Inspected dialogue placing each file in a looked-up episode of another series. */
+  episodeMatches?: { candidateId: string; episodeId: number; dialogueQuote: string }[];
 }
 
 export interface ValidationIssue {
@@ -207,6 +217,8 @@ export interface ApplyResult {
   message: string;
   commandId?: number;
   leftover?: LeftoverDisposition;
+  /** Preflight only: candidate id to the quality its import must carry. */
+  importQualities?: Record<string, unknown>;
 }
 
 export interface QueueRemovalOptions {

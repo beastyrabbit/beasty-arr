@@ -14,6 +14,7 @@ import {
   realOnePieceAbsoluteEpisode,
   realOnePieceCandidate,
   realOnePieceQueueItem,
+  realReviewCapture,
 } from "../fixer/real-world-fixtures.js";
 import type { FetchImpl } from "./http-util.js";
 import { SonarrClient } from "./sonarr-client.js";
@@ -55,6 +56,131 @@ function queueItem(overrides: Partial<QueueItem> = {}): QueueItem {
     ...overrides,
   };
 }
+
+describe("captured Fixer reviews in Sonarr preflight", () => {
+  const profile = {
+    id: 4,
+    name: "HD-1080p",
+    upgradeAllowed: true,
+    cutoffFormatScore: 35000,
+    items: [
+      { quality: { id: 5, name: "WEBDL-720p" }, allowed: false },
+      { quality: { id: 3, name: "WEBDL-1080p" }, allowed: true },
+      { quality: { id: 7, name: "Bluray-1080p" }, allowed: false },
+    ],
+  };
+  // What Sonarr's queue reports for these "GERMAN...1080p...WEB-DL" names.
+  const releaseQuality = {
+    quality: { id: 3, name: "WEBDL-1080p", source: "web", resolution: 1080 },
+    revision: { version: 1, real: 0, isRepack: false },
+  };
+  function harness(key: string, release: unknown = releaseQuality) {
+    const captured = realReviewCapture(key);
+    const capture = {
+      ...captured,
+      // As after inspection: the probes of these captures heard German.
+      candidates: captured.candidates.map((c) => ({
+        ...c,
+        releaseQuality: release,
+        germanAudioProbed: true,
+      })),
+    };
+    const fetchMock = vi.fn<FetchImpl>(async (url, init) => {
+      const parsed = new URL(String(url));
+      if (parsed.pathname === "/api/v3/episode") {
+        const ids = parsed.searchParams.getAll("episodeIds").map(Number);
+        return jsonResponse(
+          capture.episodes.filter((e) => ids.length === 0 || ids.includes(e.id ?? 0)),
+        );
+      }
+      if (parsed.pathname === "/api/v3/qualityprofile") return jsonResponse([profile]);
+      if (parsed.pathname === "/api/v3/command" && init?.method === "POST")
+        return jsonResponse({ id: 7 });
+      throw new Error(`Unexpected fixture request ${parsed.pathname}`);
+    });
+    const proposal: ResolutionProposal = {
+      action: "import_candidates",
+      confidence: 0.99,
+      selectedCandidateIds: capture.mapping.map((m) => m.candidateId),
+      selectedImports: capture.mapping,
+      sampleCandidateIds: [],
+      reason: "Confirmed German upgrades",
+      issueSummary: "Saved review",
+      evidence: [],
+      warnings: [],
+    };
+    return { capture, proposal, fetchMock, sonarr: client(fetchMock) };
+  }
+
+  it.each(["batman2", "batman4", "er-1465308286", "er-1702876019"])(
+    "imports German measured below the profile at its allowed release quality for %s",
+    async (key) => {
+      const { sonarr, capture, proposal } = harness(key);
+      expect(
+        await sonarr.preflightImportProposal(capture.queueItem, capture.candidates, proposal),
+      ).toMatchObject({ ok: true });
+    },
+  );
+
+  it("refuses German quality outside the profile when the release quality is unknown", async () => {
+    const { sonarr, capture, proposal } = harness("er-1465308286", null);
+    const result = await sonarr.preflightImportProposal(
+      capture.queueItem,
+      capture.candidates,
+      proposal,
+    );
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("not allowed");
+  });
+
+  it("sends Batman's release quality, not the measured 720p, in ManualImport", async () => {
+    // Labelled WEBDL-720p the file misses HD-1080p's cutoff, so Sonarr would
+    // replace the German audio with the next English 1080p and re-grab.
+    const { sonarr, capture, proposal, fetchMock } = harness("batman2");
+    expect(capture.candidates[0]?.qualityLabel).toBe("WEBDL-720p");
+    expect(
+      await sonarr.applyImportProposal(capture.queueItem, capture.candidates, proposal),
+    ).toMatchObject({ ok: true });
+    const post = fetchMock.mock.calls.find(([, init]) => init?.method === "POST");
+    const body = JSON.parse(String(post?.[1]?.body));
+    expect(body.name).toBe("ManualImport");
+    expect(body.files.map((file: { quality: unknown }) => file.quality)).toEqual(
+      body.files.map(() => releaseQuality),
+    );
+  });
+
+  it("still refuses disallowed quality when Batman's library already has German", async () => {
+    const { sonarr, capture, proposal } = harness("batman2");
+    for (const e of capture.episodes)
+      if (e.episodeFile) e.episodeFile.languages = [{ id: 4, name: "German" }];
+    const result = await sonarr.preflightImportProposal(
+      capture.queueItem,
+      capture.candidates,
+      proposal,
+    );
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("not allowed");
+  });
+
+  it("refuses replacing only Blacklist E20 and accepts its full twenty-episode replacement set", async () => {
+    const { sonarr, capture, proposal } = harness("blacklist");
+    const partial = {
+      ...proposal,
+      selectedCandidateIds: ["candidate_7"],
+      selectedImports: [{ candidateId: "candidate_7", episodeIds: [8057] }],
+    };
+    const refused = await sonarr.preflightImportProposal(
+      capture.queueItem,
+      capture.candidates,
+      partial,
+    );
+    expect(refused.ok).toBe(false);
+    expect(refused.message).toContain("would lose episodes");
+    expect(
+      await sonarr.preflightImportProposal(capture.queueItem, capture.candidates, proposal),
+    ).toMatchObject({ ok: true });
+  });
+});
 
 describe("SonarrClient", () => {
   it("loads every queue page and can include in-progress records for reconciliation", async () => {
@@ -268,6 +394,7 @@ describe("SonarrClient", () => {
         trackedDownloadStatus: "warning",
         trackedDownloadState: "importBlocked",
         isInProgress: false,
+        quality: { quality: { name: "WEBRip-1080p" } },
       }),
     );
 
@@ -278,6 +405,8 @@ describe("SonarrClient", () => {
       episodeIds: [34],
       customFormatLabels: ["German"],
       customFormatScore: 100,
+      qualityLabel: "WEBRip-720p",
+      releaseQuality: { quality: { name: "WEBRip-1080p" } },
     });
     expect(fetchMock).toHaveBeenCalledWith(
       "http://sonarr.local/api/v3/manualimport?downloadId=download-2&filterExistingFiles=false",

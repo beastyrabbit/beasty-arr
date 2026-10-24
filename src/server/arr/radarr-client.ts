@@ -181,6 +181,7 @@ type RadarrQueueRecord = {
   outputPath?: string;
   downloadId?: string;
   added?: string;
+  quality?: unknown;
   statusMessages?: Array<{ title?: string; messages?: string[] }>;
   errorMessage?: string;
 };
@@ -294,6 +295,7 @@ function normalizeQueueRecord(record: RadarrQueueRecord): QueueItem {
     isInProgress,
     size: record.size,
     outputPath: record.outputPath,
+    quality: record.quality,
     episodeIds: movieId ? [movieId] : [],
     absoluteEpisodeNumbers: [],
     episodeLabels: record.movie ? [movieLabel(record.movie)] : [],
@@ -350,8 +352,12 @@ function normalizeManualImportRecord(
 
 function normalizeManualImportRecords(
   records: RadarrManualImportRecord[],
+  releaseQuality: unknown,
 ): ManualImportCandidate[] {
-  return records.map(normalizeManualImportRecord).filter((candidate) => candidate.path.length > 0);
+  return records
+    .map((record, index) => normalizeManualImportRecord(record, index))
+    .filter((candidate) => candidate.path.length > 0)
+    .map((candidate) => (releaseQuality ? { ...candidate, releaseQuality } : candidate));
 }
 
 export class RadarrClient {
@@ -570,10 +576,12 @@ export class RadarrClient {
         await this.request<RadarrManualImportRecord[]>(
           appendQuery("/api/v3/manualimport", { folder: queueItem.outputPath, ...params }),
         ),
+        queueItem.quality,
       );
     try {
       const candidates = normalizeManualImportRecords(
         await this.request<RadarrManualImportRecord[]>(appendQuery("/api/v3/manualimport", params)),
+        queueItem.quality,
       );
       return candidates.length === 0 && queueItem.outputPath ? loadFromFolder() : candidates;
     } catch (error) {
@@ -614,7 +622,7 @@ export class RadarrClient {
           path: candidate.path,
           folderName: candidate.folderName,
           movieId,
-          quality: candidate.quality,
+          quality: preflight.importQualities?.[candidateId] ?? candidate.quality,
           languages: candidate.languages,
           releaseGroup: candidate.releaseGroup,
           indexerFlags: candidate.indexerFlags,
@@ -678,11 +686,14 @@ export class RadarrClient {
     if (languageDowngrades.length > 0) {
       return { ok: false, message: languageDowngrades.join(" ") };
     }
-    const nonUpgrades = await this.findNonUpgrades(normalizedProposal, byId);
+    const { messages: nonUpgrades, importQualities } = await this.findNonUpgrades(
+      normalizedProposal,
+      byId,
+    );
     if (nonUpgrades.length > 0) {
       return { ok: false, message: nonUpgrades.join(" ") };
     }
-    return { ok: true, message: "Radarr import proposal passed preflight." };
+    return { ok: true, importQualities, message: "Radarr import proposal passed preflight." };
   }
 
   /**
@@ -692,7 +703,7 @@ export class RadarrClient {
   private async findNonUpgrades(
     proposal: ResolutionProposal,
     candidatesById: Map<string, ManualImportCandidate>,
-  ): Promise<string[]> {
+  ): Promise<{ messages: string[]; importQualities: Record<string, unknown> }> {
     let profiles: RadarrQualityProfileRecord[];
     try {
       profiles = await this.getQualityProfiles();
@@ -702,6 +713,7 @@ export class RadarrClient {
       });
     }
     const messages: string[] = [];
+    const importQualities: Record<string, unknown> = {};
     for (const selectedImport of proposal.selectedImports) {
       const candidate = candidatesById.get(selectedImport.candidateId);
       const movieId =
@@ -717,9 +729,11 @@ export class RadarrClient {
         messages.push(
           `Candidate ${candidate.id} is not importable (${assessment.decision}): ${assessment.reason}`,
         );
+      } else if (assessment.importQuality) {
+        importQualities[candidate.id] = assessment.importQuality;
       }
     }
-    return messages;
+    return { messages, importQualities };
   }
 
   private async findGermanAudioDowngrades(
