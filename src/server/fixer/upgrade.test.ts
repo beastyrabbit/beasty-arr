@@ -11,6 +11,7 @@ const profile: SonarrQualityProfileRecord = {
   cutoffFormatScore: 10_000,
   minUpgradeFormatScore: 1,
   items: [
+    { quality: { id: 5, name: "WEBDL-720p" }, allowed: false },
     { quality: { id: 1, name: "HDTV-720p" }, allowed: true },
     {
       id: 1000,
@@ -55,7 +56,7 @@ describe("assessCandidateUpgrade", () => {
     expect(result.decision).toBe("import");
   });
 
-  it("skips a file whose quality the profile does not allow, even for a missing target", () => {
+  it("skips a non-German file whose quality the profile does not allow, even for a missing target", () => {
     const result = assessCandidateUpgrade({
       candidate: candidate({ quality: quality(19, "Bluray-2160p") }),
       episode: episode({ hasFile: false }),
@@ -76,6 +77,42 @@ describe("assessCandidateUpgrade", () => {
     expect(result).toMatchObject({ decision: "skip" });
     expect(result.reason).toContain("not an upgrade");
   });
+
+  // Batman TAS and ER S10E14: German "1080p" releases that inspection measures
+  // as WEBDL-720p, which HD-1080p excludes, over English 1080p library files.
+  const releaseQuality = quality(3, "WEBDL-1080p");
+  it.each([
+    ["missing target", false, undefined, releaseQuality, "import"],
+    ["English library", true, [{ id: 1, name: "English" }], releaseQuality, "import"],
+    ["German library", true, [{ id: 4, name: "German" }], releaseQuality, "skip"],
+    ["unknown library language", true, [], releaseQuality, "skip"],
+    ["missing release quality", false, undefined, undefined, "skip"],
+    ["disallowed release quality", false, undefined, quality(19, "Bluray-2160p"), "skip"],
+  ] as const)(
+    "judges disallowed German quality for a %s",
+    (_label, hasFile, languages, release, expected) => {
+      const result = assessCandidateUpgrade({
+        candidate: {
+          ...candidate({
+            quality: quality(5, "WEBDL-720p"),
+            languages: [{ id: 4, name: "German" }],
+          }),
+          releaseQuality: release,
+        },
+        episode: episode({
+          hasFile,
+          episodeFile: hasFile
+            ? { quality: quality(3, "WEBDL-1080p"), languages: [...(languages ?? [])] }
+            : undefined,
+        }),
+        profile,
+      });
+      expect(result.decision).toBe(expected);
+      // A lower label would make the arr replace the German file with any
+      // non-German 1080p, so the import carries the release quality.
+      expect(result.importQuality).toEqual(expected === "import" ? releaseQuality : undefined);
+    },
+  );
 
   it("imports a higher custom format score at equal quality", () => {
     const result = assessCandidateUpgrade({

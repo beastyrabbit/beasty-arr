@@ -3,7 +3,11 @@ import type { ManualImportCandidate, MediaService, QueueItem } from "../../share
 import type { ArrMediaInfo } from "../arr/http-util.js";
 import type { RadarrClient, RadarrMovieRecord } from "../arr/radarr-client.js";
 import { isDiscStreamPath } from "../arr/sample.js";
-import type { SonarrClient, SonarrEpisodeRecord } from "../arr/sonarr-client.js";
+import type {
+  SonarrClient,
+  SonarrEpisodeRecord,
+  SonarrSeriesRecord,
+} from "../arr/sonarr-client.js";
 import { germanTagTitleConflict } from "../media/probe.js";
 import type { MediaProbeResult, MediaProber, ProbeSubtitleStream } from "../media/types.js";
 
@@ -21,6 +25,10 @@ export interface InspectionFacts {
   parse?: IndependentParse;
   /** Queued movie or target episodes, keyed by movie id / episode id. */
   targets: Map<number, TargetFacts>;
+  /** Read-only episode/arc lookups used to back a wrong-placement verdict. */
+  episodeCatalog?: Map<number, SonarrEpisodeRecord>;
+  series?: SonarrSeriesRecord;
+  unmatchedEpisodeTitles?: string[];
 }
 
 export interface IndependentParse {
@@ -39,6 +47,9 @@ export interface IndependentParse {
 export interface TargetFacts {
   id: number;
   label: string;
+  seasonNumber?: number;
+  episodeNumber?: number;
+  episodeTitle?: string;
   /** Movie release year, or the year an episode first aired. */
   year?: number;
   /** The year the episode's series first aired (Sonarr); release names carry this year. */
@@ -191,6 +202,9 @@ function episodeTarget(episode: SonarrEpisodeRecord): TargetFacts | undefined {
   return {
     id: episode.id,
     label: [episodeCode(episode), episode.title].filter(Boolean).join(" "),
+    seasonNumber: episode.seasonNumber,
+    episodeNumber: episode.episodeNumber,
+    episodeTitle: episode.title,
     year: Number((episode.airDate ?? episode.airDateUtc)?.slice(0, 4)) || undefined,
     seriesYear: episode.series?.year || undefined,
     titles: knownTitles([

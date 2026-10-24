@@ -4,6 +4,7 @@ import type {
   QueueItem,
   ResolutionProposal,
 } from "../../shared/fixer-types.js";
+import { animeTitleConflict } from "../arr/anime-title-match.js";
 import { isDiscStreamPath } from "../arr/sample.js";
 import type { MediaProbeOk, MediaProbeResult } from "../media/types.js";
 import type { InspectionFacts, TargetFacts } from "./inspection.js";
@@ -17,6 +18,9 @@ import type { InspectionFacts, TargetFacts } from "./inspection.js";
  */
 
 const RELEASE_YEAR = /(?<!\d)(?:19|20)\d{2}(?!\d)/g;
+const EXPLICIT_EPISODE_TITLE =
+  /s\d{1,2}e\d{1,3}[ ._-]+(.+?)(?=[ ._-]+(?:german|deutsch|\d{3,4}p)\b)/i;
+const WORD_BOUNDARY = /\s+/;
 
 function releaseYears(names: Array<string | undefined>): number[] {
   return [...new Set(names.flatMap((name) => (name?.match(RELEASE_YEAR) ?? []).map(Number)))];
@@ -139,31 +143,36 @@ function compactTitle(title: string): string {
 
 const GERMAN_LETTERS: Record<string, string> = { ä: "ae", ö: "oe", ü: "ue", ß: "ss" };
 
-/** A title as written and with German umlauts spelled out (Blümchen, Bluemchen). */
+/** German scene spelling may use umlauts, expanded vowels or plain vowels. */
 function titleForms(title: string): string[] {
   const spelled = title
     .toLowerCase()
     .replaceAll(/[äöüß]/g, (letter) => GERMAN_LETTERS[letter] ?? letter);
-  return [...new Set([compactTitle(title), compactTitle(spelled)])].filter(Boolean);
+  const plain = spelled.replaceAll("ae", "a").replaceAll("oe", "o").replaceAll("ue", "u");
+  return [...new Set([compactTitle(title), compactTitle(spelled), compactTitle(plain)])].filter(
+    Boolean,
+  );
 }
 
 /**
- * The arr's parse matched no library work and its title shares nothing with
- * the queued work's titles (Dandivine for DAN DA DAN). Containment either way
- * counts as shared: "Montana Story Montanaya Donus" is still Montana Story.
+ * Whether a title shares nothing with the queued work's known titles.
+ * Containment either way counts as shared: "Montana Story Montanaya Donus"
+ * is still Montana Story. Missing titles cannot prove a different work.
  */
-function unrelatedParsedTitle(
+function unrelatedTitle(
   queueItem: QueueItem,
   targets: TargetFacts[],
-  facts: InspectionFacts,
+  observedTitle: string | undefined,
+  alternateTitles: Array<string | undefined> = [],
 ): boolean {
-  const parsedTitle = facts.parse?.parsedTitle;
-  if (!parsedTitle || facts.parse?.matchedId !== undefined) return false;
+  if (!observedTitle) return false;
   const queuedTitle = queueItem.service === "radarr" ? queueItem.movieTitle : queueItem.seriesTitle;
-  const queued = [queuedTitle, ...targets.flatMap((target) => target.titles)].flatMap((title) =>
-    title ? titleForms(title) : [],
-  );
-  const parsed = titleForms(parsedTitle);
+  const queued = [
+    queuedTitle,
+    ...alternateTitles,
+    ...targets.flatMap((target) => target.titles),
+  ].flatMap((title) => (title ? titleForms(title) : []));
+  const parsed = titleForms(observedTitle);
   if (queued.length === 0 || parsed.length === 0) return false;
   return !queued.some((title) =>
     parsed.some((name) => name.includes(title) || title.includes(name)),
@@ -298,6 +307,9 @@ function importReviewReasons(
     otherMovieReason(queueItem, proposal),
   ];
   for (const file of selectedFiles(queueItem, candidates, proposal, facts)) {
+    if (wrongEpisodePlacement(file.candidate, file.targets, facts)) {
+      reasons.push(`${file.name} names a different episode or arc than its selected targets.`);
+    }
     if (facts.proberAvailable && !file.probe) {
       reasons.push(
         `${file.name} could not be inspected (${probeFailure(facts, file.candidate.path)}).`,
@@ -371,6 +383,102 @@ function isFeatureFile(candidate: ManualImportCandidate): boolean {
   return !candidate.isLikelySample && !isDiscStreamPath(candidate.path);
 }
 
+/** Placement evidence from read-only lookups, rather than the model's assertion. */
+function wrongEpisodePlacement(
+  candidate: ManualImportCandidate,
+  targets: TargetFacts[],
+  facts: InspectionFacts,
+): boolean {
+  if (facts.service !== "sonarr" || targets.length === 0) return false;
+  const name = [candidate.folderName, candidate.relativePath, fileName(candidate.path)].join(" ");
+  const forms = titleForms(name);
+  const arcMismatch = facts.series?.alternateTitles?.some((alternate) => {
+    const season = alternate.seasonNumber ?? alternate.sceneSeasonNumber;
+    if (!alternate.title || season === undefined || season < 1) return false;
+    return (
+      titleForms(alternate.title).some((title) => forms.some((text) => text.includes(title))) &&
+      targets.every((target) => target.seasonNumber !== undefined && target.seasonNumber !== season)
+    );
+  });
+  if (arcMismatch) return true;
+  const catalog = [...(facts.episodeCatalog?.values() ?? [])];
+  if (
+    targets.every((target) =>
+      animeTitleConflict(candidate, { id: target.id, title: target.episodeTitle }, catalog),
+    )
+  )
+    return true;
+
+  // A complete, explicitly named different story, searched across the series,
+  // can reject a duplicate over an already-German target even if TVDB lacks it.
+  // This cannot discard a missing target's only German copy on an unknown alias.
+  const explicitTitle = EXPLICIT_EPISODE_TITLE.exec(
+    candidate.relativePath ?? fileName(candidate.path),
+  )?.[1];
+  return Boolean(
+    explicitTitle &&
+      facts.unmatchedEpisodeTitles?.some(
+        (query) =>
+          query.split(WORD_BOUNDARY).length >= 3 &&
+          titleForms(query).some((title) => titleForms(explicitTitle).includes(title)) &&
+          targets.every(
+            (target) =>
+              target.episodeTitle &&
+              currentHasGerman(facts, target) === true &&
+              !titleForms(target.episodeTitle).some((title) => titleForms(query).includes(title)),
+          ),
+      ),
+  );
+}
+
+/** A whole pack placed in another series needs a lookup and real dialogue for every file. */
+function otherSeriesPack(
+  queueItem: QueueItem,
+  candidates: ManualImportCandidate[],
+  proposal: ResolutionProposal,
+  facts: InspectionFacts,
+): boolean {
+  const features = candidates.filter(isFeatureFile);
+  if (
+    queueItem.service !== "sonarr" ||
+    features.length < 2 ||
+    proposal.identity?.verdict !== "contradicted"
+  )
+    return false;
+  const matches = proposal.identity.episodeMatches ?? [];
+  const matchedEpisodes = features.map((candidate) => {
+    const match = matches.find((entry) => entry.candidateId === candidate.id);
+    const episode = match ? facts.episodeCatalog?.get(match.episodeId) : undefined;
+    const dialogue = probeOf(facts, candidate.path)?.subtitleExcerpt?.lines.join(" ");
+    if (
+      !match ||
+      !episode?.seriesId ||
+      episode.seriesId === queueItem.seriesId ||
+      !episode.overview ||
+      !episode.title ||
+      !dialogue
+    )
+      return undefined;
+    if (
+      match.dialogueQuote.trim().split(WORD_BOUNDARY).length < 6 ||
+      !compactTitle(dialogue).includes(compactTitle(match.dialogueQuote))
+    )
+      return undefined;
+    if (
+      !proposal.identity?.evidence.some(
+        (line) => line.includes(candidate.id) && line.includes(episode.title ?? ""),
+      )
+    )
+      return undefined;
+    return episode;
+  });
+  return (
+    matchedEpisodes.every(
+      (episode) => episode && episode.seriesId === matchedEpisodes[0]?.seriesId,
+    ) && new Set(matchedEpisodes.map((episode) => episode?.id)).size === features.length
+  );
+}
+
 /**
  * "It is a different work" must be backed by more than the AI's reading: the
  * release year, the runtime, or the arr's own parse naming another title or a
@@ -384,11 +492,38 @@ function wrongWorkReasons(
   candidates: ManualImportCandidate[],
   targets: TargetFacts[],
   facts: InspectionFacts,
+  proposal: ResolutionProposal,
 ): string[] {
+  if (otherSeriesPack(queueItem, candidates, proposal, facts)) return [];
+  const misplaced = candidates.filter(isFeatureFile);
+  if (
+    misplaced.length > 0 &&
+    misplaced.every((candidate) =>
+      wrongEpisodePlacement(candidate, targetsOfCandidate(queueItem, candidate, targets), facts),
+    )
+  )
+    return [];
   const parsedNamesake =
     queueItem.queueMappedId !== undefined && facts.parse?.matchedId === queueItem.queueMappedId;
   if (!parsedNamesake && parseReason(queueItem, facts)) return [];
-  if (unrelatedParsedTitle(queueItem, targets, facts)) return [];
+  const parsedTitle = facts.parse?.parsedTitle;
+  const alternateTitles = facts.series?.alternateTitles?.map((alternate) => alternate.title);
+  const unrelatedParse = unrelatedTitle(queueItem, targets, parsedTitle, alternateTitles);
+  if (facts.parse?.matchedId === undefined && unrelatedParse) return [];
+  // A queue remap need not be a namesake: Countdown: Rousey vs. Carano is
+  // a documentary, not the fight it was grabbed for. Require the real file's
+  // embedded title to corroborate the unrelated parse; a remapped id alone
+  // still cannot justify deleting Mary/Maria or a file with an unknown title.
+  const features = candidates.filter(isFeatureFile);
+  if (queueItem.service === "radarr" && parsedNamesake && unrelatedParse && features.length === 1) {
+    const embeddedTitle = probeOf(facts, features[0]?.path)?.containerTitle;
+    if (
+      unrelatedTitle(queueItem, targets, embeddedTitle) &&
+      titleForms(embeddedTitle ?? "").some((title) => titleForms(parsedTitle ?? "").includes(title))
+    ) {
+      return [];
+    }
+  }
   const backed = candidates.filter(isFeatureFile).some((candidate) => {
     const file: SelectedFile = {
       name: fileName(candidate.path),
@@ -519,7 +654,7 @@ function removalReviewReasons(
   const canLose =
     lossReasons.length > 0 || targets.length === 0 || targets.some((target) => !target.currentFile);
   return canLose
-    ? [...reasons, ...wrongWorkReasons(queueItem, candidates, targets, facts)]
+    ? [...reasons, ...wrongWorkReasons(queueItem, candidates, targets, facts, proposal)]
     : reasons;
 }
 
@@ -581,6 +716,26 @@ export function applyGuards(input: {
     reasons = importReviewReasons(queueItem, candidates, proposal, facts);
   } else if (proposal.action === "remove_queue_item") {
     proposal = withoutNeedlessSearch(queueItem, proposal, facts);
+    const features = candidates.filter(isFeatureFile);
+    if (
+      proposal.identity?.verdict === "contradicted" &&
+      proposal.queueRemovalOptions?.blocklist &&
+      features.some((candidate) => probeOf(facts, candidate.path)?.hasGermanAudio) &&
+      features.length > 0 &&
+      (otherSeriesPack(queueItem, candidates, proposal, facts) ||
+        features.every((candidate) =>
+          wrongEpisodePlacement(candidate, queuedTargets(queueItem, facts), facts),
+        ))
+    ) {
+      proposal = {
+        ...proposal,
+        queueRemovalOptions: { ...proposal.queueRemovalOptions, blocklist: false },
+        warnings: [
+          ...proposal.warnings,
+          "Kept a valid German release off the blocklist so it remains available for its correct episode.",
+        ],
+      };
+    }
     reasons = removalReviewReasons(queueItem, candidates, proposal, facts);
   }
   if (reasons.length === 0) return proposal;

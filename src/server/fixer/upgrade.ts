@@ -20,6 +20,8 @@ export type UpgradeDecision = "import" | "skip" | "blocked" | "unverified";
 export interface UpgradeAssessment {
   decision: UpgradeDecision;
   reason: string;
+  /** Quality to send with the import when it differs from the detected one. */
+  importQuality?: unknown;
 }
 
 type ParsedQuality = {
@@ -115,12 +117,58 @@ function describeQuality(quality: ParsedQuality | undefined): string {
 }
 
 export interface AssessUpgradeInput {
-  candidate: Pick<ManualImportCandidate, "quality" | "customFormatScore" | "languages">;
+  candidate: Pick<
+    ManualImportCandidate,
+    "quality" | "releaseQuality" | "customFormatScore" | "languages"
+  >;
   episode: SonarrEpisodeRecord | undefined;
   profile: SonarrQualityProfileRecord | undefined;
 }
 
+/**
+ * German audio the library lacks outranks the profile, but only at a quality
+ * the profile allows: a file labelled below the cutoff is replaced by the
+ * arr's next non-German quality upgrade, which re-grabs the German release in
+ * a loop. So when inspection labels a German file outside the profile (a
+ * "1080p" release that is really 1280x960) and the quality the arr parsed
+ * from the release name at grab time is allowed, assess and import it at that
+ * release quality, as the arr itself rated it when grabbing.
+ */
 export function assessCandidateUpgrade(input: AssessUpgradeInput): UpgradeAssessment {
+  const { candidate, episode, profile } = input;
+  const ranking = profile ? rankProfile(profile) : undefined;
+  const detected = parseQuality(candidate.quality);
+  const release = parseQuality(candidate.releaseQuality);
+  const existingLanguages = episode?.episodeFile?.languages ?? [];
+  const addsGerman =
+    hasGermanAudio(candidate.languages) &&
+    ((episode?.hasFile !== true && episode?.episodeFile === undefined) ||
+      (hasKnownLanguageMetadata(existingLanguages) && !hasGermanAudio(existingLanguages)));
+  if (
+    !episode ||
+    !ranking ||
+    !detected ||
+    !release ||
+    !addsGerman ||
+    qualityRank(ranking, detected) === undefined ||
+    qualityAllowed(ranking, detected) ||
+    !qualityAllowed(ranking, release)
+  ) {
+    return assessDetectedUpgrade(input);
+  }
+  const result = assessDetectedUpgrade({
+    ...input,
+    candidate: { ...candidate, quality: candidate.releaseQuality },
+  });
+  if (result.decision !== "import") return result;
+  return {
+    ...result,
+    reason: `${result.reason} It is imported as ${describeQuality(release)}, the quality parsed from the release name, because the inspected ${describeQuality(detected)} is outside quality profile ${profileLabel(profile)} and the arr would replace it with a non-German upgrade.`,
+    importQuality: candidate.releaseQuality,
+  };
+}
+
+function assessDetectedUpgrade(input: AssessUpgradeInput): UpgradeAssessment {
   const { candidate, episode, profile } = input;
   if (!episode) {
     return { decision: "unverified", reason: "Sonarr did not return the target episode." };

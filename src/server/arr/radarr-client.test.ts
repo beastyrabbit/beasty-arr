@@ -322,6 +322,7 @@ describe("RadarrClient", () => {
         { quality: { id: 3, name: "WEBDL-1080p" }, allowed: true },
         { quality: { id: 7, name: "Bluray-1080p" }, allowed: true },
         { quality: { id: 30, name: "Remux-1080p" }, allowed: true },
+        { quality: { id: 5, name: "WEBDL-720p" }, allowed: false },
       ],
     };
     const movie = {
@@ -340,7 +341,12 @@ describe("RadarrClient", () => {
       if (url.endsWith("/api/v3/qualityprofile")) return jsonResponse([profile]);
       return new Response("not found", { status: 404, statusText: "Not Found" });
     });
-    function preflight(quality: string, qualityId: number, language: string) {
+    function preflight(
+      quality: string,
+      qualityId: number,
+      language: string,
+      releaseQuality?: unknown,
+    ) {
       return client(fetchMock).preflightImportProposal(
         queueItem(),
         [
@@ -353,6 +359,7 @@ describe("RadarrClient", () => {
             absoluteEpisodeNumbers: [],
             episodeLabels: [],
             quality: { quality: { id: qualityId, name: quality } },
+            releaseQuality,
             languages: [{ id: language === "German" ? 4 : 1, name: language }],
             languageLabels: [language],
             rejections: [],
@@ -382,6 +389,28 @@ describe("RadarrClient", () => {
     it("allows a German WEB-DL over an English Remux because it adds German", async () => {
       const result = await preflight("WEBDL-1080p", 3, "German");
       expect(result).toMatchObject({ ok: true });
+    });
+
+    it("imports German measured as disallowed 720p at its allowed release quality", async () => {
+      const release = { quality: { id: 3, name: "WEBDL-1080p" } };
+      expect(await preflight("WEBDL-720p", 5, "German", release)).toMatchObject({
+        ok: true,
+        importQualities: { candidate_1: release },
+      });
+    });
+
+    it("refuses German 720p when the release quality is outside the profile too", async () => {
+      const result = await preflight("WEBDL-720p", 5, "German", {
+        quality: { id: 5, name: "WEBDL-720p" },
+      });
+      expect(result.ok).toBe(false);
+      expect(result.message).toContain("not allowed");
+    });
+
+    it("refuses disallowed non-German 720p", async () => {
+      const result = await preflight("WEBDL-720p", 5, "English");
+      expect(result.ok).toBe(false);
+      expect(result.message).toContain("not allowed");
     });
   });
 

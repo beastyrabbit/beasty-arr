@@ -23,6 +23,9 @@ Auto-apply reanalyzes eligible saved proposals against current queue and library
 applying them, even with auto-run off. Failed applications appear in the queue with their error
 and a reanalysis/retry action. Manual review remains required below the configured confidence
 thresholds or when no usable import candidates are available.
+Analyze all, Run all and scheduled auto-run reconsider saved needs-review analyses from older
+app versions once per release. Refresh only reloads the queue. Auto-apply alone does not reanalyze
+held work when auto-run is off.
 
 The Fixer does the check a person would do by hand. Before the AI runs, it inspects the real files
 with ffprobe (duration, embedded title, every audio and subtitle stream including untagged German
@@ -51,6 +54,11 @@ Only one apply, removal, or ignore runs per download at a time; an overlapping r
 Season packs are handled as one download: the Fixer merges Sonarr's per-episode queue rows,
 decides file by file which episodes are missing or upgrades, imports those together, and removes
 verified non-upgrade leftovers and samples from the client without blocklisting.
+Confirmed German files can fill a missing or non-German target even when inspection measures them
+below the profile, provided the quality the arr parsed from the release name is allowed; they are
+imported at that release quality so the arr does not swap them for a non-German upgrade. Existing
+German files still enforce the profile. Replacing a shared episode file requires confirmed replacements for every
+episode it covers in the same import selection.
 
 Version 0.5.2 stores the queued episode set on each Fixer analysis; 0.5.1 added SQLite indexes for
 recovery lookups. Startup applies the migrations; keep a pre-upgrade database backup.

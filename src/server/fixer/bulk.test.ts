@@ -12,6 +12,7 @@ import type {
 } from "../../shared/fixer-types.js";
 import { SettingsService } from "../config/settings.js";
 import { createDb } from "../db/index.js";
+import { fixerAnalyses } from "../db/schema.js";
 import { EventBus } from "../events/bus.js";
 import type { FixerPiRunner, FixerPiRunRequest } from "./ai-port.js";
 import { autoRemovalOptionsForResult, FixerBulk, uniqueQueueItemsByDownload } from "./bulk.js";
@@ -226,6 +227,44 @@ function makeHarness(script: RunnerScript, now = Date.now) {
 }
 
 describe("Fixer recovery", () => {
+  it.each([
+    [undefined, false],
+    ["older-release", false],
+    ["older-release", true],
+  ] as const)(
+    "revisits a held analysis from %s once per release, including validation hold %s",
+    async (analyzedByVersion, validationHeld) => {
+      const h = makeHarness(() => ({
+        ...importProposal("candidate_1", [101], 0.99),
+        action: "needs_review",
+      }));
+      h.sonarr.queue = [makeQueueItem(1)];
+      h.sonarr.candidatesByItem.set(1, [makeCandidate("candidate_1", [101])]);
+      await h.bulk.start({ skipAnalyzed: true });
+      await h.bulk.wait();
+      const saved = h.svc.analysisForItem(makeQueueItem(1));
+      expect(saved?.proposal?.analyzedByVersion).toBeTruthy();
+      h.db
+        .update(fixerAnalyses)
+        .set({
+          proposal: {
+            ...saved?.proposal,
+            analyzedByVersion,
+            action: validationHeld ? "import_candidates" : "needs_review",
+          },
+          validation: validationHeld ? { ok: false, issues: [] } : saved?.validation,
+        })
+        .run();
+      // Auto-apply alone leaves held work alone, even after a release.
+      expect((await h.bulk.start({ pendingOnly: true })).total).toBe(0);
+      // Analyze all, Run all and scheduled auto-run share this selection path.
+      expect((await h.bulk.start({ skipAnalyzed: true })).total).toBe(1);
+      await h.bulk.wait();
+      expect(h.calls).toHaveLength(2);
+      expect((await h.bulk.start({ skipAnalyzed: true })).total).toBe(0);
+    },
+  );
+
   it("honors an auto-apply toggle changed while an analysis is running", async () => {
     let ready: (() => void) | undefined;
     const started = new Promise<void>((resolve) => {

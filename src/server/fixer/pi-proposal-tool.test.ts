@@ -30,7 +30,7 @@ describe("createProposalTool", () => {
     expect(guidance).not.toContain("skipRedownload=true, changeCategory=false");
   });
 
-  it("lets an unwanted candidate go without identity and forbids profile-disallowed imports", () => {
+  it("lets an unwanted candidate go without identity and prioritizes missing German over profile quality", () => {
     const tool = createProposalTool(["candidate_1"], () => undefined, "sonarr");
     const guidance = JSON.stringify(tool);
 
@@ -38,7 +38,7 @@ describe("createProposalTool", () => {
       "may be removed as a non-upgrade with blocklist=true and skipRedownload=true while its identity stays uncertain",
     );
     expect(guidance).toContain(
-      "Never propose importing a quality the series' quality profile does not allow",
+      "upgradeAssessment marks it import at the release quality; propose that import",
     );
   });
 

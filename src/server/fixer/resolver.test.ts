@@ -11,7 +11,11 @@ import type {
   RadarrMovieRecord,
   RadarrParseResult,
 } from "../arr/radarr-client.js";
-import type { SonarrEpisodeRecord, SonarrParseResult } from "../arr/sonarr-client.js";
+import type {
+  SonarrEpisodeRecord,
+  SonarrParseResult,
+  SonarrSeriesRecord,
+} from "../arr/sonarr-client.js";
 import type { MediaProbeOk } from "../media/types.js";
 import type { FixerAnalysisEvent, FixerPiRunner, FixerPiRunRequest } from "./ai-port.js";
 import {
@@ -24,6 +28,7 @@ import {
   realMentalistCandidate,
   realMentalistExistingEpisode,
   realMentalistQueueItem,
+  realReviewCapture,
 } from "./real-world-fixtures.js";
 import { type ResolveQueueItemInput, resolveQueueItem } from "./resolver.js";
 import { englishAudio, fakeProber, germanAudio } from "./test-prober.js";
@@ -34,6 +39,10 @@ class FakeArrClient {
   episodes: SonarrEpisodeRecord[] = [];
   moviesById = new Map<number, RadarrMovieRecord>();
   parseResult: RadarrParseResult & SonarrParseResult = {};
+  series?: SonarrSeriesRecord;
+  async getSeriesById(): Promise<SonarrSeriesRecord> {
+    return this.series ?? {};
+  }
   getMovieFile?: (movieFileId: number) => Promise<RadarrMovieFileRecord>;
   async listQueue(): Promise<QueueItem[]> {
     return this.queue;
@@ -182,10 +191,14 @@ async function invokeProposalTool(
   await tool.execute("call_1", proposal, undefined, undefined, undefined as never);
 }
 
-async function invokeLookupTool(req: FixerPiRunRequest, name: string): Promise<void> {
+async function invokeLookupTool(
+  req: FixerPiRunRequest,
+  name: string,
+  params: unknown = {},
+): Promise<void> {
   const tool = (req.tools as ProposalToolLike[]).find((candidate) => candidate.name === name);
   if (!tool) throw new Error(`${name} not found`);
-  await tool.execute("lookup_1", {}, undefined, undefined, undefined as never);
+  await tool.execute("lookup_1", params, undefined, undefined, undefined as never);
 }
 
 /** Runs one analysis whose AI answers with `proposal`; returns the result and the AI request. */
@@ -209,6 +222,299 @@ async function analyze(
 }
 
 const minutes = (value: number) => value * 60;
+
+describe("24 October saved review regressions", () => {
+  async function replay(
+    key: string,
+    proposal: ResolutionProposal,
+    lookup?: Record<string, unknown>,
+    configure?: (capture: ReturnType<typeof realReviewCapture>) => void,
+  ) {
+    const capture = realReviewCapture(key);
+    configure?.(capture);
+    const client = new FakeArrClient();
+    client.series = capture.series;
+    client.episodes = [
+      ...new Map([...capture.catalog, ...capture.episodes].map((e) => [e.id, e])).values(),
+    ];
+    const parse = capture.parse;
+    client.parseResult = {
+      parsedEpisodeInfo: {
+        seriesTitle: parse?.parsedTitle,
+        seriesTitleInfo: { year: parse?.parsedYear },
+        seasonNumber: parse?.parsedSeason,
+        episodeNumbers: parse?.parsedEpisodes,
+      },
+      series: parse?.matchedId ? { id: parse.matchedId, title: parse.matchedTitle } : undefined,
+      episodes: client.episodes.filter((e) => parse?.matchedEpisodeIds.includes(e.id ?? 0)),
+    };
+    const runner: FixerPiRunner = async (req) => {
+      if (lookup) await invokeLookupTool(req, "sonarr_find_episodes", lookup);
+      await invokeProposalTool(req, proposal);
+      return { log: [] };
+    };
+    return resolveQueueItem({
+      queueItem: capture.queueItem,
+      candidates: capture.candidates,
+      client,
+      runner,
+      prober: fakeProber(capture.probes),
+    });
+  }
+
+  it.each(["batman2", "batman4", "er-1465308286", "er-1702876019", "ubel", "blacklist"])(
+    "accepts the backed German import for %s",
+    async (key) => {
+      const capture = realReviewCapture(key);
+      const result = await replay(
+        key,
+        importProposal(capture.candidates[0]!.id, {
+          selectedCandidateIds: capture.mapping.map((m) => m.candidateId),
+          selectedImports: capture.mapping,
+          identity: {
+            ...confirmed,
+            actualWork: capture.queueItem.seriesTitle ?? "queued episodes",
+          },
+        }),
+        {},
+      );
+      expect(result.status).toBe("proposal");
+      expect(result.validation.ok).toBe(true);
+      expect(result.proposal.action).toBe("import_candidates");
+    },
+  );
+
+  const sequelMatches = [
+    {
+      candidateId: "candidate_4",
+      episodeId: 78249,
+      dialogueQuote:
+        "If GothCorp Labs can undo your condition you could be back to normal this time tomorrow",
+    },
+    {
+      candidateId: "candidate_8",
+      episodeId: 78251,
+      dialogueQuote: "As always, gentlemen it was a pleasure doing business",
+    },
+    {
+      candidateId: "candidate_11",
+      episodeId: 78242,
+      dialogueQuote: "So you went nuts and tried to kill Batman",
+    },
+  ];
+  it.each(["complete", "missing quote", "invented quote", "same series"])(
+    "requires grounded per-file sequel placement: %s",
+    async (mode) => {
+      const matches = structuredClone(sequelMatches);
+      if (mode === "missing quote") matches.pop();
+      if (mode === "invented quote")
+        matches[0]!.dialogueQuote = "This line was never spoken in the inspected file";
+      const result = await replay(
+        "batman3",
+        removeProposal(
+          { removeFromClient: true, blocklist: true, skipRedownload: false, changeCategory: false },
+          {
+            identity: {
+              verdict: "contradicted",
+              actualWork: "The New Batman Adventures (1997)",
+              episodeMatches: matches,
+              evidence: [
+                "candidate_4 Girl's Night Out: prison transfer to GothCorp, not Grant Walker's immortality plot in Deep Freeze.",
+                "candidate_8 Judgment Day: Two-Face sells diamonds, not Harvey's planned surgery in Second Chance.",
+                "candidate_11 Love is a Croc: motel guests recall Baby Doll's past crime, not the original TV-family kidnapping.",
+              ],
+            },
+          },
+        ),
+        { seriesId: 1293 },
+        (capture) => {
+          if (mode === "same series")
+            for (const episode of capture.catalog) episode.seriesId = capture.queueItem.seriesId;
+        },
+      );
+      expect(result.status).toBe(mode === "complete" ? "proposal" : "needs_review");
+      if (mode === "complete")
+        expect(result.proposal.queueRemovalOptions).toMatchObject({
+          blocklist: false,
+          skipRedownload: false,
+        });
+    },
+  );
+
+  it.each(["bleach-part4", "bleach-kashin"])(
+    "removes the later Bleach arc for %s after looking up its season",
+    async (key) => {
+      const result = await replay(
+        key,
+        removeProposal(
+          {
+            removeFromClient: true,
+            blocklist: true,
+            skipRedownload: false,
+            changeCategory: false,
+          },
+          {
+            identity: {
+              verdict: "contradicted",
+              actualWork: "Bleach: Thousand-Year Blood War",
+              evidence: [
+                "Release and subtitle title name the later arc, which Sonarr places in season 17.",
+              ],
+            },
+          },
+        ),
+        {},
+      );
+      expect(result.status).toBe("proposal");
+      expect(result.proposal.queueRemovalOptions).toMatchObject({
+        blocklist: true,
+        skipRedownload: false,
+      });
+    },
+  );
+
+  it("does not infer a wrong Bleach arc just from an unmatched base-title parse", async () => {
+    const result = await replay(
+      "bleach-part4",
+      removeProposal(
+        {
+          removeFromClient: true,
+          blocklist: true,
+          skipRedownload: false,
+          changeCategory: false,
+        },
+        { identity: { verdict: "contradicted", actualWork: "A different arc", evidence: [] } },
+      ),
+    );
+    expect(result.status).toBe("needs_review");
+  });
+
+  it("does not reject Bleach within the arc's own Sonarr season", async () => {
+    const result = await replay(
+      "bleach-part4",
+      removeProposal(
+        {
+          removeFromClient: true,
+          blocklist: true,
+          skipRedownload: false,
+          changeCategory: false,
+        },
+        { identity: { verdict: "contradicted", actualWork: "A different arc", evidence: [] } },
+      ),
+      {},
+      (capture) => {
+        for (const episode of capture.episodes) episode.seasonNumber = 17;
+      },
+    );
+    expect(result.status).toBe("needs_review");
+  });
+
+  it("removes Benjamin's different named story after the whole-series title lookup, without blocklisting German", async () => {
+    const result = await replay(
+      "benjamin",
+      removeProposal(
+        {
+          removeFromClient: true,
+          blocklist: true,
+          skipRedownload: false,
+          changeCategory: false,
+        },
+        {
+          identity: {
+            verdict: "contradicted",
+            actualWork: "Ein ganz besonderes Geschenk",
+            evidence: [
+              "The file explicitly names a different German story than als Nachtwächter; the catalog search found no alias.",
+            ],
+          },
+        },
+      ),
+      { titleContains: "Ein ganz besonderes Geschenk" },
+    );
+    expect(result.status).toBe("proposal");
+    expect(result.proposal.queueRemovalOptions).toMatchObject({
+      blocklist: false,
+      skipRedownload: true,
+    });
+  });
+
+  it("does not discard Übel Blatt's German upgrade on the shared Hero-Killer plot", async () => {
+    const result = await replay(
+      "ubel",
+      removeProposal(
+        {
+          removeFromClient: true,
+          blocklist: true,
+          skipRedownload: false,
+          changeCategory: false,
+        },
+        {
+          identity: {
+            verdict: "contradicted",
+            actualWork: "S01E08 Der Heldmörder",
+            evidence: ["Hero-Killer manhunt and Elsaria dialogue."],
+          },
+        },
+      ),
+      {},
+    );
+    expect(result.status).toBe("needs_review");
+    expect(result.proposal.reviewReasons?.join(" ")).toContain("neither its release year");
+  });
+
+  it("does not discard the only German source solely on a filename title absent from the catalog", async () => {
+    const result = await replay(
+      "benjamin",
+      removeProposal(
+        {
+          removeFromClient: true,
+          blocklist: true,
+          skipRedownload: false,
+          changeCategory: false,
+        },
+        {
+          identity: {
+            verdict: "contradicted",
+            actualWork: "Ein ganz besonderes Geschenk",
+            evidence: [],
+          },
+        },
+      ),
+      { titleContains: "Ein ganz besonderes Geschenk" },
+      (capture) => {
+        for (const episode of capture.episodes) {
+          if (!episode.episodeFile?.path) continue;
+          episode.episodeFile.languages = [{ id: 1, name: "English" }];
+          const probe = capture.probes[episode.episodeFile.path];
+          if (probe) probe.hasGermanAudio = false;
+        }
+      },
+    );
+    expect(result.status).toBe("needs_review");
+  });
+
+  it("removes MacGyver's English non-upgrade despite the unresolved 54-minute cut", async () => {
+    const result = await replay(
+      "macgyver",
+      removeProposal(
+        {
+          removeFromClient: true,
+          blocklist: true,
+          skipRedownload: true,
+          changeCategory: false,
+        },
+        {
+          identity: {
+            verdict: "uncertain",
+            actualWork: "Harry's Will, cut unverified",
+            evidence: ["54 minutes; English; score 57 versus 9050 at the same 1080p class."],
+          },
+        },
+      ),
+    );
+    expect(result.status).toBe("proposal");
+  });
+});
 
 describe("resolveQueueItem", () => {
   it("returns a needs_review fallback without running Pi when there are no candidates", async () => {
@@ -587,10 +893,10 @@ describe("resolveQueueItem", () => {
     );
     // ER S10E14 and Force of Nature were proposed twice and refused twice by the preflight.
     expect(system).toContain(
-      "A quality the series' quality profile does not allow cannot be imported by the fixer, even when it adds German audio: the import preflight refuses it. Do not propose such an import; use needs_review and name the profile and the quality.",
+      "the fixer imports it at that release quality, as the arr rated it when grabbing",
     );
     expect(system).toContain(
-      "Removal options table: removeFromClient=true, blocklist=true and changeCategory=false always; skipRedownload decides whether Sonarr searches again.",
+      "For a valid German release placed at the wrong episode, use blocklist=false",
     );
     expect(system).toContain(
       "| Wrong episode or unusable release (wrong work, wrong episode, sample, no usable video, disc structure only) | false, so Sonarr searches again; true when the queued episode already has a German file that needs no upgrade |",
@@ -617,7 +923,7 @@ describe("resolveQueueItem", () => {
       importProposal("candidate_1"),
     );
     expect(request?.systemPrompt).toContain(
-      "A quality the movie's quality profile does not allow cannot be imported by the fixer",
+      "or any disallowed quality when the library already has German, stays refused",
     );
     expect(request?.systemPrompt).toContain(
       "only when the queued movie has no library file at all",
@@ -1442,6 +1748,199 @@ describe("deterministic guards on the real 2026-10-08 failures", () => {
     expect(result.proposal.reviewReasons?.[0]).toContain(
       "judged the download to be a different work",
     );
+  });
+
+  it.each([
+    [
+      "an embedded title corroborates the unrelated parse",
+      "Countdown: Rousey vs. Carano",
+      "Countdown Rousey vs Carano",
+      "Ronda Rousey vs. Gina Carano",
+      false,
+      "proposal",
+    ],
+    [
+      "the embedded title is absent",
+      undefined,
+      "Countdown Rousey vs Carano",
+      "Ronda Rousey vs. Gina Carano",
+      false,
+      "needs_review",
+    ],
+    [
+      "the embedded title names something else",
+      "Another documentary",
+      "Countdown Rousey vs Carano",
+      "Ronda Rousey vs. Gina Carano",
+      false,
+      "needs_review",
+    ],
+    [
+      "the parse shares the target title",
+      "Ronda Rousey vs. Gina Carano",
+      "Ronda Rousey vs Gina Carano",
+      "Ronda Rousey vs. Gina Carano",
+      false,
+      "needs_review",
+    ],
+    [
+      "the target titles are unknown",
+      "Countdown: Rousey vs. Carano",
+      "Countdown Rousey vs Carano",
+      undefined,
+      false,
+      "needs_review",
+    ],
+    [
+      "a second feature is unverified",
+      "Countdown: Rousey vs. Carano",
+      "Countdown Rousey vs Carano",
+      "Ronda Rousey vs. Gina Carano",
+      true,
+      "needs_review",
+    ],
+  ])(
+    "checks a remapped movie removal when %s (Countdown)",
+    async (_case, containerTitle, parsedTitle, targetTitle, extraFeature, expectedStatus) => {
+      const client = new FakeArrClient();
+      client.moviesById.set(13883, { id: 13883, title: targetTitle, year: 2026 });
+      client.parseResult = {
+        parsedMovieInfo: { movieTitles: [parsedTitle], year: 2026 },
+        movie: { id: 13866, title: "Countdown: Rousey vs. Carano", year: 2026 },
+      };
+      const release = "Countdown.Rousey.vs.Carano.2026.1080p.NF.WEB-DL.TR-EN.H.264-TURG";
+      const { result } = await analyze(
+        {
+          queueItem: {
+            ...radarrItem(13883, release),
+            movieTitle: targetTitle,
+            queueMappedId: 13866,
+          },
+          candidates: [
+            radarrCandidate(13866, release),
+            ...(extraFeature
+              ? [
+                  radarrCandidate(13866, release, {
+                    id: "candidate_2",
+                    path: "/downloads/second.mkv",
+                  }),
+                ]
+              : []),
+          ],
+          client,
+          prober: fakeProber({
+            "/downloads/candidate_1.mkv": {
+              containerTitle,
+              durationSeconds: minutes(43),
+              audio: [englishAudio()],
+            },
+          }),
+        },
+        removeProposal(blocklistAndSearch, contradicted("Countdown: Rousey vs. Carano (2026)")),
+      );
+      expect(result.status).toBe(expectedStatus);
+      expect(result.proposal.action).toBe(
+        expectedStatus === "proposal" ? "remove_queue_item" : "needs_review",
+      );
+    },
+  );
+
+  it("keeps a wanted German episode when neighboring synopses share the inspected plot (Übel Blatt)", async () => {
+    const client = new FakeArrClient();
+    client.episodes = [
+      {
+        id: 101,
+        title: "Junge Blätter (Young Leaves)",
+        seasonNumber: 1,
+        episodeNumber: 9,
+        airDate: "2025-03-08",
+        runtime: 24,
+        overview: "Glenn entrusts a manhunt to Ichfeis. Köinzell fights Elsaria and company.",
+        series: { id: 5, title: "Übel Blatt", year: 2025 },
+      },
+    ];
+    client.parseResult = {
+      parsedEpisodeInfo: { seriesTitle: "Uebel Blatt 2024", seriesTitleInfo: { year: 2024 } },
+    };
+    const { result, request } = await analyze(
+      {
+        queueItem: makeQueueItem({
+          title: "Uebel.Blatt.2024.S01E09.German.ML.1080p.WEB",
+          seriesTitle: "Übel Blatt",
+        }),
+        candidates: [makeCandidate("candidate_1")],
+        client,
+        prober: fakeProber({
+          "/downloads/candidate_1.mkv": {
+            durationSeconds: minutes(24),
+            audio: [germanAudio()],
+            hasGermanAudio: true,
+            subtitleExcerpt: {
+              streamIndex: 2,
+              lines: ["The knights are searching for the Hero-Killer.", "Elsaria!"],
+            },
+          },
+        }),
+      },
+      removeProposal(blocklistAndSearch, contradicted("Übel Blatt S01E08 Der Heldmörder")),
+    );
+    expect(result.status).toBe("needs_review");
+    expect(result.proposal.reviewReasons?.[0]).toContain(
+      "judged the download to be a different work",
+    );
+    expect(request?.systemPrompt).toContain(
+      "Compare the queued episode's synopsis with the proposed alternative and name the specific contradiction",
+    );
+    expect(request?.systemPrompt).toContain(
+      "A missing parse match is uncertainty, not proof of the wrong episode.",
+    );
+  });
+
+  it("removes an English non-upgrade without requiring an exact cut identity (MacGyver)", async () => {
+    const client = new FakeArrClient();
+    client.episodes = [
+      {
+        id: 101,
+        hasFile: true,
+        runtime: 45,
+        episodeFile: { path: "/lib/MacGyver.mkv", customFormatScore: 9050 },
+      },
+    ];
+    const { result, request } = await analyze(
+      {
+        queueItem: makeQueueItem({ title: "MacGyver.S06E07.PROPER.1080p.BluRay.x265-KONTRAST" }),
+        candidates: [
+          makeCandidate("candidate_1", {
+            languages: [{ id: 1, name: "English" }],
+            languageLabels: ["English"],
+            customFormatScore: 57,
+          }),
+        ],
+        client,
+        prober: fakeProber({
+          "/downloads/candidate_1.mkv": {
+            durationSeconds: minutes(54),
+            video: { width: 1920, height: 1080 },
+            audio: [englishAudio()],
+          },
+          "/lib/MacGyver.mkv": {
+            durationSeconds: minutes(48),
+            video: { width: 1436, height: 1080 },
+            audio: [englishAudio()],
+          },
+        }),
+      },
+      removeProposal(blocklistOnly, {
+        identity: {
+          verdict: "uncertain",
+          actualWork: "MacGyver, exact cut unverified",
+          evidence: [],
+        },
+      }),
+    );
+    expect(result.status).toBe("proposal");
+    expect(result.proposal.queueRemovalOptions).toEqual(blocklistOnly);
+    expect(request?.systemPrompt).toContain("1436x1080 and 1920x1080 are both 1080p");
   });
 
   it("does not measure an unmapped pack episode against the whole pack's runtime", async () => {
