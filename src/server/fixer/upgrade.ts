@@ -119,7 +119,12 @@ function describeQuality(quality: ParsedQuality | undefined): string {
 export interface AssessUpgradeInput {
   candidate: Pick<
     ManualImportCandidate,
-    "quality" | "releaseQuality" | "germanAudioProbed" | "customFormatScore" | "languages"
+    | "quality"
+    | "releaseQuality"
+    | "germanAudioProbed"
+    | "germanLibraryTargetIds"
+    | "customFormatScore"
+    | "languages"
   >;
   episode: SonarrEpisodeRecord | undefined;
   profile: SonarrQualityProfileRecord | undefined;
@@ -140,10 +145,14 @@ export function assessCandidateUpgrade(input: AssessUpgradeInput): UpgradeAssess
   const detected = parseQuality(candidate.quality);
   const release = parseQuality(candidate.releaseQuality);
   const existingLanguages = episode?.episodeFile?.languages ?? [];
+  const libraryHeardGerman =
+    episode?.id !== undefined && (candidate.germanLibraryTargetIds ?? []).includes(episode.id);
   const addsGerman =
     hasGermanAudio(candidate.languages) &&
     ((episode?.hasFile !== true && episode?.episodeFile === undefined) ||
-      (hasKnownLanguageMetadata(existingLanguages) && !hasGermanAudio(existingLanguages)));
+      (!libraryHeardGerman &&
+        hasKnownLanguageMetadata(existingLanguages) &&
+        !hasGermanAudio(existingLanguages)));
   if (
     !episode ||
     !ranking ||

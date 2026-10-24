@@ -247,15 +247,29 @@ export function withVerifiedGerman(
   candidates: ManualImportCandidate[],
   facts: InspectionFacts,
 ): ManualImportCandidate[] {
+  // Library files the probe heard German in, whatever the arr's labels say.
+  const germanLibraryTargetIds = [...facts.targets.values()].flatMap((target) => {
+    const probe = target.currentFile?.path ? facts.probes.get(target.currentFile.path) : undefined;
+    return probe?.ok && probe.hasGermanAudio ? [target.id] : [];
+  });
   return candidates.map((original) => {
     const probe = facts.probes.get(original.path);
     // The release-quality exception (upgrade.ts) exists for German audio, so it
-    // needs German the probe heard, not a release-name label (GERMAN.SUBBED).
+    // needs German the probe heard, not a release-name label (GERMAN.SUBBED),
+    // and a library file without German by inspection, not by label.
     // Recomputed on every pass, so files probed late (packs over the upfront
     // probe limit) gain it once inspected.
     const heard = probe?.ok === true && probe.hasGermanAudio;
-    const { germanAudioProbed: _previous, ...rest } = original;
-    const candidate: ManualImportCandidate = heard ? { ...rest, germanAudioProbed: true } : rest;
+    const {
+      germanAudioProbed: _previous,
+      germanLibraryTargetIds: _previousLibrary,
+      ...rest
+    } = original;
+    const candidate: ManualImportCandidate = {
+      ...rest,
+      ...(heard ? { germanAudioProbed: true } : {}),
+      ...(germanLibraryTargetIds.length > 0 ? { germanLibraryTargetIds } : {}),
+    };
     if (!heard || hasGermanAudio(candidate.languages)) {
       return candidate;
     }

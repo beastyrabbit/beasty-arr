@@ -117,6 +117,23 @@ describe("assessCandidateUpgrade", () => {
     },
   );
 
+  it("refuses the override when inspection heard German in an English-labelled library file", () => {
+    const result = assessCandidateUpgrade({
+      candidate: {
+        ...candidate({ quality: quality(5, "WEBDL-720p"), languages: [{ id: 4, name: "German" }] }),
+        releaseQuality,
+        germanAudioProbed: true,
+        germanLibraryTargetIds: [101],
+      },
+      episode: episode({
+        episodeFile: { quality: quality(5, "WEBDL-720p"), languages: [{ id: 1, name: "English" }] },
+      }),
+      profile,
+    });
+    expect(result).toMatchObject({ decision: "skip" });
+    expect(result.importQuality).toBeUndefined();
+  });
+
   it("imports a higher custom format score at equal quality", () => {
     const result = assessCandidateUpgrade({
       candidate: candidate({ customFormatScore: 200 }),
