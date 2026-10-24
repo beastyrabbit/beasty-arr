@@ -557,7 +557,9 @@ export class FixerService {
     if (this.providerRetryAt() || this.retryAt(item)) return false;
     let row = this.analysisForItem(item);
     if (!row) return !pendingOnly;
-    if (row.status === "failed") {
+    // A cancelled run (Stop all, shutdown, replaced analysis) never finished, so
+    // it counts as not analyzed instead of blocking the download for good.
+    if (row.status === "failed" || row.status === "cancelled") {
       if (!pendingOnly) return true;
       const identity = item.downloadId
         ? eq(fixerAnalyses.downloadId, item.downloadId)

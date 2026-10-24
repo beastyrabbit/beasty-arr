@@ -1495,4 +1495,27 @@ describe("FixerService season packs", () => {
     expect(svc.cancel("sonarr", 2)).toBe(true);
     expect((await svc.waitForAnalysis(second.analysisId)).status).toBe("cancelled");
   });
+
+  it("picks a cancelled analysis up again on the next automatic or bulk run", async () => {
+    const { svc, sonarr, runnerCtl } = makeHarness();
+    sonarr.queue = [makeQueueItem(1)];
+    sonarr.candidatesByItem.set(1, [makeCandidate("candidate_1", [101])]);
+    runnerCtl.setScript(
+      (req) =>
+        new Promise((_resolve, reject) => {
+          req.signal?.addEventListener("abort", () => reject(new Error("aborted")), {
+            once: true,
+          });
+        }),
+    );
+
+    const { analysisId } = await svc.analyze("sonarr", 1);
+    expect(svc.cancel("sonarr", 1)).toBe(true);
+    expect((await svc.waitForAnalysis(analysisId)).status).toBe("cancelled");
+
+    const item = { ...makeQueueItem(1), issueType: "quality" };
+    expect(svc.shouldProcess(item)).toBe(true);
+    // Auto-apply-only runs still need a finished proposal to work with.
+    expect(svc.shouldProcess(item, true)).toBe(false);
+  });
 });
