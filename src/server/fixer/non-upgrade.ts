@@ -80,7 +80,7 @@ export function safeNonUpgradeRemoval(
  */
 function libraryInspected(facts: InspectionFacts, id: number): boolean {
   const file = facts.targets.get(id)?.currentFile;
-  return Boolean(file && file.id !== undefined && audioKnown(facts, file.path));
+  return file?.id !== undefined && audioKnown(facts, file.path);
 }
 
 /** The probe heard German, or every audio track has a known language. */
