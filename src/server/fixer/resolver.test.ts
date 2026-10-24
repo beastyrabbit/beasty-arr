@@ -360,7 +360,7 @@ describe("24 October saved review regressions", () => {
     expect(withVerifiedGerman(capture.candidates, facts)[0]?.inspectedLibraryAudio).toBeUndefined();
     facts.probes.set(libraryPath, { ok: true, ...probe } as never);
     expect(withVerifiedGerman(capture.candidates, facts)[0]?.inspectedLibraryAudio?.[7]).toEqual(
-      expected,
+      expected && { path: libraryPath, languages: expected },
     );
   });
 

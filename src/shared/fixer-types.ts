@@ -98,9 +98,10 @@ export interface ManualImportCandidate {
   germanAudioProbed?: boolean;
   /**
    * Audio languages inspection heard in each queued target's library file, by
-   * target id; the upgrade assessment trusts these over the arr's labels.
+   * target id with the inspected file's path; the upgrade assessment trusts
+   * them over the arr's labels while that file is still the library file.
    */
-  inspectedLibraryAudio?: Record<number, string[]>;
+  inspectedLibraryAudio?: Record<number, { path: string; languages: string[] }>;
   languages: unknown[];
   languageLabels: string[];
   releaseGroup?: string;

@@ -117,15 +117,19 @@ describe("assessCandidateUpgrade", () => {
     },
   );
 
-  // The library file's inspected audio outranks the arr's labels both ways.
+  // The library file's inspected audio outranks the arr's labels both ways,
+  // but only for the file that was inspected.
+  const libraryPath = "/tv/Show/Season 01/Show.S01E01.mkv";
   it.each([
-    ["German", ["eng"], "import"],
-    ["no", ["eng"], "import"],
-    ["English", ["eng"], "import"],
-    ["English", ["German"], "skip"],
+    ["German", ["eng"], libraryPath, "import"],
+    ["no", ["eng"], libraryPath, "import"],
+    ["English", ["eng"], libraryPath, "import"],
+    ["English", ["German"], libraryPath, "skip"],
+    // A German file imported since the analysis: the saved verdict is stale.
+    ["German", ["eng"], "/tv/Show/Season 01/Show.S01E01.Old.mkv", "skip"],
   ] as const)(
-    "judges the override for %s library labels when inspection heard %j",
-    (label, heard, expected) => {
+    "judges the override for %s library labels when inspection heard %j in %s",
+    (label, heard, inspectedPath, expected) => {
       const result = assessCandidateUpgrade({
         candidate: {
           ...candidate({
@@ -134,10 +138,11 @@ describe("assessCandidateUpgrade", () => {
           }),
           releaseQuality,
           germanAudioProbed: true,
-          inspectedLibraryAudio: { 101: [...heard] },
+          inspectedLibraryAudio: { 101: { path: inspectedPath, languages: [...heard] } },
         },
         episode: episode({
           episodeFile: {
+            path: libraryPath,
             quality: quality(5, "WEBDL-720p"),
             languages: label === "no" ? [] : [{ id: label === "German" ? 4 : 1, name: label }],
           },

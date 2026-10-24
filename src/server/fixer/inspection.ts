@@ -251,17 +251,18 @@ export function withVerifiedGerman(
   // The library file's audio languages as the probe heard them, whatever the
   // arr's labels say: German when any track is, otherwise the tracks' languages
   // only when every track has one (an untagged track could still be German).
-  const inspectedLibraryAudio: Record<number, string[]> = Object.fromEntries(
+  // Each verdict names the file it describes, so a later library file is not
+  // judged by it.
+  const inspectedLibraryAudio: ManualImportCandidate["inspectedLibraryAudio"] = Object.fromEntries(
     [...facts.targets.values()].flatMap((target) => {
-      const probe = target.currentFile?.path
-        ? facts.probes.get(target.currentFile.path)
-        : undefined;
-      if (!probe?.ok) return [];
-      if (probe.hasGermanAudio) return [[target.id, [GERMAN_LANGUAGE.name]]];
+      const path = target.currentFile?.path;
+      const probe = path ? facts.probes.get(path) : undefined;
+      if (!path || !probe?.ok) return [];
+      if (probe.hasGermanAudio) return [[target.id, { path, languages: [GERMAN_LANGUAGE.name] }]];
       const known =
         probe.audio.length > 0 &&
         probe.audio.every((stream) => stream.inferredLanguage && stream.inferredLanguage !== "und");
-      return known ? [[target.id, probe.audioLanguages]] : [];
+      return known ? [[target.id, { path, languages: probe.audioLanguages }]] : [];
     }),
   );
   const hasInspectedLibrary = Object.keys(inspectedLibraryAudio).length > 0;

@@ -141,19 +141,19 @@ export interface AssessUpgradeInput {
  */
 export function assessCandidateUpgrade(raw: AssessUpgradeInput): UpgradeAssessment {
   // The library file's languages as inspection heard them outrank the arr's
-  // labels, which miss untagged German tracks and mislabel English ones.
+  // labels, which miss untagged German tracks and mislabel English ones, but
+  // only while the library file is still the one inspected: a saved verdict
+  // must not judge a file imported since.
   const inspected =
     raw.episode?.id !== undefined
       ? raw.candidate.inspectedLibraryAudio?.[raw.episode.id]
       : undefined;
+  const file = raw.episode?.episodeFile;
   const input =
-    inspected && raw.episode?.episodeFile
+    inspected && file?.path !== undefined && file.path === inspected.path
       ? {
           ...raw,
-          episode: {
-            ...raw.episode,
-            episodeFile: { ...raw.episode.episodeFile, languages: inspected },
-          },
+          episode: { ...raw.episode, episodeFile: { ...file, languages: inspected.languages } },
         }
       : raw;
   const { candidate, episode, profile } = input;
