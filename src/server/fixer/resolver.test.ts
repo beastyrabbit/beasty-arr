@@ -564,6 +564,46 @@ describe("24 October saved review regressions", () => {
     },
   );
 
+  it("keeps a reordered pack whose files name each other's queued episodes", async () => {
+    // Release order differs from Sonarr's: each file names the other target's
+    // title, so each contradicts its mapping but the pack holds exactly the
+    // wanted German episodes.
+    const client = new FakeArrClient();
+    client.episodes = [
+      { id: 101, seriesId: 5, seasonNumber: 1, episodeNumber: 1, title: "Erste Reise" },
+      { id: 102, seriesId: 5, seasonNumber: 1, episodeNumber: 2, title: "Zweite Reise" },
+    ];
+    const candidates = [
+      makeCandidate("c1", {
+        path: "/downloads/Show.S01E01.Zweite.Reise.German.1080p.mkv",
+        episodeIds: [101],
+      }),
+      makeCandidate("c2", {
+        path: "/downloads/Show.S01E02.Erste.Reise.German.1080p.mkv",
+        episodeIds: [102],
+      }),
+    ];
+    const proposal = removeProposal(
+      { removeFromClient: true, blocklist: true, skipRedownload: false, changeCategory: false },
+      { identity: { verdict: "contradicted", actualWork: "Swapped episodes", evidence: [] } },
+    );
+    const result = await resolveQueueItem({
+      queueItem: makeQueueItem({ episodeIds: [101, 102] }),
+      candidates,
+      client,
+      runner: async (req) => {
+        await invokeLookupTool(req, "sonarr_find_episodes", {});
+        await invokeProposalTool(req, proposal);
+        return { log: [] };
+      },
+      prober: fakeProber({
+        [candidates[0]!.path]: { audio: [germanAudio()], hasGermanAudio: true },
+        [candidates[1]!.path]: { audio: [germanAudio()], hasGermanAudio: true },
+      }),
+    });
+    expect(result.status).toBe("needs_review");
+  });
+
   it("does not place Benjamin's file by an episode title of another looked-up series", async () => {
     const result = await replay(
       "benjamin",

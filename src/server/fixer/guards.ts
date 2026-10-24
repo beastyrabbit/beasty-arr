@@ -546,17 +546,13 @@ function wrongWorkReasons(
   proposal: ResolutionProposal,
 ): string[] {
   if (otherSeriesPack(queueItem, candidates, proposal, facts)) return [];
+  // Discarding the download needs every file to fit none of the queued
+  // targets: a pack in another order names its files after each other's
+  // mapped episodes, yet holds exactly the wanted ones.
   const misplaced = candidates.filter(isFeatureFile);
   if (
     misplaced.length > 0 &&
-    misplaced.every((candidate) =>
-      wrongEpisodePlacement(
-        queueItem,
-        candidate,
-        targetsOfCandidate(queueItem, candidate, targets),
-        facts,
-      ),
-    )
+    misplaced.every((candidate) => wrongEpisodePlacement(queueItem, candidate, targets, facts))
   )
     return [];
   const parsedNamesake =
