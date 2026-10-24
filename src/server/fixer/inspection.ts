@@ -48,6 +48,8 @@ export interface TargetFacts {
   id: number;
   label: string;
   seasonNumber?: number;
+  /** XEM scene season, which alternates bound only to a scene season use. */
+  sceneSeasonNumber?: number;
   episodeNumber?: number;
   episodeTitle?: string;
   /** Movie release year, or the year an episode first aired. */
@@ -203,6 +205,7 @@ function episodeTarget(episode: SonarrEpisodeRecord): TargetFacts | undefined {
     id: episode.id,
     label: [episodeCode(episode), episode.title].filter(Boolean).join(" "),
     seasonNumber: episode.seasonNumber,
+    sceneSeasonNumber: episode.sceneSeasonNumber,
     episodeNumber: episode.episodeNumber,
     episodeTitle: episode.title,
     year: Number((episode.airDate ?? episode.airDateUtc)?.slice(0, 4)) || undefined,

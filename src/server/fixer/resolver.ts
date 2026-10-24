@@ -384,7 +384,17 @@ function createLookupTools(input: ResolveQueueItemInput, state: SessionState, st
       }
     },
     observeSeries: (series) => {
-      if (series.id === queueItem.seriesId) state.facts.series = series;
+      if (series.id !== queueItem.seriesId) return;
+      // /parse returns the series without alternateTitles (only Sonarr's
+      // SeriesController fills them), so a later parse must not erase them.
+      const previous = state.facts.series;
+      state.facts.series = {
+        ...previous,
+        ...series,
+        alternateTitles: series.alternateTitles?.length
+          ? series.alternateTitles
+          : previous?.alternateTitles,
+      };
     },
     observeUnmatchedTitle: (title) => {
       state.facts.unmatchedEpisodeTitles ??= [];

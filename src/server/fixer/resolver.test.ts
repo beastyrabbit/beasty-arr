@@ -229,6 +229,7 @@ describe("24 October saved review regressions", () => {
     proposal: ResolutionProposal,
     lookup?: Record<string, unknown>,
     configure?: (capture: ReturnType<typeof realReviewCapture>) => void,
+    thenParse = false,
   ) {
     const capture = realReviewCapture(key);
     configure?.(capture);
@@ -250,6 +251,7 @@ describe("24 October saved review regressions", () => {
     };
     const runner: FixerPiRunner = async (req) => {
       if (lookup) await invokeLookupTool(req, "sonarr_find_episodes", lookup);
+      if (thenParse) await invokeLookupTool(req, "sonarr_parse_release", {});
       await invokeProposalTool(req, proposal);
       return { log: [] };
     };
@@ -378,9 +380,15 @@ describe("24 October saved review regressions", () => {
     },
   );
 
-  it.each(["bleach-part4", "bleach-kashin"])(
-    "removes the later Bleach arc for %s after looking up its season",
-    async (key) => {
+  it.each([
+    ["bleach-part4", false],
+    ["bleach-kashin", false],
+    // /parse returns the series without alternateTitles; a parse after the
+    // lookup must not erase the arc evidence.
+    ["bleach-kashin", true],
+  ] as const)(
+    "removes the later Bleach arc for %s after looking up its season (then parse: %s)",
+    async (key, thenParse) => {
       const result = await replay(
         key,
         removeProposal(
@@ -401,6 +409,12 @@ describe("24 October saved review regressions", () => {
           },
         ),
         {},
+        (capture) => {
+          // Sonarr's /parse then names the queued series in its shallow form.
+          if (thenParse && capture.parse)
+            Object.assign(capture.parse, { matchedId: 8, matchedTitle: "Bleach" });
+        },
+        thenParse,
       );
       expect(result.status).toBe("proposal");
       expect(result.proposal.queueRemovalOptions).toMatchObject({
@@ -444,6 +458,27 @@ describe("24 October saved review regressions", () => {
       (capture) => {
         for (const episode of capture.episodes) episode.seasonNumber = 17;
         capture.series.alternateTitles?.push({ title: "Bleach Thousand-Year", seasonNumber: 1 });
+      },
+    );
+    expect(result.status).toBe("needs_review");
+  });
+
+  it("compares a scene-season arc with the episode's XEM scene season", async () => {
+    // TVDB S04 but scene season 17: the scene-bound TYBW alternates fit it.
+    const result = await replay(
+      "bleach-part4",
+      removeProposal(
+        {
+          removeFromClient: true,
+          blocklist: true,
+          skipRedownload: false,
+          changeCategory: false,
+        },
+        { identity: { verdict: "contradicted", actualWork: "A different arc", evidence: [] } },
+      ),
+      {},
+      (capture) => {
+        for (const episode of capture.episodes) episode.sceneSeasonNumber = 17;
       },
     );
     expect(result.status).toBe("needs_review");

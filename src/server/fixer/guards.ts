@@ -400,7 +400,7 @@ function wrongEpisodePlacement(
   const seasonOf = (alternate: (typeof alternates)[number]) =>
     alternate.seasonNumber ?? alternate.sceneSeasonNumber;
   const seriesForms = titleForms(facts.series?.title ?? "");
-  const arcSeasons = alternates.flatMap((alternate) => {
+  const arcs = alternates.flatMap((alternate) => {
     const season = seasonOf(alternate);
     if (!alternate.title || season === undefined || season < 1) return [];
     const alternateForms = titleForms(alternate.title);
@@ -412,14 +412,19 @@ function wrongEpisodePlacement(
     ];
     if (alternateForms.some((title) => broader.some((text) => text.includes(title)))) return [];
     return alternateForms.some((title) => forms.some((text) => text.includes(title)))
-      ? [season]
+      ? [{ season, scene: alternate.seasonNumber === undefined }]
       : [];
   });
+  // A scene-season alternate is compared with the episode's XEM scene season.
+  const fits = (target: TargetFacts) =>
+    arcs.some(
+      (arc) =>
+        arc.season ===
+        (arc.scene ? (target.sceneSeasonNumber ?? target.seasonNumber) : target.seasonNumber),
+    );
   if (
-    arcSeasons.length > 0 &&
-    targets.every(
-      (target) => target.seasonNumber !== undefined && !arcSeasons.includes(target.seasonNumber),
-    )
+    arcs.length > 0 &&
+    targets.every((target) => target.seasonNumber !== undefined && !fits(target))
   )
     return true;
   const catalog = [...(facts.episodeCatalog?.values() ?? [])];

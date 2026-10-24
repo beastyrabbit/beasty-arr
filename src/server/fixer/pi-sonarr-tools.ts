@@ -323,8 +323,10 @@ export function createSonarrLookupTools({
         episodes = episodes.filter((episode) =>
           episode.title?.toLowerCase().includes(titleContains),
         );
+        // Only a whole-series search of the queued series shows it lacks the title.
         if (
           episodes.length === 0 &&
+          seriesId === queueItem.seriesId &&
           params.seasonNumber === undefined &&
           !exactEpisodeIds &&
           absoluteEpisodeNumber === undefined

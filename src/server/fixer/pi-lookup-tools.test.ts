@@ -57,6 +57,30 @@ describe("fixer upgrade-context tools", () => {
     });
   });
 
+  it.each([
+    ["the queued series", undefined, ["Ein ganz besonderes Geschenk"]],
+    // A sequel or other series lacking the title says nothing about the queued one.
+    ["another series", 999, []],
+  ] as const)("records an unmatched title searched in %s", async (_label, seriesId, expected) => {
+    const capture = realReviewCapture("benjamin");
+    const unmatched: string[] = [];
+    const client = {
+      getEpisodes: async () => capture.catalog,
+      getSeriesById: async () => capture.series,
+    } as unknown as SonarrClient;
+    const tools = createSonarrLookupTools({
+      client,
+      queueItem: capture.queueItem,
+      getCandidates: () => capture.candidates,
+      observeUnmatchedTitle: (title) => unmatched.push(title),
+    });
+    await executeTool(tools, "sonarr_find_episodes", {
+      titleContains: "Ein ganz besonderes Geschenk",
+      ...(seriesId ? { seriesId } : {}),
+    });
+    expect(unmatched).toEqual(expected);
+  });
+
   it("shows every episode sharing Blacklist's wrongly associated season file", async () => {
     const capture = realReviewCapture("blacklist");
     const client = {
