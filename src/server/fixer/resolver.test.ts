@@ -355,12 +355,12 @@ describe("24 October saved review regressions", () => {
       id: 7,
       label: "S10E14",
       titles: ["ER"],
-      currentFile: { path: libraryPath, languages: ["English"] },
+      currentFile: { id: 70, path: libraryPath, languages: ["English"] },
     });
     expect(withVerifiedGerman(capture.candidates, facts)[0]?.inspectedLibraryAudio).toBeUndefined();
     facts.probes.set(libraryPath, { ok: true, ...probe } as never);
     expect(withVerifiedGerman(capture.candidates, facts)[0]?.inspectedLibraryAudio?.[7]).toEqual(
-      expected && { path: libraryPath, languages: expected },
+      expected && { fileId: 70, path: libraryPath, languages: expected },
     );
   });
 

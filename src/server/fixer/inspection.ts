@@ -63,6 +63,8 @@ export interface TargetFacts {
   /** Plot synopsis, so dialogue can confirm the target by content. */
   synopsis?: string;
   currentFile?: {
+    /** The arr's file id; a replacement under the same path gets a new one. */
+    id?: number;
     path?: string;
     quality?: string;
     languages: string[];
@@ -188,6 +190,7 @@ function movieTarget(
     synopsis: movie.overview?.slice(0, 300),
     currentFile: file
       ? {
+          id: file.id,
           path: file.path,
           quality: qualityName(file.quality),
           languages: (file.languages ?? []).map(valueName).filter(Boolean),
@@ -219,6 +222,7 @@ function episodeTarget(episode: SonarrEpisodeRecord): TargetFacts | undefined {
     currentFile:
       episode.hasFile && file
         ? {
+            id: file.id,
             path: file.path,
             quality: qualityName(file.quality),
             languages: (file.languages ?? []).map(valueName).filter(Boolean),
@@ -251,18 +255,21 @@ export function withVerifiedGerman(
   // The library file's audio languages as the probe heard them, whatever the
   // arr's labels say: German when any track is, otherwise the tracks' languages
   // only when every track has one (an untagged track could still be German).
-  // Each verdict names the file it describes, so a later library file is not
-  // judged by it.
+  // Each verdict names the file it describes (arr file id and path), so a
+  // later library file, even one imported under the same name, is not judged
+  // by it.
   const inspectedLibraryAudio: ManualImportCandidate["inspectedLibraryAudio"] = Object.fromEntries(
     [...facts.targets.values()].flatMap((target) => {
+      const fileId = target.currentFile?.id;
       const path = target.currentFile?.path;
       const probe = path ? facts.probes.get(path) : undefined;
-      if (!path || !probe?.ok) return [];
-      if (probe.hasGermanAudio) return [[target.id, { path, languages: [GERMAN_LANGUAGE.name] }]];
+      if (fileId === undefined || !path || !probe?.ok) return [];
       const known =
         probe.audio.length > 0 &&
         probe.audio.every((stream) => stream.inferredLanguage && stream.inferredLanguage !== "und");
-      return known ? [[target.id, { path, languages: probe.audioLanguages }]] : [];
+      if (!probe.hasGermanAudio && !known) return [];
+      const languages = probe.hasGermanAudio ? [GERMAN_LANGUAGE.name] : probe.audioLanguages;
+      return [[target.id, { fileId, path, languages }]];
     }),
   );
   const hasInspectedLibrary = Object.keys(inspectedLibraryAudio).length > 0;
