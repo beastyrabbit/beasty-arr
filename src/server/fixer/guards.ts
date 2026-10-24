@@ -550,10 +550,34 @@ function wrongWorkReasons(
   // A fetched episode page can settle a title the arr catalog does not know.
   // Require the named story, series and an exact quoted passage cited by URL;
   // a model assertion or a search snippet alone cannot discard wanted German.
+  // A page only shows the title exists, not that it is another episode, so
+  // this backs a removal only where every target already has German, and
+  // never with a quote that also names a target's own title ("Der lange Weg
+  // nach Hause (The Long Way Home)" is the same episode, translated).
   const featuresWithTitles = candidates.filter(isFeatureFile);
+  // Catalog titles often repeat the series name ("Benjamin Blümchen als
+  // Nachtwächter"); a page may name only the rest ("als Nachtwächter").
+  const seriesForms = [
+    queueItem.seriesTitle ?? "",
+    queueItem.title.split(EPISODE_CODE)[0] ?? "",
+    ...targets.flatMap((target) => target.titles),
+  ]
+    .flatMap(titleForms)
+    .filter((form) => form.length > 3);
+  const targetTitleForms = targets.flatMap((target) =>
+    (target.episodeTitle ? titleForms(target.episodeTitle) : []).flatMap((form) => [
+      form,
+      ...seriesForms.flatMap((series) => {
+        const rest = form.startsWith(series) ? form.slice(series.length) : "";
+        return rest.length >= 6 ? [rest] : [];
+      }),
+    ]),
+  );
   if (
     queueItem.service === "sonarr" &&
     featuresWithTitles.length > 0 &&
+    targets.length > 0 &&
+    targets.every((target) => currentHasGerman(facts, target) === true) &&
     featuresWithTitles.every((candidate) => {
       const title = explicitEpisodeTitle(candidate.relativePath ?? fileName(candidate.path));
       if (
@@ -583,8 +607,12 @@ function wrongWorkReasons(
               titleForms(title).some((form) =>
                 titleForms(line).some((text) => text.includes(form)),
               ) &&
-              [...line.matchAll(EVIDENCE_QUOTE)].some((match) =>
-                page.text.includes(match[1] ?? "\u0000"),
+              [...line.matchAll(EVIDENCE_QUOTE)].some(
+                (match) =>
+                  page.text.includes(match[1] ?? "\u0000") &&
+                  !titleForms(match[1] ?? "").some((quote) =>
+                    targetTitleForms.some((form) => quote.includes(form)),
+                  ),
               ),
           ),
       );

@@ -284,6 +284,8 @@ export interface ResolveQueueItemInput {
   /** Read-only access to the real media files; without it every import waits for review. */
   prober?: MediaProber;
   searxngUrl?: string;
+  /** Test seam for the web tools; production uses DNS and pinned HTTP(S). */
+  webOptions?: Pick<Parameters<typeof createWebTools>[0], "fetchImpl" | "lookupFn">;
   signal?: AbortSignal;
   onEvent?: (event: FixerAnalysisEvent) => void;
 }
@@ -583,7 +585,7 @@ export async function resolveQueueItem(input: ResolveQueueItemInput): Promise<An
   const tools = [
     ...createLookupTools(input, state, step),
     createSessionInspectTool(input, state),
-    ...createWebTools({ searxngUrl: input.searxngUrl, facts: state.facts }),
+    ...createWebTools({ ...input.webOptions, searxngUrl: input.searxngUrl, facts: state.facts }),
     proposalTool,
   ];
 

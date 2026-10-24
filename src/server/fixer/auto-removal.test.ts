@@ -49,6 +49,25 @@ const webUrl = "https://www.verpasst.de/sendung/benjamin-bluemchen.html";
 // is an offline page fixture, not a claim that the exact HTML was captured.
 const quote = "Benjamin Blümchen verliebt sich in die Zirkuselefantin Maruschka.";
 const webText = `<h1>Benjamin Blümchen: Ein ganz besonderes Geschenk</h1><p>${quote}</p>`;
+// Sonarr's /series/573, read 24 October. /episode omits alternate titles, so
+// the session learns them from the AI's own lookup, as in production.
+const benjaminSeries = {
+  id: 573,
+  title: "Benjamin the Elephant (2002)",
+  alternateTitles: [{ title: "Benjamin Bluemchen 2002", seasonNumber: -1 }],
+  originalLanguage: { id: 4, name: "German" },
+};
+/** Runs the real web_fetch path offline: a public address and a canned page. */
+function webPage(html: string) {
+  return {
+    lookupFn: async () => [{ address: "93.184.216.34" }],
+    fetchImpl: (async () =>
+      new Response(html, { headers: { "content-type": "text/html" } })) as typeof fetch,
+  };
+}
+async function lookUpBenjamin(req: FixerPiRunRequest) {
+  await tool(req, "sonarr_find_episodes", { titleContains: "Ein ganz besonderes Geschenk" });
+}
 
 type Callable = { name: string; execute: (id: string, params: unknown) => Promise<unknown> };
 async function tool(req: FixerPiRunRequest, name: string, params: unknown) {
@@ -74,6 +93,8 @@ function harness(capture: Capture) {
       episodes.filter((episode) => !episodeIds?.length || episodeIds.includes(episode.id ?? 0)),
     getQualityProfiles: async () => profiles,
     getCustomFormats: async () => [],
+    getSeriesById: async (id: number) =>
+      id === benjaminSeries.id ? structuredClone(benjaminSeries) : { id },
     getMovie: async (id) => capture.movies.find((movie) => movie.id === id) ?? { id },
     getMovieFile: async (id) =>
       capture.movies.find((movie) => movie.movieFile?.id === id)?.movieFile ?? {},
@@ -137,12 +158,9 @@ describe("16 remaining downloads after v0.9.0, captured read-only 24 October", (
     const h = harness(capture);
     let calls = 0;
     const benjamin = capture.label.startsWith("Benjamin");
-    if (benjamin)
-      vi.mocked(fetch).mockResolvedValue(
-        new Response(webText, { headers: { "content-type": "text/html" } }),
-      );
     const result = await resolveQueueItem({
       ...h,
+      ...(benjamin ? { webOptions: webPage(webText) } : {}),
       queueItem: capture.queueItem,
       candidates: capture.candidates,
       runner: async (req) => {
@@ -156,6 +174,7 @@ describe("16 remaining downloads after v0.9.0, captured read-only 24 October", (
           evidence: capture.originalProposal.evidence ?? [],
         };
         if (benjamin) {
+          await lookUpBenjamin(req);
           await tool(req, "web_fetch", { url: webUrl });
           proposal.confidence = 0.99;
           proposal.identity = {
@@ -207,6 +226,115 @@ describe("16 remaining downloads after v0.9.0, captured read-only 24 October", (
     const capture = saved.cases.find((row) => row.candidates.length === 0)!;
     const queue = { ...capture.queueItem, ...overrides };
     expect(emptyCandidateRemoval(queue)).toBeUndefined();
+  });
+
+  // An English-original series switches off the catalog-title rule, so only
+  // the web-page exception can back these removals.
+  it.each([
+    ["a clean quote of the other story", quote, true, "remove_queue_item"],
+    // The page ties the release title to the queued story itself, translated.
+    [
+      "a quote naming the target's own title",
+      "Ein ganz besonderes Geschenk (als Nachtwächter)",
+      true,
+      "needs_review",
+    ],
+    // Without German in the library a page cannot justify discarding German.
+    ["a target lacking German", quote, false, "needs_review"],
+  ])(
+    "judges Benjamin's web-backed removal with %s",
+    async (_label, passage, libraryGerman, expected) => {
+      const capture = structuredClone(saved.cases.find((row) => row.label.startsWith("Benjamin"))!);
+      const h = harness(capture);
+      h.client.getSeriesById = async (id: number) => ({
+        ...structuredClone(benjaminSeries),
+        id,
+        originalLanguage: { id: 1, name: "English" },
+      });
+      if (!libraryGerman) {
+        const library = capture.episodes[0]!.episodeFile!.path!;
+        const probe = h.prober.probe;
+        h.prober.probe = async (path, options) => {
+          const result = await probe(path, options);
+          return path === library && result.ok
+            ? { ...result, hasGermanAudio: false, audio: [englishAudio()], audioLanguages: ["eng"] }
+            : result;
+        };
+      }
+      const result = await resolveQueueItem({
+        ...h,
+        webOptions: webPage(
+          `<h1>Benjamin Blümchen: Ein ganz besonderes Geschenk</h1><p>${passage}</p>`,
+        ),
+        queueItem: capture.queueItem,
+        candidates: capture.candidates,
+        runner: async (req) => {
+          await lookUpBenjamin(req);
+          await tool(req, "web_fetch", { url: webUrl });
+          await tool(req, "propose_sonarr_resolution", {
+            ...capture.originalProposal,
+            confidence: 0.99,
+            identity: {
+              verdict: "contradicted",
+              actualWork: "Ein ganz besonderes Geschenk",
+              evidence: [`${webUrl} names Ein ganz besonderes Geschenk: "${passage}"`],
+            },
+          });
+          return { log: [] };
+        },
+      });
+      expect(result.proposal.action).toBe(expected);
+    },
+  );
+
+  it("keeps the targets and their German-loss guard when the final library refresh fails", async () => {
+    const capture = structuredClone(saved.cases.find((row) => row.label === "ER S10E14")!);
+    const h = harness(capture);
+    const english = structuredClone(capture.episodes);
+    english[0]!.episodeFile = {
+      ...english[0]!.episodeFile,
+      id: 1,
+      languages: [{ name: "English" }],
+    };
+    h.setEpisodes(english);
+    const library = english[0]!.episodeFile!.path!;
+    const probe = h.prober.probe;
+    h.prober.probe = async (path, options) => {
+      const result = await probe(path, options);
+      return path === library && result.ok
+        ? { ...result, hasGermanAudio: false, audio: [englishAudio()], audioLanguages: ["eng"] }
+        : result;
+    };
+    const getEpisodes = h.client.getEpisodes;
+    let reads = 0;
+    h.client.getEpisodes = async (params) => {
+      if (++reads > 1) throw new Error("Sonarr 503");
+      return getEpisodes(params);
+    };
+    const result = await resolveQueueItem({
+      ...h,
+      queueItem: capture.queueItem,
+      candidates: capture.candidates,
+      runner: async (req) => {
+        await tool(req, "propose_sonarr_resolution", {
+          ...capture.originalProposal,
+          action: "remove_queue_item",
+          confidence: 0.99,
+          selectedCandidateIds: [],
+          selectedImports: [],
+          identity: { verdict: "uncertain", actualWork: "ER S10E14", evidence: [] },
+          queueRemovalOptions: {
+            removeFromClient: true,
+            blocklist: true,
+            skipRedownload: true,
+            changeCategory: false,
+          },
+        });
+        return { log: [] };
+      },
+    });
+    expect(reads).toBeGreaterThan(1);
+    expect(result.proposal.action).toBe("needs_review");
   });
 
   it("refreshes ER after the AI run and invalidates an inspected replacement under the same path", async () => {

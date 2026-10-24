@@ -365,13 +365,9 @@ export async function loadTargets(
   ids: number[],
   refresh = false,
 ): Promise<TargetFacts[]> {
-  if (refresh) {
-    for (const id of ids) {
-      facts.targets.delete(id);
-      facts.libraryEpisodes?.delete(id);
-    }
-  }
-  const missing = [...new Set(ids)].filter((id) => id > 0 && !facts.targets.has(id));
+  // A refresh replaces only the targets it could read again: a failed arr call
+  // must not drop them, which would switch off the German-loss guards.
+  const missing = [...new Set(ids)].filter((id) => id > 0 && (refresh || !facts.targets.has(id)));
   if (missing.length > 0) {
     for (const target of await fetchTargets(facts, client, missing)) {
       if (target) {
