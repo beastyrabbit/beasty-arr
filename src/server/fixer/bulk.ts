@@ -1,5 +1,5 @@
 import type { FastifyBaseLogger } from "fastify";
-import { isProviderUsageLimit } from "../../shared/fixer-policy.js";
+import { autoApplyBlockReason, isProviderUsageLimit } from "../../shared/fixer-policy.js";
 import type {
   AnalysisResult,
   MediaService,
@@ -28,26 +28,19 @@ export function shouldAutoImportResult(
   );
 }
 
-function canAutoApplyRemovalOptions(options: QueueRemovalOptions): boolean {
-  return (
-    options.removeFromClient &&
-    !options.changeCategory &&
-    // skipRedownload only has defined Sonarr/Radarr semantics when the
-    // release is also marked failed/blocklisted.
-    (!options.skipRedownload || options.blocklist)
-  );
-}
-
 export function autoRemovalOptionsForResult(
   result: AnalysisResult,
   autoRemoveConfidence: number,
+  autoImportConfidence = autoRemoveConfidence,
 ): QueueRemovalOptions | undefined {
   if (
     result.proposal.action === "remove_queue_item" &&
     result.validation.ok &&
     result.proposal.queueRemovalOptions &&
-    canAutoApplyRemovalOptions(result.proposal.queueRemovalOptions) &&
-    result.proposal.confidence >= autoRemoveConfidence
+    autoApplyBlockReason(result.proposal, result.validation, {
+      fixerAutoImportConfidence: autoImportConfidence,
+      fixerAutoRemoveConfidence: autoRemoveConfidence,
+    }) === null
   ) {
     return result.proposal.queueRemovalOptions;
   }
@@ -256,6 +249,9 @@ export class FixerBulk {
   }
 
   private async runWorkers(items: FixerQueueItem[], parallelism: number): Promise<void> {
+    // Downloads sharing a target must finish applying before the next analysis
+    // reads it. Other targets retain the configured parallelism.
+    const targetTails = new Map<string, Promise<void>>();
     let nextIndex = 0;
     const next = () => {
       const index = nextIndex;
@@ -263,7 +259,9 @@ export class FixerBulk {
       return index;
     };
     const workerCount = Math.min(parallelism, items.length);
-    await Promise.all(Array.from({ length: workerCount }, () => this.worker(items, next)));
+    await Promise.all(
+      Array.from({ length: workerCount }, () => this.worker(items, next, targetTails)),
+    );
     this.status = { ...this.status, running: false, finishedAt: this.now() };
     this.inFlight.clear();
     // Give the GUI a fresh queue after auto-applies/removals (also emits fixer.queue.changed).
@@ -275,7 +273,11 @@ export class FixerBulk {
     }
   }
 
-  private async worker(items: FixerQueueItem[], next: () => number): Promise<void> {
+  private async worker(
+    items: FixerQueueItem[],
+    next: () => number,
+    targetTails: Map<string, Promise<void>>,
+  ): Promise<void> {
     while (!this.status.cancelRequested && !this.service.providerRetryAt()) {
       const index = next();
       if (index >= items.length) {
@@ -286,6 +288,20 @@ export class FixerBulk {
         return;
       }
       const key = `${item.service}:${item.id}`;
+      const targets = (item.service === "radarr" ? [item.movieId] : item.episodeIds).map(
+        (id) => `${item.service}:${id}`,
+      );
+      const previous = targets.flatMap((target) => targetTails.get(target) ?? []);
+      let release!: () => void;
+      const tail = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      for (const target of targets) targetTails.set(target, tail);
+      await Promise.all(previous);
+      if (this.status.cancelRequested || this.service.providerRetryAt()) {
+        release();
+        return;
+      }
       this.inFlight.set(key, {
         service: item.service,
         queueItemId: item.id,
@@ -310,6 +326,9 @@ export class FixerBulk {
           "fixer bulk analysis failed",
         );
       } finally {
+        release();
+        for (const target of targets)
+          if (targetTails.get(target) === tail) targetTails.delete(target);
         this.inFlight.delete(key);
       }
     }
@@ -343,7 +362,11 @@ export class FixerBulk {
       }
       return;
     }
-    const options = autoRemovalOptionsForResult(result, settings.fixerAutoRemoveConfidence);
+    const options = autoRemovalOptionsForResult(
+      result,
+      settings.fixerAutoRemoveConfidence,
+      settings.fixerAutoImportConfidence,
+    );
     if (options) {
       const removed = await this.service.removeQueueItem(item.service, item.id, options, {
         sourceKind: "ai_auto",

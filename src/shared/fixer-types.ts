@@ -191,6 +191,8 @@ export interface ValidationIssue {
 export interface ValidationResult {
   ok: boolean;
   issues: ValidationIssue[];
+  /** Set only by deterministic library comparison after the removal guards pass. */
+  safeNonUpgradeRemoval?: boolean;
 }
 
 export interface AnalysisResult {

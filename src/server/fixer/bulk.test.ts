@@ -227,6 +227,73 @@ function makeHarness(script: RunnerScript, now = Date.now) {
 }
 
 describe("Fixer recovery", () => {
+  it("waits for an earlier apply on the same target while other targets continue", async () => {
+    const h = makeHarness(() => needsReviewProposal());
+    h.settings.update({ fixerAutoApply: true, dryRun: false, fixerParallelism: 3 });
+    h.sonarr.queue = [makeQueueItem(1), makeQueueItem(2, { episodeIds: [101] }), makeQueueItem(3)];
+    const snapshot = await h.svc.refreshQueue();
+    let releaseImport!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      releaseImport = resolve;
+    });
+    let otherStarted!: () => void;
+    const other = new Promise<void>((resolve) => {
+      otherStarted = resolve;
+    });
+    let imported = false;
+    const analyzed: number[] = [];
+    const bulk = new FixerBulk(
+      {
+        refreshQueue: async () => snapshot,
+        shouldProcess: () => true,
+        providerRetryAt: () => null,
+        cancel: () => false,
+        analyzeAndWait: async (_service, id) => {
+          analyzed.push(id);
+          if (id === 3) otherStarted();
+          if (id === 2) expect(imported).toBe(true);
+          const proposal =
+            id === 1
+              ? importProposal("candidate_1", [101], 1)
+              : id === 2
+                ? removeProposal(1, {
+                    removeFromClient: true,
+                    blocklist: true,
+                    skipRedownload: true,
+                    changeCategory: false,
+                  })
+                : needsReviewProposal();
+          return {
+            analysisId: String(id),
+            status: "completed",
+            result: {
+              queueItemId: id,
+              candidates: [],
+              proposal,
+              validation: { ok: true, issues: [] },
+              status: "proposal",
+              log: [],
+            },
+          };
+        },
+        apply: async () => {
+          await gate;
+          imported = true;
+          return { ok: true, dryRun: false, message: "German imported" };
+        },
+        removeQueueItem: async () => ({ ok: true, dryRun: false, message: "Duplicate removed" }),
+      },
+      h.settings,
+      noopLog,
+    );
+    await bulk.start();
+    await other;
+    expect(analyzed).toEqual([1, 3]);
+    releaseImport();
+    await bulk.wait();
+    expect(analyzed).toEqual([1, 3, 2]);
+    expect(bulk.getStatus()).toMatchObject({ autoImported: 1, autoRemoved: 1, failed: 0 });
+  });
   it.each([
     [undefined, false],
     ["older-release", false],

@@ -22,7 +22,10 @@ doubling up to six hours. Provider usage limits pause new Fixer analyses for one
 Auto-apply reanalyzes eligible saved proposals against current queue and library evidence before
 applying them, even with auto-run off. Failed applications appear in the queue with their error
 and a reanalysis/retry action. Manual review remains required below the configured confidence
-thresholds or when no usable import candidates are available.
+thresholds. Verified non-upgrades use the import confidence threshold after the removal guards
+pass. Completed downloads with no candidates and an explicit terminal import rejection are
+removed, blocklisted and searched again. Extraction, in-progress and transient filesystem states
+stay held.
 Analyze all, Run all and scheduled auto-run reconsider saved needs-review analyses from older
 app versions once per release. Refresh only reloads the queue. Auto-apply alone does not reanalyze
 held work when auto-run is off.
@@ -48,8 +51,22 @@ tool results and the model's reasoning in the AI trace. An AI attempt that produ
 minutes) is aborted and retried within the inference time limit.
 
 File inspection needs `FIXER_MEDIA_PATH_MAP` (for example `/data=/arr-data`) and the media share
-mounted read-only at the mapped path. Without it, every import and removal waits for review.
+mounted read-only at the mapped path. Without it, file-based imports and removals wait for review;
+explicit terminal empty-candidate failures can still be removed.
 Only one apply, removal, or ignore runs per download at a time; an overlapping request gets HTTP 409.
+Library files are read and inspected again after AI analysis and before applying a verified
+non-upgrade removal. Bulk downloads sharing a target are analyzed and applied in sequence so
+later copies see earlier imports.
+
+The Fixer can read public HTTP(S) pages with `web_fetch` to settle episode titles, numbering,
+identity, runtimes and cuts. Set optional `SEARXNG_URL` to a SearXNG base URL, such as
+`http://searxng.tools.svc.cluster.local:8080`, to also enable `web_search` in both Sonarr and
+Radarr sessions. SearXNG must allow `format=json` on `/search`. Its configured internal URL is
+the only private-host exception; web page reads block local, private, link-local and cluster
+addresses, validate every redirect and pin connections to validated DNS addresses. Requests
+send no cookies or credentials and have time, byte and text limits. All web content is treated
+as untrusted evidence. Deployment network policies must allow DNS, the SearXNG service and
+public web egress for beasty-arr; SearXNG also needs search-engine egress.
 
 Season packs are handled as one download: the Fixer merges Sonarr's per-episode queue rows,
 decides file by file which episodes are missing or upgrades, imports those together, and removes

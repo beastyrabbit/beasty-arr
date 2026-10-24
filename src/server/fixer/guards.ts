@@ -23,6 +23,7 @@ const NAME_SEPARATORS = /[ ._-]+/;
 const LEADING_SEPARATOR = /^[ ._-]/;
 const TITLE_END = /^(?:german|deutsch|\d{3,4}p)$/i;
 const WORD_BOUNDARY = /\s+/;
+const EVIDENCE_QUOTE = /"([^"\n]{40,})"/g;
 
 /**
  * The episode title a release names between its SxxEyy code and the language
@@ -546,6 +547,50 @@ function wrongWorkReasons(
   proposal: ResolutionProposal,
 ): string[] {
   if (otherSeriesPack(queueItem, candidates, proposal, facts)) return [];
+  // A fetched episode page can settle a title the arr catalog does not know.
+  // Require the named story, series and an exact quoted passage cited by URL;
+  // a model assertion or a search snippet alone cannot discard wanted German.
+  const featuresWithTitles = candidates.filter(isFeatureFile);
+  if (
+    queueItem.service === "sonarr" &&
+    featuresWithTitles.length > 0 &&
+    featuresWithTitles.every((candidate) => {
+      const title = explicitEpisodeTitle(candidate.relativePath ?? fileName(candidate.path));
+      if (
+        !title ||
+        title.split(WORD_BOUNDARY).length < 3 ||
+        targets.some(
+          (target) =>
+            !target.episodeTitle ||
+            titleForms(target.episodeTitle).some((form) => titleForms(title).includes(form)),
+        )
+      )
+        return false;
+      return facts.webPages?.some(
+        (page) =>
+          titleForms(title).some((form) =>
+            titleForms(page.text).some((text) => text.includes(form)),
+          ) &&
+          [queueItem.seriesTitle ?? "", queueItem.title.split(EPISODE_CODE)[0] ?? ""]
+            .flatMap(titleForms)
+            .some(
+              (form) =>
+                form.length > 3 && titleForms(page.text).some((text) => text.includes(form)),
+            ) &&
+          proposal.identity?.evidence.some(
+            (line) =>
+              line.includes(page.url) &&
+              titleForms(title).some((form) =>
+                titleForms(line).some((text) => text.includes(form)),
+              ) &&
+              [...line.matchAll(EVIDENCE_QUOTE)].some((match) =>
+                page.text.includes(match[1] ?? "\u0000"),
+              ),
+          ),
+      );
+    })
+  )
+    return [];
   // Discarding the download needs every file to fit none of the queued
   // targets: a pack in another order names its files after each other's
   // mapped episodes, yet holds exactly the wanted ones.

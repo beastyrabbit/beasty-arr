@@ -881,7 +881,7 @@ describe("resolveQueueItem", () => {
         "propose_sonarr_resolution",
       ]),
     );
-    expect(request?.tools).toHaveLength(8);
+    expect(request?.tools).toHaveLength(9);
     expect(request?.prompt).toContain("The fixer's own observations");
     expect(request?.prompt).toContain('"containerTitle": "Pilot"');
     expect(request?.prompt).toContain('"parsedTitle": "Show"');
