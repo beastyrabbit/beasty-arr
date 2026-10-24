@@ -601,6 +601,11 @@ function wrongWorkReasons(
               (form) =>
                 form.length > 3 && titleForms(page.text).some((text) => text.includes(form)),
             ) &&
+          // The model picks the quote, so the whole page must not name a
+          // target's own story; an episode list naming both goes to review.
+          !titleForms(page.text).some((text) =>
+            targetTitleForms.some((form) => text.includes(form)),
+          ) &&
           proposal.identity?.evidence.some(
             (line) =>
               line.includes(page.url) &&

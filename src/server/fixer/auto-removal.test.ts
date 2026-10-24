@@ -230,20 +230,19 @@ describe("16 remaining downloads after v0.9.0, captured read-only 24 October", (
 
   // An English-original series switches off the catalog-title rule, so only
   // the web-page exception can back these removals.
+  const heading = "Benjamin Blümchen: Ein ganz besonderes Geschenk";
+  const sameStory = "Ein ganz besonderes Geschenk (als Nachtwächter)";
   it.each([
-    ["a clean quote of the other story", quote, true, "remove_queue_item"],
+    ["a clean quote of the other story", quote, quote, true, "remove_queue_item"],
     // The page ties the release title to the queued story itself, translated.
-    [
-      "a quote naming the target's own title",
-      "Ein ganz besonderes Geschenk (als Nachtwächter)",
-      true,
-      "needs_review",
-    ],
+    ["a quote naming the target's own title", sameStory, sameStory, true, "needs_review"],
+    // The model picks the quote: citing the heading must not hide that line.
+    ["the heading quoted from such a page", sameStory, heading, true, "needs_review"],
     // Without German in the library a page cannot justify discarding German.
-    ["a target lacking German", quote, false, "needs_review"],
+    ["a target lacking German", quote, quote, false, "needs_review"],
   ])(
     "judges Benjamin's web-backed removal with %s",
-    async (_label, passage, libraryGerman, expected) => {
+    async (_label, body, passage, libraryGerman, expected) => {
       const capture = structuredClone(saved.cases.find((row) => row.label.startsWith("Benjamin"))!);
       const h = harness(capture);
       h.client.getSeriesById = async (id: number) => ({
@@ -263,9 +262,7 @@ describe("16 remaining downloads after v0.9.0, captured read-only 24 October", (
       }
       const result = await resolveQueueItem({
         ...h,
-        webOptions: webPage(
-          `<h1>Benjamin Blümchen: Ein ganz besonderes Geschenk</h1><p>${passage}</p>`,
-        ),
+        webOptions: webPage(`<h1>${heading}</h1><p>${body}</p>`),
         queueItem: capture.queueItem,
         candidates: capture.candidates,
         runner: async (req) => {
