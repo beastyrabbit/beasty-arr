@@ -25,10 +25,14 @@ export interface InspectionFacts {
   parse?: IndependentParse;
   /** Queued movie or target episodes, keyed by movie id / episode id. */
   targets: Map<number, TargetFacts>;
+  /** Current arr records used by the deterministic upgrade comparison. */
+  libraryEpisodes?: Map<number, SonarrEpisodeRecord>;
   /** Read-only episode/arc lookups used to back a wrong-placement verdict. */
   episodeCatalog?: Map<number, SonarrEpisodeRecord>;
   series?: SonarrSeriesRecord;
   unmatchedEpisodeTitles?: string[];
+  /** Successfully read public pages, retained as evidence rather than model assertions. */
+  webPages?: { url: string; text: string }[];
 }
 
 export interface IndependentParse {
@@ -315,11 +319,12 @@ export function emptyFacts(
 }
 
 async function fetchTargets(
-  service: MediaService,
+  facts: InspectionFacts,
   client: RadarrInspectionClient | SonarrInspectionClient,
   ids: number[],
 ): Promise<Array<TargetFacts | undefined>> {
-  if (service === "radarr") {
+  facts.libraryEpisodes ??= new Map();
+  if (facts.service === "radarr") {
     const radarr = client as RadarrInspectionClient;
     return Promise.all(
       ids.map(async (id) => {
@@ -331,13 +336,25 @@ async function fetchTargets(
           fileId && radarr.getMovieFile
             ? await radarr.getMovieFile(fileId).catch(() => undefined)
             : undefined;
-        return movieTarget(movie, file?.customFormatScore);
+        const score = file?.customFormatScore ?? movie.movieFile?.customFormatScore;
+        facts.libraryEpisodes?.set(id, {
+          id,
+          hasFile: movie.hasFile,
+          episodeFile: movie.movieFile
+            ? { ...movie.movieFile, customFormatScore: score }
+            : undefined,
+          series: { qualityProfileId: movie.qualityProfileId },
+        });
+        return movieTarget(movie, score);
       }),
     );
   }
   const episodes = await (client as SonarrInspectionClient)
     .getEpisodes({ episodeIds: ids, includeSeries: true, includeEpisodeFile: true })
     .catch(() => []);
+  for (const episode of episodes) {
+    if (episode.id) facts.libraryEpisodes.set(episode.id, episode);
+  }
   return episodes.map(episodeTarget);
 }
 
@@ -346,11 +363,19 @@ export async function loadTargets(
   facts: InspectionFacts,
   client: RadarrInspectionClient | SonarrInspectionClient,
   ids: number[],
+  refresh = false,
 ): Promise<TargetFacts[]> {
-  const missing = [...new Set(ids)].filter((id) => id > 0 && !facts.targets.has(id));
+  // A refresh replaces only the targets it could read again: a failed arr call
+  // must not drop them, which would switch off the German-loss guards.
+  const missing = [...new Set(ids)].filter((id) => id > 0 && (refresh || !facts.targets.has(id)));
   if (missing.length > 0) {
-    for (const target of await fetchTargets(facts.service, client, missing)) {
-      if (target) facts.targets.set(target.id, target);
+    for (const target of await fetchTargets(facts, client, missing)) {
+      if (target) {
+        if (refresh && target.currentFile?.path) {
+          facts.probes.delete(target.currentFile.path);
+        }
+        facts.targets.set(target.id, target);
+      }
     }
   }
   return ids.flatMap((id) => {

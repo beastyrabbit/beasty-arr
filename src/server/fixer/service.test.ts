@@ -1107,6 +1107,28 @@ describe("FixerService apply", () => {
 });
 
 describe("FixerService remove/ignore", () => {
+  it.each(["candidates appeared", "extraction pending"])(
+    "rechecks an empty-candidate removal at apply time: %s",
+    async (change) => {
+      const h = makeHarness();
+      h.settings.update({ dryRun: false });
+      const queue = makeQueueItem(1, {
+        status: "completed",
+        trackedDownloadState: "importBlocked",
+        statusMessages: ["No files found are eligible for import"],
+      });
+      h.sonarr.queue = [queue];
+      const outcome = await h.svc.analyzeAndWait("sonarr", 1);
+      expect(outcome.result?.proposal.action).toBe("remove_queue_item");
+      expect(h.runnerCtl.calls).toHaveLength(0);
+      if (change === "candidates appeared")
+        h.sonarr.candidatesByItem.set(1, [makeCandidate("candidate_1", [101])]);
+      else h.sonarr.queue = [{ ...queue, statusMessages: ["Archive needs extraction"] }];
+      const result = await h.svc.apply(outcome.analysisId);
+      expect(result.ok).toBe(false);
+      expect(h.sonarr.removeCalls).toHaveLength(0);
+    },
+  );
   it("never records removal success when the download became in-progress", async () => {
     const { svc, sonarr, settings } = makeHarness();
     sonarr.queue = [makeQueueItem(1)];

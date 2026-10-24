@@ -160,7 +160,7 @@ export async function buildApp(
     createFixerRunner(piRunner),
     bus,
     app.log,
-    { prober },
+    { prober, searxngUrl: env.SEARXNG_URL },
   );
   const fixerBulk = new FixerBulk(fixer, settings, app.log);
 

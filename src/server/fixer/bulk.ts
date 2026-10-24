@@ -1,5 +1,5 @@
 import type { FastifyBaseLogger } from "fastify";
-import { isProviderUsageLimit } from "../../shared/fixer-policy.js";
+import { autoApplyBlockReason, isProviderUsageLimit } from "../../shared/fixer-policy.js";
 import type {
   AnalysisResult,
   MediaService,
@@ -28,26 +28,19 @@ export function shouldAutoImportResult(
   );
 }
 
-function canAutoApplyRemovalOptions(options: QueueRemovalOptions): boolean {
-  return (
-    options.removeFromClient &&
-    !options.changeCategory &&
-    // skipRedownload only has defined Sonarr/Radarr semantics when the
-    // release is also marked failed/blocklisted.
-    (!options.skipRedownload || options.blocklist)
-  );
-}
-
 export function autoRemovalOptionsForResult(
   result: AnalysisResult,
   autoRemoveConfidence: number,
+  autoImportConfidence = autoRemoveConfidence,
 ): QueueRemovalOptions | undefined {
   if (
     result.proposal.action === "remove_queue_item" &&
     result.validation.ok &&
     result.proposal.queueRemovalOptions &&
-    canAutoApplyRemovalOptions(result.proposal.queueRemovalOptions) &&
-    result.proposal.confidence >= autoRemoveConfidence
+    autoApplyBlockReason(result.proposal, result.validation, {
+      fixerAutoImportConfidence: autoImportConfidence,
+      fixerAutoRemoveConfidence: autoRemoveConfidence,
+    }) === null
   ) {
     return result.proposal.queueRemovalOptions;
   }
@@ -256,6 +249,9 @@ export class FixerBulk {
   }
 
   private async runWorkers(items: FixerQueueItem[], parallelism: number): Promise<void> {
+    // Downloads sharing a target must finish applying before the next analysis
+    // reads it. Other targets retain the configured parallelism.
+    const targetTails = new Map<string, Promise<void>>();
     let nextIndex = 0;
     const next = () => {
       const index = nextIndex;
@@ -263,7 +259,9 @@ export class FixerBulk {
       return index;
     };
     const workerCount = Math.min(parallelism, items.length);
-    await Promise.all(Array.from({ length: workerCount }, () => this.worker(items, next)));
+    await Promise.all(
+      Array.from({ length: workerCount }, () => this.worker(items, next, targetTails)),
+    );
     this.status = { ...this.status, running: false, finishedAt: this.now() };
     this.inFlight.clear();
     // Give the GUI a fresh queue after auto-applies/removals (also emits fixer.queue.changed).
@@ -275,7 +273,11 @@ export class FixerBulk {
     }
   }
 
-  private async worker(items: FixerQueueItem[], next: () => number): Promise<void> {
+  private async worker(
+    items: FixerQueueItem[],
+    next: () => number,
+    targetTails: Map<string, Promise<void>>,
+  ): Promise<void> {
     while (!this.status.cancelRequested && !this.service.providerRetryAt()) {
       const index = next();
       if (index >= items.length) {
@@ -285,6 +287,12 @@ export class FixerBulk {
       if (!item) {
         return;
       }
+      const claim = claimTargets(item, targetTails);
+      await claim.previous;
+      if (this.status.cancelRequested || this.service.providerRetryAt()) {
+        claim.release();
+        return;
+      }
       const key = `${item.service}:${item.id}`;
       this.inFlight.set(key, {
         service: item.service,
@@ -292,26 +300,35 @@ export class FixerBulk {
         title: item.title,
       });
       try {
-        const outcome = await this.service.analyzeAndWait(item.service, item.id);
-        if (outcome.status === "completed" && outcome.result) {
-          this.status.completed += 1;
-          if (this.settings.get().fixerAutoApply && !this.status.cancelRequested) {
-            await this.autoApplyOutcome(item, outcome, outcome.result);
-          }
-        } else {
-          this.status.failed += 1;
-          if (isProviderUsageLimit(outcome.error ?? "")) return;
-        }
-      } catch (error) {
-        this.status.failed += 1;
-        reportError(error, { job: "fixer.bulk.analysis" });
-        this.log.warn(
-          { err: error, service: item.service, queueItemId: item.id },
-          "fixer bulk analysis failed",
-        );
+        if ((await this.analyzeItem(item)) === "stop") return;
       } finally {
+        claim.release();
         this.inFlight.delete(key);
       }
+    }
+  }
+
+  /** Analyses one item and auto-applies it; "stop" ends the worker on a usage limit. */
+  private async analyzeItem(item: FixerQueueItem): Promise<"stop" | "continue"> {
+    try {
+      const outcome = await this.service.analyzeAndWait(item.service, item.id);
+      if (outcome.status === "completed" && outcome.result) {
+        this.status.completed += 1;
+        if (this.settings.get().fixerAutoApply && !this.status.cancelRequested) {
+          await this.autoApplyOutcome(item, outcome, outcome.result);
+        }
+        return "continue";
+      }
+      this.status.failed += 1;
+      return isProviderUsageLimit(outcome.error ?? "") ? "stop" : "continue";
+    } catch (error) {
+      this.status.failed += 1;
+      reportError(error, { job: "fixer.bulk.analysis" });
+      this.log.warn(
+        { err: error, service: item.service, queueItemId: item.id },
+        "fixer bulk analysis failed",
+      );
+      return "continue";
     }
   }
 
@@ -343,7 +360,11 @@ export class FixerBulk {
       }
       return;
     }
-    const options = autoRemovalOptionsForResult(result, settings.fixerAutoRemoveConfidence);
+    const options = autoRemovalOptionsForResult(
+      result,
+      settings.fixerAutoRemoveConfidence,
+      settings.fixerAutoImportConfidence,
+    );
     if (options) {
       const removed = await this.service.removeQueueItem(item.service, item.id, options, {
         sourceKind: "ai_auto",
@@ -361,4 +382,29 @@ export class FixerBulk {
       }
     }
   }
+}
+
+/**
+ * Serialises downloads that share a target: each waits for the previous
+ * holder of any of its targets, so a second copy is judged after the first
+ * one's apply.
+ */
+function claimTargets(item: FixerQueueItem, targetTails: Map<string, Promise<void>>) {
+  const targets = (item.service === "radarr" ? [item.movieId] : item.episodeIds).map(
+    (id) => `${item.service}:${id}`,
+  );
+  const previous = Promise.all(targets.flatMap((target) => targetTails.get(target) ?? []));
+  let resolve!: () => void;
+  const tail = new Promise<void>((done) => {
+    resolve = done;
+  });
+  for (const target of targets) targetTails.set(target, tail);
+  return {
+    previous,
+    release: () => {
+      resolve();
+      for (const target of targets)
+        if (targetTails.get(target) === tail) targetTails.delete(target);
+    },
+  };
 }

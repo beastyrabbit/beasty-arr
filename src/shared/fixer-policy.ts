@@ -18,13 +18,16 @@ export function autoApplyBlockReason(
     return proposal.reason || "Manual review required.";
   }
   const removal = proposal.action === "remove_queue_item";
-  const threshold = removal
-    ? settings.fixerAutoRemoveConfidence
-    : settings.fixerAutoImportConfidence;
+  const options = proposal.queueRemovalOptions;
+  const safeNonUpgrade =
+    validation.safeNonUpgradeRemoval && options?.blocklist && options.skipRedownload;
+  const threshold =
+    removal && !safeNonUpgrade
+      ? settings.fixerAutoRemoveConfidence
+      : settings.fixerAutoImportConfidence;
   if (proposal.confidence < threshold) {
     return `${Math.round(proposal.confidence * 100)}% confidence; ${removal ? "removal" : "import"} requires ${Math.round(threshold * 100)}%.`;
   }
-  const options = proposal.queueRemovalOptions;
   if (
     removal &&
     (!options?.removeFromClient ||

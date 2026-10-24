@@ -36,6 +36,7 @@ import {
   fallbackProposal,
   type RadarrFixerClientPort,
   resolveQueueItem,
+  revalidateResolution,
   type SonarrFixerClientPort,
 } from "./resolver.js";
 import { normalizeProposal, validateProposalForImport } from "./validation.js";
@@ -157,6 +158,23 @@ function targetSeasonNumber(
 
 export function queueItemTitle(item: QueueItem): string {
   return item.movieTitle ?? item.seriesTitle ?? item.title;
+}
+
+/** The history fields every removal, ignore or blocklist entry shares. */
+function removalHistoryBase(
+  service: MediaService,
+  itemLabel: string,
+  action: FixerHistoryAction,
+  opts: FixerActionOpts,
+) {
+  return {
+    service,
+    itemLabel,
+    action,
+    sourceKind: opts.sourceKind ?? "user",
+    ...(opts.confidence === undefined ? {} : { confidence: opts.confidence }),
+    ...(opts.analysisId === undefined ? {} : { analysisId: opts.analysisId }),
+  };
 }
 
 export function queueItemLabel(item: QueueItem): string {
@@ -391,6 +409,7 @@ export class FixerService {
   private readonly now: () => number;
   private readonly makeId: () => string;
   private readonly prober: MediaProber | undefined;
+  private readonly searxngUrl: string | undefined;
 
   constructor(
     private readonly db: Db,
@@ -399,11 +418,17 @@ export class FixerService {
     private readonly runner: FixerPiRunner,
     private readonly bus: EventBus,
     private readonly log: FastifyBaseLogger,
-    opts: { now?: () => number; makeId?: () => string; prober?: MediaProber } = {},
+    opts: {
+      now?: () => number;
+      makeId?: () => string;
+      prober?: MediaProber;
+      searxngUrl?: string;
+    } = {},
   ) {
     this.now = opts.now ?? Date.now;
     this.makeId = opts.makeId ?? (() => nanoid());
     this.prober = opts.prober;
+    this.searxngUrl = opts.searxngUrl;
     // A process restart cannot preserve the in-memory runner/controller that
     // owns a running row. Fail those orphaned rows immediately so the UI does
     // not display an analysis as "running" forever after a reload or crash.
@@ -1026,6 +1051,7 @@ export class FixerService {
         client,
         runner: this.runner,
         prober: this.prober,
+        searxngUrl: this.searxngUrl,
         signal: controller.signal,
         onEvent: record,
       });
@@ -1081,6 +1107,18 @@ export class FixerService {
     if (!message) {
       step("info", "fixer", "Import preflight passed.");
       return result;
+    }
+    const fresh = await revalidateResolution(
+      { queueItem, candidates: result.candidates, client, prober: this.prober },
+      result,
+    );
+    if (fresh.validation.safeNonUpgradeRemoval) {
+      step(
+        "info",
+        "fixer",
+        "The current library already has an equal or better file. Removing the duplicate without a new search.",
+      );
+      return fresh;
     }
     step("warning", "fixer", `Import preflight refused the proposal: ${message}`);
     return {
@@ -1259,7 +1297,7 @@ export class FixerService {
     if (proposal.action === "remove_queue_item") {
       return this.applyRemovalProposal(row, proposal, analysisId, opts);
     }
-    const effective = narrowProposal(proposal, candidateIds);
+    let effective = narrowProposal(proposal, candidateIds);
     if (candidateIds && effective.selectedCandidateIds.length === 0) {
       return { ok: false, dryRun: false, message: "No proposed candidates selected." };
     }
@@ -1286,7 +1324,24 @@ export class FixerService {
       return { ok: false, dryRun: false, message: errorMessage(error) };
     }
     const { client, queueItem } = target;
-    const candidates = (row.candidates ?? []) as ManualImportCandidate[];
+    let candidates = (row.candidates ?? []) as ManualImportCandidate[];
+    const fresh = await revalidateResolution(
+      { queueItem, candidates, client, prober: this.prober },
+      {
+        queueItemId: queueItem.id,
+        candidates,
+        proposal: effective,
+        validation: (row.validation ?? { ok: false, issues: [] }) as unknown as ValidationResult,
+        status: "proposal",
+        log: [],
+      },
+    );
+    effective = fresh.proposal;
+    candidates = fresh.candidates;
+    if (effective.action === "remove_queue_item")
+      return this.applyRemovalProposal(row, effective, analysisId, opts);
+    if (effective.action !== "import_candidates")
+      return { ok: false, dryRun: this.settings.get().dryRun, message: effective.reason };
 
     // The resolver may use sonarr_find_episodes to map anime/scene-numbered files
     // to valid episode ids that are not present in Sonarr's initially parsed
@@ -1493,14 +1548,20 @@ export class FixerService {
     const downloadId = analysis?.downloadId ?? queueItem?.downloadId;
     const itemLabel =
       analysis?.itemLabel ?? (queueItem ? queueItemLabel(queueItem) : `Queue item ${queueItemId}`);
-    const base = {
-      service,
-      itemLabel,
-      action,
-      sourceKind: opts.sourceKind ?? "user",
-      ...(opts.confidence === undefined ? {} : { confidence: opts.confidence }),
-      ...(opts.analysisId === undefined ? {} : { analysisId: opts.analysisId }),
-    };
+    const base = removalHistoryBase(service, itemLabel, action, opts);
+
+    if (analysis) {
+      const rechecked = await this.revalidateRemoval(
+        analysis,
+        client,
+        queueItemId,
+        downloadId,
+        options,
+      );
+      if ("message" in rechecked)
+        return { ok: false, dryRun: this.settings.get().dryRun, message: rechecked.message };
+      options = rechecked.options;
+    }
 
     if (this.settings.get().dryRun) {
       const historyId = recordFixerHistory(this.db, {
@@ -1555,6 +1616,42 @@ export class FixerService {
   }
 
   // ============ history ============
+
+  private async revalidateRemoval(
+    analysis: FixerAnalysisRow,
+    client: FixerClientPort,
+    queueItemId: number,
+    downloadId: string | null | undefined,
+    options: QueueRemovalOptions,
+  ): Promise<{ options: QueueRemovalOptions } | { message: string }> {
+    const validation = analysis.validation as unknown as ValidationResult | null;
+    // Every analysed removal depends on the library state its guards saw (a
+    // web-backed one requires German already there), so recheck them all.
+    const proposedRemoval =
+      (analysis.proposal as unknown as ResolutionProposal | null)?.action === "remove_queue_item";
+    if (!validation?.safeNonUpgradeRemoval && analysis.candidates?.length !== 0 && !proposedRemoval)
+      return { options };
+    const live = await this.currentQueueItem(analysis.service, queueItemId, downloadId);
+    if (!live || live.isInProgress)
+      return { message: "Queue item missing or in progress; refresh before removing." };
+    const candidates = (analysis.candidates ?? []) as ManualImportCandidate[];
+    if (candidates.length === 0 && (await client.getManualImportCandidates(live)).length > 0)
+      return { message: "Import candidates are now available. Reanalyze before removing." };
+    const fresh = await revalidateResolution(
+      { queueItem: live, candidates, client, prober: this.prober },
+      {
+        queueItemId,
+        candidates,
+        proposal: analysis.proposal as unknown as ResolutionProposal,
+        validation: validation ?? { ok: false, issues: [] },
+        status: "proposal",
+        log: [],
+      },
+    );
+    if (fresh.proposal.action !== "remove_queue_item" || !fresh.validation.ok)
+      return { message: fresh.proposal.reason };
+    return { options: fresh.proposal.queueRemovalOptions ?? options };
+  }
 
   /** Rechecked right before the arr request: these can change while a removal waits. */
   private assertMayRemove(opts: FixerActionOpts): void {
