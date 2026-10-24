@@ -18,9 +18,27 @@ import type { InspectionFacts, TargetFacts } from "./inspection.js";
  */
 
 const RELEASE_YEAR = /(?<!\d)(?:19|20)\d{2}(?!\d)/g;
-const EXPLICIT_EPISODE_TITLE =
-  /s\d{1,2}e\d{1,3}[ ._-]+(.+?)(?=[ ._-]+(?:german|deutsch|\d{3,4}p)\b)/i;
+const EPISODE_CODE = /s\d{1,2}e\d{1,3}/i;
+const NAME_SEPARATORS = /[ ._-]+/;
+const LEADING_SEPARATOR = /^[ ._-]/;
+const TITLE_END = /^(?:german|deutsch|\d{3,4}p)$/i;
 const WORD_BOUNDARY = /\s+/;
+
+/**
+ * The episode title a release names between its SxxEyy code and the language
+ * or resolution tag: "Benjamin.Blumchen.S02E02.Ein.ganz.besonderes.Geschenk.German".
+ * Scans tokens instead of a backtracking regex, since names are untrusted.
+ */
+function explicitEpisodeTitle(name: string): string | undefined {
+  const code = EPISODE_CODE.exec(name);
+  if (!code) return undefined;
+  const rest = name.slice(code.index + code[0].length);
+  if (!LEADING_SEPARATOR.test(rest)) return undefined;
+  const words = rest.split(NAME_SEPARATORS);
+  const end = words.findIndex((word) => TITLE_END.test(word));
+  const title = words.slice(0, Math.max(end, 0)).filter(Boolean).join(" ");
+  return end > 0 && title ? title : undefined;
+}
 
 function releaseYears(names: Array<string | undefined>): number[] {
   return [...new Set(names.flatMap((name) => (name?.match(RELEASE_YEAR) ?? []).map(Number)))];
@@ -441,9 +459,7 @@ function wrongEpisodePlacement(
   // Only a German-original series has a catalog in the release title's
   // language; German releases of English shows name translated titles that an
   // English catalog search cannot find (The.Mentalist.S02E03.Der.rote.Rubin).
-  const explicitTitle = EXPLICIT_EPISODE_TITLE.exec(
-    candidate.relativePath ?? fileName(candidate.path),
-  )?.[1];
+  const explicitTitle = explicitEpisodeTitle(candidate.relativePath ?? fileName(candidate.path));
   return Boolean(
     explicitTitle &&
       facts.series?.originalLanguage?.name === "German" &&

@@ -355,7 +355,7 @@ function normalizeManualImportRecords(
   releaseQuality: unknown,
 ): ManualImportCandidate[] {
   return records
-    .map(normalizeManualImportRecord)
+    .map((record, index) => normalizeManualImportRecord(record, index))
     .filter((candidate) => candidate.path.length > 0)
     .map((candidate) => (releaseQuality ? { ...candidate, releaseQuality } : candidate));
 }
