@@ -94,6 +94,8 @@ export interface ManualImportCandidate {
   qualityLabel?: string;
   /** The download's grab-time release quality (QueueItem.quality). */
   releaseQuality?: unknown;
+  /** Inspection heard German audio in this file (not just a release-name label). */
+  germanAudioProbed?: boolean;
   languages: unknown[];
   languageLabels: string[];
   releaseGroup?: string;

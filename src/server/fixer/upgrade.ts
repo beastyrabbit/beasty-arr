@@ -119,7 +119,7 @@ function describeQuality(quality: ParsedQuality | undefined): string {
 export interface AssessUpgradeInput {
   candidate: Pick<
     ManualImportCandidate,
-    "quality" | "releaseQuality" | "customFormatScore" | "languages"
+    "quality" | "releaseQuality" | "germanAudioProbed" | "customFormatScore" | "languages"
   >;
   episode: SonarrEpisodeRecord | undefined;
   profile: SonarrQualityProfileRecord | undefined;
@@ -129,7 +129,7 @@ export interface AssessUpgradeInput {
  * German audio the library lacks outranks the profile, but only at a quality
  * the profile allows: a file labelled below the cutoff is replaced by the
  * arr's next non-German quality upgrade, which re-grabs the German release in
- * a loop. So when inspection labels a German file outside the profile (a
+ * a loop. So when inspection hears German in a file rated outside the profile (a
  * "1080p" release that is really 1280x960) and the quality the arr parsed
  * from the release name at grab time is allowed, assess and import it at that
  * release quality, as the arr itself rated it when grabbing.
@@ -150,6 +150,7 @@ export function assessCandidateUpgrade(input: AssessUpgradeInput): UpgradeAssess
     !detected ||
     !release ||
     !addsGerman ||
+    candidate.germanAudioProbed !== true ||
     qualityRank(ranking, detected) === undefined ||
     qualityAllowed(ranking, detected) ||
     !qualityAllowed(ranking, release)

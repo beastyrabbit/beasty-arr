@@ -82,15 +82,17 @@ describe("assessCandidateUpgrade", () => {
   // as WEBDL-720p, which HD-1080p excludes, over English 1080p library files.
   const releaseQuality = quality(3, "WEBDL-1080p");
   it.each([
-    ["missing target", false, undefined, releaseQuality, "import"],
-    ["English library", true, [{ id: 1, name: "English" }], releaseQuality, "import"],
-    ["German library", true, [{ id: 4, name: "German" }], releaseQuality, "skip"],
-    ["unknown library language", true, [], releaseQuality, "skip"],
-    ["missing release quality", false, undefined, undefined, "skip"],
-    ["disallowed release quality", false, undefined, quality(19, "Bluray-2160p"), "skip"],
+    ["missing target", false, undefined, releaseQuality, true, "import"],
+    ["English library", true, [{ id: 1, name: "English" }], releaseQuality, true, "import"],
+    ["German library", true, [{ id: 4, name: "German" }], releaseQuality, true, "skip"],
+    ["unknown library language", true, [], releaseQuality, true, "skip"],
+    ["missing release quality", false, undefined, undefined, true, "skip"],
+    ["disallowed release quality", false, undefined, quality(19, "Bluray-2160p"), true, "skip"],
+    // A German release-name label the probe did not confirm (GERMAN.SUBBED).
+    ["German label without probed audio", false, undefined, releaseQuality, false, "skip"],
   ] as const)(
     "judges disallowed German quality for a %s",
-    (_label, hasFile, languages, release, expected) => {
+    (_label, hasFile, languages, release, probed, expected) => {
       const result = assessCandidateUpgrade({
         candidate: {
           ...candidate({
@@ -98,6 +100,7 @@ describe("assessCandidateUpgrade", () => {
             languages: [{ id: 4, name: "German" }],
           }),
           releaseQuality: release,
+          germanAudioProbed: probed,
         },
         episode: episode({
           hasFile,

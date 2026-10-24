@@ -78,7 +78,12 @@ describe("captured Fixer reviews in Sonarr preflight", () => {
     const captured = realReviewCapture(key);
     const capture = {
       ...captured,
-      candidates: captured.candidates.map((c) => ({ ...c, releaseQuality: release })),
+      // As after inspection: the probes of these captures heard German.
+      candidates: captured.candidates.map((c) => ({
+        ...c,
+        releaseQuality: release,
+        germanAudioProbed: true,
+      })),
     };
     const fetchMock = vi.fn<FetchImpl>(async (url, init) => {
       const parsed = new URL(String(url));

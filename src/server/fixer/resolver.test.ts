@@ -292,8 +292,8 @@ describe("24 October saved review regressions", () => {
     // release-quality exception and import as a met 1080p German file.
     ["English", false],
   ] as const)(
-    "keeps ER's release quality only when the probe hears %s audio",
-    async (language, kept) => {
+    "marks ER's file as German-probed only when the probe hears %s audio",
+    async (language, probed) => {
       const releaseQuality = { quality: { id: 3, name: "WEBDL-1080p" } };
       const result = await replay(
         "er-1465308286",
@@ -315,11 +315,27 @@ describe("24 October saved review regressions", () => {
           }
         },
       );
-      expect(result.candidates.map((candidate) => candidate.releaseQuality)).toEqual(
-        result.candidates.map(() => (kept ? releaseQuality : undefined)),
-      );
+      expect(
+        result.candidates.map((candidate) => [
+          candidate.releaseQuality,
+          candidate.germanAudioProbed,
+        ]),
+      ).toEqual(result.candidates.map(() => [releaseQuality, probed || undefined]));
     },
   );
+
+  it("marks German heard in a file probed after the upfront pass", async () => {
+    // Packs over the upfront probe limit are probed later; the mark must
+    // follow the latest probes, not the first pass.
+    const { withVerifiedGerman, emptyFacts } = await import("./inspection.js");
+    const capture = realReviewCapture("er-1465308286");
+    const facts = emptyFacts("sonarr", undefined);
+    const first = withVerifiedGerman(capture.candidates, facts);
+    expect(first[0]?.germanAudioProbed).toBeUndefined();
+    const path = capture.candidates[0]?.path ?? "";
+    facts.probes.set(path, { ...capture.probes[path], ok: true, hasGermanAudio: true } as never);
+    expect(withVerifiedGerman(first, facts)[0]?.germanAudioProbed).toBe(true);
+  });
 
   const sequelMatches = [
     {
@@ -547,6 +563,34 @@ describe("24 October saved review regressions", () => {
         });
     },
   );
+
+  it("does not place Benjamin's file by an episode title of another looked-up series", async () => {
+    const result = await replay(
+      "benjamin",
+      removeProposal(
+        { removeFromClient: true, blocklist: true, skipRedownload: true, changeCategory: false },
+        {
+          identity: {
+            verdict: "contradicted",
+            actualWork: "Ein ganz besonderes Geschenk",
+            evidence: ["Another series has an episode with this title."],
+          },
+        },
+      ),
+      {},
+      (capture) => {
+        capture.series.originalLanguage = { id: 1, name: "English" };
+        capture.catalog.push({
+          id: 99_001,
+          seriesId: 999,
+          seasonNumber: 1,
+          episodeNumber: 1,
+          title: "Ein ganz besonderes Geschenk",
+        });
+      },
+    );
+    expect(result.status).toBe("needs_review");
+  });
 
   it("does not discard Übel Blatt's German upgrade on the shared Hero-Killer plot", async () => {
     const result = await replay(

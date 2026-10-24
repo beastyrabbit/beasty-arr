@@ -240,8 +240,8 @@ const GERMAN_LANGUAGE = { id: 4, name: "German" };
 /**
  * Adds German to the arr's language labels of candidates whose inspected audio
  * has German the labels missed (an untagged track titled "Deutsch", say), so
- * the arr-side upgrade and language checks judge the real file. Drops the
- * release quality of any candidate whose probe did not hear German.
+ * the arr-side upgrade and language checks judge the real file, and marks
+ * candidates whose probe heard German audio.
  */
 export function withVerifiedGerman(
   candidates: ManualImportCandidate[],
@@ -251,9 +251,12 @@ export function withVerifiedGerman(
     const probe = facts.probes.get(original.path);
     // The release-quality exception (upgrade.ts) exists for German audio, so it
     // needs German the probe heard, not a release-name label (GERMAN.SUBBED).
-    const { releaseQuality: _unverified, ...withoutRelease } = original;
-    const candidate = probe?.ok && probe.hasGermanAudio ? original : withoutRelease;
-    if (!probe?.ok || !probe.hasGermanAudio || hasGermanAudio(candidate.languages)) {
+    // Recomputed on every pass, so files probed late (packs over the upfront
+    // probe limit) gain it once inspected.
+    const heard = probe?.ok === true && probe.hasGermanAudio;
+    const { germanAudioProbed: _previous, ...rest } = original;
+    const candidate: ManualImportCandidate = heard ? { ...rest, germanAudioProbed: true } : rest;
+    if (!heard || hasGermanAudio(candidate.languages)) {
       return candidate;
     }
     return {

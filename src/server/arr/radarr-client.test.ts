@@ -360,6 +360,7 @@ describe("RadarrClient", () => {
             episodeLabels: [],
             quality: { quality: { id: qualityId, name: quality } },
             releaseQuality,
+            germanAudioProbed: language === "German",
             languages: [{ id: language === "German" ? 4 : 1, name: language }],
             languageLabels: [language],
             rejections: [],

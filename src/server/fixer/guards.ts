@@ -325,7 +325,7 @@ function importReviewReasons(
     otherMovieReason(queueItem, proposal),
   ];
   for (const file of selectedFiles(queueItem, candidates, proposal, facts)) {
-    if (wrongEpisodePlacement(file.candidate, file.targets, facts)) {
+    if (wrongEpisodePlacement(queueItem, file.candidate, file.targets, facts)) {
       reasons.push(`${file.name} names a different episode or arc than its selected targets.`);
     }
     if (facts.proberAvailable && !file.probe) {
@@ -403,6 +403,7 @@ function isFeatureFile(candidate: ManualImportCandidate): boolean {
 
 /** Placement evidence from read-only lookups, rather than the model's assertion. */
 function wrongEpisodePlacement(
+  queueItem: QueueItem,
   candidate: ManualImportCandidate,
   targets: TargetFacts[],
   facts: InspectionFacts,
@@ -445,7 +446,11 @@ function wrongEpisodePlacement(
     targets.every((target) => target.seasonNumber !== undefined && !fits(target))
   )
     return true;
-  const catalog = [...(facts.episodeCatalog?.values() ?? [])];
+  // The catalog also holds episodes of other series the AI looked up (a
+  // sequel); only the queued series' titles place a file within it.
+  const catalog = [...(facts.episodeCatalog?.values() ?? [])].filter(
+    (episode) => episode.seriesId === queueItem.seriesId,
+  );
   if (
     targets.every((target) =>
       animeTitleConflict(candidate, { id: target.id, title: target.episodeTitle }, catalog),
@@ -545,7 +550,12 @@ function wrongWorkReasons(
   if (
     misplaced.length > 0 &&
     misplaced.every((candidate) =>
-      wrongEpisodePlacement(candidate, targetsOfCandidate(queueItem, candidate, targets), facts),
+      wrongEpisodePlacement(
+        queueItem,
+        candidate,
+        targetsOfCandidate(queueItem, candidate, targets),
+        facts,
+      ),
     )
   )
     return [];
