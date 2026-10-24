@@ -378,6 +378,42 @@ describe("16 remaining downloads after v0.9.0, captured read-only 24 October", (
     expect(rechecked.validation.safeNonUpgradeRemoval).toBeUndefined();
   });
 
+  it("treats untagged audio as possibly German before calling a file disposable", async () => {
+    // Ghosts of War has one untagged track. Against a German library it is a
+    // non-upgrade either way; against an English-only library it would add
+    // German if the track is German, so it must not be removed automatically.
+    for (const libraryGerman of [true, false]) {
+      const capture = structuredClone(
+        saved.cases.find((row) => row.label === "Ghosts of War (2020)")!,
+      );
+      const h = harness(capture);
+      const movie = capture.movies[0]!;
+      const library = movie.movieFile!.path!;
+      if (!libraryGerman) {
+        movie.movieFile = { ...movie.movieFile, languages: [{ id: 1, name: "English" }] };
+        capture.probes[library] = {
+          ...capture.probes[library],
+          hasGermanAudio: false,
+          audio: [englishAudio()],
+          audioLanguages: ["eng"],
+        };
+      }
+      const result = await resolveQueueItem({
+        ...h,
+        prober: fakeProber(capture.probes),
+        queueItem: capture.queueItem,
+        candidates: capture.candidates,
+        runner: async (req) => {
+          await tool(req, "propose_radarr_resolution", capture.originalProposal);
+          return { log: [] };
+        },
+      });
+      expect(result.validation.safeNonUpgradeRemoval, String(libraryGerman)).toBe(
+        libraryGerman ? true : undefined,
+      );
+    }
+  });
+
   it("does not classify a missing target, German addition, upgrade or unreadable feature as disposable", async () => {
     for (const kind of ["missing", "german", "upgrade", "unreadable"] as const) {
       const capture = structuredClone(

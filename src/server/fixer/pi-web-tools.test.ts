@@ -122,6 +122,8 @@ describe("Fixer public web tools", () => {
     ]);
     expect((await h.read("https://example.com")).details.text).toHaveLength(30_012);
     expect(h.facts.webPages?.[0]?.url).toBe("https://other.example/episode");
+    // Guards see the whole page: a target title late on a long page counts.
+    expect(h.facts.webPages?.[0]?.text).toHaveLength(31_000);
     const oversized = harness([new Response("x".repeat(2 * 1024 * 1024 + 1))]);
     expect((await oversized.read("https://example.com")).details.ok).toBe(false);
   });

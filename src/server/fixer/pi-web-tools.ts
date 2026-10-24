@@ -151,6 +151,11 @@ async function readBody(response: Response): Promise<string> {
   return Buffer.concat(chunks).toString("utf8");
 }
 
+/** A search-result field as text; SearXNG fields are untrusted JSON. */
+function textOf(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
 function truncate(text: string, max = MAX_TEXT): string {
   return text.length > max ? `${text.slice(0, max)}\n[truncated]` : text;
 }
@@ -184,11 +189,13 @@ export function createWebTools(
             throw new Error(`Unsupported page or HTTP ${response.status}.`);
           }
           const body = await readBody(response);
-          const text = truncate(
-            HTML_TYPE.test(type) || HTML_START.test(body) ? extractTextFromHtml(body) : body,
-          );
+          const full =
+            HTML_TYPE.test(type) || HTML_START.test(body) ? extractTextFromHtml(body) : body;
+          // Guards check the whole (byte-bounded) page; only the model's copy
+          // is shortened, so a title late on a long page is not missed.
           input.facts.webPages ??= [];
-          input.facts.webPages.push({ url, text });
+          input.facts.webPages.push({ url, text: full });
+          const text = truncate(full);
           const details = { url, text, untrusted: true, ok: true };
           return {
             content: [{ type: "text" as const, text: `${UNTRUSTED}\n${JSON.stringify(details)}` }],
@@ -249,9 +256,9 @@ export function createWebTools(
         const results = (Array.isArray(data.results) ? data.results : [])
           .slice(0, 8)
           .map((entry) => ({
-            title: truncate(String(entry.title ?? ""), 300),
-            url: truncate(String(entry.url ?? ""), 2048),
-            snippet: truncate(String(entry.content ?? ""), 1500),
+            title: truncate(textOf(entry.title), 300),
+            url: truncate(textOf(entry.url), 2048),
+            snippet: truncate(textOf(entry.content), 1500),
           }));
         const details = { results, untrusted: true, ok: true };
         return {

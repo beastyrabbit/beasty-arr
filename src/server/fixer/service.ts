@@ -160,6 +160,23 @@ export function queueItemTitle(item: QueueItem): string {
   return item.movieTitle ?? item.seriesTitle ?? item.title;
 }
 
+/** The history fields every removal, ignore or blocklist entry shares. */
+function removalHistoryBase(
+  service: MediaService,
+  itemLabel: string,
+  action: FixerHistoryAction,
+  opts: FixerActionOpts,
+) {
+  return {
+    service,
+    itemLabel,
+    action,
+    sourceKind: opts.sourceKind ?? "user",
+    ...(opts.confidence === undefined ? {} : { confidence: opts.confidence }),
+    ...(opts.analysisId === undefined ? {} : { analysisId: opts.analysisId }),
+  };
+}
+
 export function queueItemLabel(item: QueueItem): string {
   const title = queueItemTitle(item);
   const detail =
@@ -1531,14 +1548,7 @@ export class FixerService {
     const downloadId = analysis?.downloadId ?? queueItem?.downloadId;
     const itemLabel =
       analysis?.itemLabel ?? (queueItem ? queueItemLabel(queueItem) : `Queue item ${queueItemId}`);
-    const base = {
-      service,
-      itemLabel,
-      action,
-      sourceKind: opts.sourceKind ?? "user",
-      ...(opts.confidence === undefined ? {} : { confidence: opts.confidence }),
-      ...(opts.analysisId === undefined ? {} : { analysisId: opts.analysisId }),
-    };
+    const base = removalHistoryBase(service, itemLabel, action, opts);
 
     if (analysis) {
       const rechecked = await this.revalidateRemoval(
@@ -1615,7 +1625,12 @@ export class FixerService {
     options: QueueRemovalOptions,
   ): Promise<{ options: QueueRemovalOptions } | { message: string }> {
     const validation = analysis.validation as unknown as ValidationResult | null;
-    if (!validation?.safeNonUpgradeRemoval && analysis.candidates?.length !== 0) return { options };
+    // Every analysed removal depends on the library state its guards saw (a
+    // web-backed one requires German already there), so recheck them all.
+    const proposedRemoval =
+      (analysis.proposal as unknown as ResolutionProposal | null)?.action === "remove_queue_item";
+    if (!validation?.safeNonUpgradeRemoval && analysis.candidates?.length !== 0 && !proposedRemoval)
+      return { options };
     const live = await this.currentQueueItem(analysis.service, queueItemId, downloadId);
     if (!live || live.isInProgress)
       return { message: "Queue item missing or in progress; refresh before removing." };

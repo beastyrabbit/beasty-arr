@@ -287,50 +287,48 @@ export class FixerBulk {
       if (!item) {
         return;
       }
-      const key = `${item.service}:${item.id}`;
-      const targets = (item.service === "radarr" ? [item.movieId] : item.episodeIds).map(
-        (id) => `${item.service}:${id}`,
-      );
-      const previous = targets.flatMap((target) => targetTails.get(target) ?? []);
-      let release!: () => void;
-      const tail = new Promise<void>((resolve) => {
-        release = resolve;
-      });
-      for (const target of targets) targetTails.set(target, tail);
-      await Promise.all(previous);
+      const claim = claimTargets(item, targetTails);
+      await claim.previous;
       if (this.status.cancelRequested || this.service.providerRetryAt()) {
-        release();
+        claim.release();
         return;
       }
+      const key = `${item.service}:${item.id}`;
       this.inFlight.set(key, {
         service: item.service,
         queueItemId: item.id,
         title: item.title,
       });
       try {
-        const outcome = await this.service.analyzeAndWait(item.service, item.id);
-        if (outcome.status === "completed" && outcome.result) {
-          this.status.completed += 1;
-          if (this.settings.get().fixerAutoApply && !this.status.cancelRequested) {
-            await this.autoApplyOutcome(item, outcome, outcome.result);
-          }
-        } else {
-          this.status.failed += 1;
-          if (isProviderUsageLimit(outcome.error ?? "")) return;
-        }
-      } catch (error) {
-        this.status.failed += 1;
-        reportError(error, { job: "fixer.bulk.analysis" });
-        this.log.warn(
-          { err: error, service: item.service, queueItemId: item.id },
-          "fixer bulk analysis failed",
-        );
+        if ((await this.analyzeItem(item)) === "stop") return;
       } finally {
-        release();
-        for (const target of targets)
-          if (targetTails.get(target) === tail) targetTails.delete(target);
+        claim.release();
         this.inFlight.delete(key);
       }
+    }
+  }
+
+  /** Analyses one item and auto-applies it; "stop" ends the worker on a usage limit. */
+  private async analyzeItem(item: FixerQueueItem): Promise<"stop" | "continue"> {
+    try {
+      const outcome = await this.service.analyzeAndWait(item.service, item.id);
+      if (outcome.status === "completed" && outcome.result) {
+        this.status.completed += 1;
+        if (this.settings.get().fixerAutoApply && !this.status.cancelRequested) {
+          await this.autoApplyOutcome(item, outcome, outcome.result);
+        }
+        return "continue";
+      }
+      this.status.failed += 1;
+      return isProviderUsageLimit(outcome.error ?? "") ? "stop" : "continue";
+    } catch (error) {
+      this.status.failed += 1;
+      reportError(error, { job: "fixer.bulk.analysis" });
+      this.log.warn(
+        { err: error, service: item.service, queueItemId: item.id },
+        "fixer bulk analysis failed",
+      );
+      return "continue";
     }
   }
 
@@ -384,4 +382,29 @@ export class FixerBulk {
       }
     }
   }
+}
+
+/**
+ * Serialises downloads that share a target: each waits for the previous
+ * holder of any of its targets, so a second copy is judged after the first
+ * one's apply.
+ */
+function claimTargets(item: FixerQueueItem, targetTails: Map<string, Promise<void>>) {
+  const targets = (item.service === "radarr" ? [item.movieId] : item.episodeIds).map(
+    (id) => `${item.service}:${id}`,
+  );
+  const previous = Promise.all(targets.flatMap((target) => targetTails.get(target) ?? []));
+  let resolve!: () => void;
+  const tail = new Promise<void>((done) => {
+    resolve = done;
+  });
+  for (const target of targets) targetTails.set(target, tail);
+  return {
+    previous,
+    release: () => {
+      resolve();
+      for (const target of targets)
+        if (targetTails.get(target) === tail) targetTails.delete(target);
+    },
+  };
 }

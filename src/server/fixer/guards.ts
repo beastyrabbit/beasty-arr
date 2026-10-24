@@ -531,6 +531,102 @@ function otherSeriesPack(
   );
 }
 
+/** Whether any compact form of the text contains any of the forms. */
+function textNames(text: string, forms: string[]): boolean {
+  return titleForms(text).some((compact) => forms.some((form) => compact.includes(form)));
+}
+
+/**
+ * Target episode titles in compact form, also without a leading series name:
+ * catalog titles often repeat it ("Benjamin Blümchen als Nachtwächter") while
+ * a page may name only the rest ("als Nachtwächter").
+ */
+function targetTitleForms(queueItem: QueueItem, targets: TargetFacts[]): string[] {
+  const seriesForms = [
+    queueItem.seriesTitle ?? "",
+    queueItem.title.split(EPISODE_CODE)[0] ?? "",
+    ...targets.flatMap((target) => target.titles),
+  ]
+    .flatMap(titleForms)
+    .filter((form) => form.length > 3);
+  const stripped = (form: string) =>
+    seriesForms.flatMap((series) => {
+      const rest = form.startsWith(series) ? form.slice(series.length) : "";
+      return rest.length >= 6 ? [rest] : [];
+    });
+  return targets.flatMap((target) =>
+    (target.episodeTitle ? titleForms(target.episodeTitle) : []).flatMap((form) => [
+      form,
+      ...stripped(form),
+    ]),
+  );
+}
+
+/** An evidence line citing the page, the release title and a verbatim quote free of target titles. */
+function citesPage(
+  line: string,
+  page: { url: string; text: string },
+  titleFormsOfRelease: string[],
+  targetForms: string[],
+): boolean {
+  if (!line.includes(page.url) || !textNames(line, titleFormsOfRelease)) return false;
+  return [...line.matchAll(EVIDENCE_QUOTE)].some((match) => {
+    const quote = match[1] ?? "\u0000";
+    return page.text.includes(quote) && !textNames(quote, targetForms);
+  });
+}
+
+/**
+ * A fetched episode page can settle a title the arr catalog does not know.
+ * Require the named story, series and an exact quoted passage cited by URL;
+ * a model assertion or a search snippet alone cannot discard wanted German.
+ * A page only shows the title exists, not that it is another episode, so
+ * this backs a removal only where every target already has German, and
+ * never from a page that also names a target's own title ("Der lange Weg
+ * nach Hause (The Long Way Home)" is the same episode, translated). The
+ * model picks the quote, so the whole page is checked, not just the quote.
+ */
+function webPagesBackRemoval(
+  queueItem: QueueItem,
+  candidates: ManualImportCandidate[],
+  targets: TargetFacts[],
+  facts: InspectionFacts,
+  proposal: ResolutionProposal,
+): boolean {
+  const features = candidates.filter(isFeatureFile);
+  if (
+    queueItem.service !== "sonarr" ||
+    features.length === 0 ||
+    targets.length === 0 ||
+    !targets.every((target) => currentHasGerman(facts, target) === true)
+  )
+    return false;
+  const targetForms = targetTitleForms(queueItem, targets);
+  const seriesNames = [queueItem.seriesTitle ?? "", queueItem.title.split(EPISODE_CODE)[0] ?? ""]
+    .flatMap(titleForms)
+    .filter((form) => form.length > 3);
+  return features.every((candidate) => {
+    const title = explicitEpisodeTitle(candidate.relativePath ?? fileName(candidate.path));
+    if (!title || title.split(WORD_BOUNDARY).length < 3) return false;
+    const releaseForms = titleForms(title);
+    const namesTarget = targets.some(
+      (target) =>
+        !target.episodeTitle ||
+        titleForms(target.episodeTitle).some((form) => releaseForms.includes(form)),
+    );
+    if (namesTarget) return false;
+    return (facts.webPages ?? []).some(
+      (page) =>
+        textNames(page.text, releaseForms) &&
+        textNames(page.text, seriesNames) &&
+        !textNames(page.text, targetForms) &&
+        (proposal.identity?.evidence ?? []).some((line) =>
+          citesPage(line, page, releaseForms, targetForms),
+        ),
+    );
+  });
+}
+
 /**
  * "It is a different work" must be backed by more than the AI's reading: the
  * release year, the runtime, or the arr's own parse naming another title or a
@@ -547,83 +643,7 @@ function wrongWorkReasons(
   proposal: ResolutionProposal,
 ): string[] {
   if (otherSeriesPack(queueItem, candidates, proposal, facts)) return [];
-  // A fetched episode page can settle a title the arr catalog does not know.
-  // Require the named story, series and an exact quoted passage cited by URL;
-  // a model assertion or a search snippet alone cannot discard wanted German.
-  // A page only shows the title exists, not that it is another episode, so
-  // this backs a removal only where every target already has German, and
-  // never with a quote that also names a target's own title ("Der lange Weg
-  // nach Hause (The Long Way Home)" is the same episode, translated).
-  const featuresWithTitles = candidates.filter(isFeatureFile);
-  // Catalog titles often repeat the series name ("Benjamin Blümchen als
-  // Nachtwächter"); a page may name only the rest ("als Nachtwächter").
-  const seriesForms = [
-    queueItem.seriesTitle ?? "",
-    queueItem.title.split(EPISODE_CODE)[0] ?? "",
-    ...targets.flatMap((target) => target.titles),
-  ]
-    .flatMap(titleForms)
-    .filter((form) => form.length > 3);
-  const targetTitleForms = targets.flatMap((target) =>
-    (target.episodeTitle ? titleForms(target.episodeTitle) : []).flatMap((form) => [
-      form,
-      ...seriesForms.flatMap((series) => {
-        const rest = form.startsWith(series) ? form.slice(series.length) : "";
-        return rest.length >= 6 ? [rest] : [];
-      }),
-    ]),
-  );
-  if (
-    queueItem.service === "sonarr" &&
-    featuresWithTitles.length > 0 &&
-    targets.length > 0 &&
-    targets.every((target) => currentHasGerman(facts, target) === true) &&
-    featuresWithTitles.every((candidate) => {
-      const title = explicitEpisodeTitle(candidate.relativePath ?? fileName(candidate.path));
-      if (
-        !title ||
-        title.split(WORD_BOUNDARY).length < 3 ||
-        targets.some(
-          (target) =>
-            !target.episodeTitle ||
-            titleForms(target.episodeTitle).some((form) => titleForms(title).includes(form)),
-        )
-      )
-        return false;
-      return facts.webPages?.some(
-        (page) =>
-          titleForms(title).some((form) =>
-            titleForms(page.text).some((text) => text.includes(form)),
-          ) &&
-          [queueItem.seriesTitle ?? "", queueItem.title.split(EPISODE_CODE)[0] ?? ""]
-            .flatMap(titleForms)
-            .some(
-              (form) =>
-                form.length > 3 && titleForms(page.text).some((text) => text.includes(form)),
-            ) &&
-          // The model picks the quote, so the whole page must not name a
-          // target's own story; an episode list naming both goes to review.
-          !titleForms(page.text).some((text) =>
-            targetTitleForms.some((form) => text.includes(form)),
-          ) &&
-          proposal.identity?.evidence.some(
-            (line) =>
-              line.includes(page.url) &&
-              titleForms(title).some((form) =>
-                titleForms(line).some((text) => text.includes(form)),
-              ) &&
-              [...line.matchAll(EVIDENCE_QUOTE)].some(
-                (match) =>
-                  page.text.includes(match[1] ?? "\u0000") &&
-                  !titleForms(match[1] ?? "").some((quote) =>
-                    targetTitleForms.some((form) => quote.includes(form)),
-                  ),
-              ),
-          ),
-      );
-    })
-  )
-    return [];
+  if (webPagesBackRemoval(queueItem, candidates, targets, facts, proposal)) return [];
   // Discarding the download needs every file to fit none of the queued
   // targets: a pack in another order names its files after each other's
   // mapped episodes, yet holds exactly the wanted ones.
