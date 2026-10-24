@@ -392,15 +392,36 @@ function wrongEpisodePlacement(
   if (facts.service !== "sonarr" || targets.length === 0) return false;
   const name = [candidate.folderName, candidate.relativePath, fileName(candidate.path)].join(" ");
   const forms = titleForms(name);
-  const arcMismatch = facts.series?.alternateTitles?.some((alternate) => {
-    const season = alternate.seasonNumber ?? alternate.sceneSeasonNumber;
-    if (!alternate.title || season === undefined || season < 1) return false;
-    return (
-      titleForms(alternate.title).some((title) => forms.some((text) => text.includes(title))) &&
-      targets.every((target) => target.seasonNumber !== undefined && target.seasonNumber !== season)
-    );
+  // Only season-bound alternates more specific than the series title name an
+  // arc ("Bleach - Sennen Kessen-hen", season 17); a base title, also part of
+  // a later season's alternate, is in every file name. Any named arc that
+  // fits a queued season clears the file.
+  const alternates = facts.series?.alternateTitles ?? [];
+  const seasonOf = (alternate: (typeof alternates)[number]) =>
+    alternate.seasonNumber ?? alternate.sceneSeasonNumber;
+  const seriesForms = titleForms(facts.series?.title ?? "");
+  const arcSeasons = alternates.flatMap((alternate) => {
+    const season = seasonOf(alternate);
+    if (!alternate.title || season === undefined || season < 1) return [];
+    const alternateForms = titleForms(alternate.title);
+    const broader = [
+      ...seriesForms,
+      ...alternates
+        .filter((other) => other.title && seasonOf(other) !== season)
+        .flatMap((other) => titleForms(other.title ?? "")),
+    ];
+    if (alternateForms.some((title) => broader.some((text) => text.includes(title)))) return [];
+    return alternateForms.some((title) => forms.some((text) => text.includes(title)))
+      ? [season]
+      : [];
   });
-  if (arcMismatch) return true;
+  if (
+    arcSeasons.length > 0 &&
+    targets.every(
+      (target) => target.seasonNumber !== undefined && !arcSeasons.includes(target.seasonNumber),
+    )
+  )
+    return true;
   const catalog = [...(facts.episodeCatalog?.values() ?? [])];
   if (
     targets.every((target) =>
@@ -412,11 +433,15 @@ function wrongEpisodePlacement(
   // A complete, explicitly named different story, searched across the series,
   // can reject a duplicate over an already-German target even if TVDB lacks it.
   // This cannot discard a missing target's only German copy on an unknown alias.
+  // Only a German-original series has a catalog in the release title's
+  // language; German releases of English shows name translated titles that an
+  // English catalog search cannot find (The.Mentalist.S02E03.Der.rote.Rubin).
   const explicitTitle = EXPLICIT_EPISODE_TITLE.exec(
     candidate.relativePath ?? fileName(candidate.path),
   )?.[1];
   return Boolean(
     explicitTitle &&
+      facts.series?.originalLanguage?.name === "German" &&
       facts.unmatchedEpisodeTitles?.some(
         (query) =>
           query.split(WORD_BOUNDARY).length >= 3 &&
@@ -716,26 +741,6 @@ export function applyGuards(input: {
     reasons = importReviewReasons(queueItem, candidates, proposal, facts);
   } else if (proposal.action === "remove_queue_item") {
     proposal = withoutNeedlessSearch(queueItem, proposal, facts);
-    const features = candidates.filter(isFeatureFile);
-    if (
-      proposal.identity?.verdict === "contradicted" &&
-      proposal.queueRemovalOptions?.blocklist &&
-      features.some((candidate) => probeOf(facts, candidate.path)?.hasGermanAudio) &&
-      features.length > 0 &&
-      (otherSeriesPack(queueItem, candidates, proposal, facts) ||
-        features.every((candidate) =>
-          wrongEpisodePlacement(candidate, queuedTargets(queueItem, facts), facts),
-        ))
-    ) {
-      proposal = {
-        ...proposal,
-        queueRemovalOptions: { ...proposal.queueRemovalOptions, blocklist: false },
-        warnings: [
-          ...proposal.warnings,
-          "Kept a valid German release off the blocklist so it remains available for its correct episode.",
-        ],
-      };
-    }
     reasons = removalReviewReasons(queueItem, candidates, proposal, facts);
   }
   if (reasons.length === 0) return proposal;

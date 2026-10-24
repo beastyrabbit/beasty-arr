@@ -72,7 +72,7 @@ export function createProposalTool(
       `When active Dub Oracle context says exists with confidence greater than 0.6 and the inspected candidate has no German audio, do not import it; remove it, searching again (skipRedownload=false) only when the queued ${target} has no library file at all.`,
       `A candidate that would not be imported even if it were the queued ${target} (no German the library lacks, not an upgrade) may be removed as a non-upgrade with blocklist=true and skipRedownload=true while its identity stays uncertain.`,
       "German audio the target lacks takes priority over profile qualities. When inspection places a confirmed German file outside the profile but the release-name quality is allowed and the target is missing or its current file has no German, upgradeAssessment marks it import at the release quality; propose that import. Disallowed quality remains refused when the library already has German or the release quality is disallowed too.",
-      "Never discard German audio the library lacks on weak identity evidence. A backed wrong-work or wrong-episode verdict permits removal; keep a valid German release off the blocklist so it remains available for its correct episode.",
+      "Never discard German audio the library lacks on weak identity evidence. A backed wrong-work or wrong-episode verdict permits removal.",
       "Use needs_review only when direct observations leave the identity or right action materially unresolved. A stale arr label or one conflicting stream metadata field alone is not enough; make the best supported decision from the whole release.",
     ],
     parameters: Type.Object({

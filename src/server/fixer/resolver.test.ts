@@ -284,6 +284,41 @@ describe("24 October saved review regressions", () => {
     },
   );
 
+  it.each([
+    ["German", true],
+    // A GERMAN.SUBBED-style label without German audio must not reach the
+    // release-quality exception and import as a met 1080p German file.
+    ["English", false],
+  ] as const)(
+    "keeps ER's release quality only when the probe hears %s audio",
+    async (language, kept) => {
+      const releaseQuality = { quality: { id: 3, name: "WEBDL-1080p" } };
+      const result = await replay(
+        "er-1465308286",
+        removeProposal({
+          removeFromClient: true,
+          blocklist: true,
+          skipRedownload: true,
+          changeCategory: false,
+        }),
+        {},
+        (capture) => {
+          for (const candidate of capture.candidates) {
+            candidate.releaseQuality = releaseQuality;
+            const probe = capture.probes[candidate.path];
+            if (probe && language === "English") {
+              probe.audio = [{ ...probe.audio?.[0], language: "eng" } as never];
+              probe.hasGermanAudio = false;
+            }
+          }
+        },
+      );
+      expect(result.candidates.map((candidate) => candidate.releaseQuality)).toEqual(
+        result.candidates.map(() => (kept ? releaseQuality : undefined)),
+      );
+    },
+  );
+
   const sequelMatches = [
     {
       candidateId: "candidate_4",
@@ -334,8 +369,10 @@ describe("24 October saved review regressions", () => {
       );
       expect(result.status).toBe(mode === "complete" ? "proposal" : "needs_review");
       if (mode === "complete")
+        // Sonarr's blocklist is per series: this keeps the pack from being
+        // re-grabbed for Batman TAS without blocking it for series 1293.
         expect(result.proposal.queueRemovalOptions).toMatchObject({
-          blocklist: false,
+          blocklist: true,
           skipRedownload: false,
         });
     },
@@ -389,6 +426,29 @@ describe("24 October saved review regressions", () => {
     expect(result.status).toBe("needs_review");
   });
 
+  it("ignores a season-bound base title that a later season's alternate contains", async () => {
+    // Base titles bound to season 1 are in every later file name; the more
+    // specific season-17 alternate fits the queued season, so nothing is wrong.
+    const result = await replay(
+      "bleach-part4",
+      removeProposal(
+        {
+          removeFromClient: true,
+          blocklist: true,
+          skipRedownload: false,
+          changeCategory: false,
+        },
+        { identity: { verdict: "contradicted", actualWork: "A different arc", evidence: [] } },
+      ),
+      {},
+      (capture) => {
+        for (const episode of capture.episodes) episode.seasonNumber = 17;
+        capture.series.alternateTitles?.push({ title: "Bleach Thousand-Year", seasonNumber: 1 });
+      },
+    );
+    expect(result.status).toBe("needs_review");
+  });
+
   it("does not reject Bleach within the arc's own Sonarr season", async () => {
     const result = await replay(
       "bleach-part4",
@@ -409,34 +469,49 @@ describe("24 October saved review regressions", () => {
     expect(result.status).toBe("needs_review");
   });
 
-  it("removes Benjamin's different named story after the whole-series title lookup, without blocklisting German", async () => {
-    const result = await replay(
-      "benjamin",
-      removeProposal(
-        {
-          removeFromClient: true,
-          blocklist: true,
-          skipRedownload: false,
-          changeCategory: false,
-        },
-        {
-          identity: {
-            verdict: "contradicted",
-            actualWork: "Ein ganz besonderes Geschenk",
-            evidence: [
-              "The file explicitly names a different German story than als Nachtwächter; the catalog search found no alias.",
-            ],
+  it.each([
+    ["German", "proposal"],
+    // A German release of an English show names a translated title that an
+    // English catalog cannot match (The.Mentalist.S02E03.Der.rote.Rubin).
+    ["English", "needs_review"],
+  ] as const)(
+    "judges Benjamin's different named story for a %s-original series",
+    async (originalLanguage, expected) => {
+      const result = await replay(
+        "benjamin",
+        removeProposal(
+          {
+            removeFromClient: true,
+            blocklist: true,
+            skipRedownload: false,
+            changeCategory: false,
           },
+          {
+            identity: {
+              verdict: "contradicted",
+              actualWork: "Ein ganz besonderes Geschenk",
+              evidence: [
+                "The file explicitly names a different German story than als Nachtwächter; the catalog search found no alias.",
+              ],
+            },
+          },
+        ),
+        { titleContains: "Ein ganz besonderes Geschenk" },
+        (capture) => {
+          capture.series.originalLanguage = { id: 4, name: originalLanguage };
         },
-      ),
-      { titleContains: "Ein ganz besonderes Geschenk" },
-    );
-    expect(result.status).toBe("proposal");
-    expect(result.proposal.queueRemovalOptions).toMatchObject({
-      blocklist: false,
-      skipRedownload: true,
-    });
-  });
+      );
+      expect(result.status).toBe(expected);
+      if (expected === "proposal")
+        // Sonarr maps this release name to S02E02 every time, so leaving it off
+        // the blocklist would only let it be grabbed again (and blocklist=false
+        // makes Sonarr ignore skipRedownload).
+        expect(result.proposal.queueRemovalOptions).toMatchObject({
+          blocklist: true,
+          skipRedownload: true,
+        });
+    },
+  );
 
   it("does not discard Übel Blatt's German upgrade on the shared Hero-Killer plot", async () => {
     const result = await replay(
@@ -896,7 +971,7 @@ describe("resolveQueueItem", () => {
       "the fixer imports it at that release quality, as the arr rated it when grabbing",
     );
     expect(system).toContain(
-      "For a valid German release placed at the wrong episode, use blocklist=false",
+      "removeFromClient=true, blocklist=true and changeCategory=false always",
     );
     expect(system).toContain(
       "| Wrong episode or unusable release (wrong work, wrong episode, sample, no usable video, disc structure only) | false, so Sonarr searches again; true when the queued episode already has a German file that needs no upgrade |",

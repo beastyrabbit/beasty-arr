@@ -140,6 +140,7 @@ export type SonarrSeriesRecord = {
   qualityProfileId?: number;
   languageProfileId?: number;
   seriesType?: string;
+  originalLanguage?: { id?: number; name?: string };
   path?: string;
 };
 
