@@ -26,15 +26,19 @@ thresholds. Verified non-upgrades use the import confidence threshold after the 
 pass. Completed downloads with no candidates and an explicit terminal import rejection are
 removed, blocklisted and searched again. Extraction, in-progress and transient filesystem states
 stay held.
-Analyze all, Run all and scheduled auto-run reconsider saved needs-review analyses from older
-app versions once per release. Refresh only reloads the queue. Auto-apply alone does not reanalyze
-held work when auto-run is off.
+Analyze all, Run all and scheduled auto-run reconsider held analyses from older app versions once
+per release: reviews and proposals that auto-apply would not take. Refresh only reloads the
+queue. Auto-apply alone does not reanalyze held work when auto-run is off.
 
 The Fixer does the check a person would do by hand. Before the AI runs, it inspects the real files
 with ffprobe (duration, embedded title, every audio and subtitle stream including untagged German
 tracks) and asks the arr to parse the release name without grab history. The AI can read subtitle
 dialogue, folder listings, and NFO ids, and look up TMDb/TVDB titles and runtimes. Every proposal
-states what the file actually is and why. Imports wait for review when the AI cannot confirm the
+states what the file actually is and why. The AI always decides (import, remove or ignore); open
+questions follow fixed rules, and German audio the library lacks is never removed on weak
+evidence. Episode numbering that fits the series' own season scheme, with a fitting runtime and
+nothing contradicting it, confirms identity. The checks below still hold an unsafe decision for
+review. Imports wait for review when the AI cannot confirm the
 identity, when the release year, runtime, or independent parse contradicts the target, when the
 file could not be inspected, or when it would lower the resolution without adding German audio.
 Removals wait when they would throw away German audio the library lacks, when they would discard
@@ -42,7 +46,10 @@ a German file the arr scores above the library copy or whose German track the ar
 when a "different work" verdict has no backing from the release year, runtime, or independent
 parse, or when they would search for German the library already has. Downloads are checked against
 the movie or series they were grabbed for, not the one the arr's queue re-maps them to by title;
-when the two differ, an import waits for review. An audio track counts as German when its language tag or its title says so; when the two disagree,
+when the two differ, an import waits for review, unless it goes into the Radarr movie the queue
+mapped it to and the grabbed movie's title is unrelated to the release (a documentary grabbed for
+the event it covers). A year that names a season (`American.Horror.Story.1984`) does not count
+against the series when the file's embedded title names the series with it. An audio track counts as German when its language tag or its title says so; when the two disagree,
 the Fixer weighs the release name and other observations before deciding whether an import is safe. A removal is not held when the
 candidate is a lower source than the library file at the same resolution (a WEB-DL against a remux), a file ffprobe rejects as invalid
 does not count as possibly German, and a removal that asks for a new search although the library already has German is corrected
@@ -70,7 +77,10 @@ public web egress for beasty-arr; SearXNG also needs search-engine egress.
 
 Season packs are handled as one download: the Fixer merges Sonarr's per-episode queue rows,
 decides file by file which episodes are missing or upgrades, imports those together, and removes
-verified non-upgrade leftovers and samples from the client without blocklisting.
+verified non-upgrade leftovers and samples from the client without blocklisting. Files confirmed
+as other episodes of the series are imported as those episodes, even when the download holds none
+of the queued ones (a pack labelled S02 in another season order); queued episodes it does not
+cover stay missing for the hunt.
 Confirmed German files can fill a missing or non-German target even when inspection measures them
 below the profile, provided the quality the arr parsed from the release name is allowed; they are
 imported at that release quality so the arr does not swap them for a non-German upgrade. Existing
