@@ -758,7 +758,9 @@ describe("FixerService apply", () => {
     expect(detail?.wouldHave.candidateIds).toEqual(["candidate_1"]);
   });
 
-  it("blocks a real anime pack whose verified mapping omits the queued target", async () => {
+  // August refused this as "unrelated episodes"; the file really is absolute
+  // 78 (S06E09), so it imports there although S03E01 was queued.
+  it("imports a real anime pack file as its looked-up episode outside the queued target", async () => {
     const harness = makeHarness();
     harness.sonarr.queue = [realOnePieceQueueItem()];
     harness.sonarr.candidatesByItem.set(realOnePieceQueueItem().id, [realOnePieceCandidate()]);
@@ -779,13 +781,16 @@ describe("FixerService apply", () => {
     });
 
     const outcome = await harness.svc.analyzeAndWait("sonarr", realOnePieceQueueItem().id);
-    expect(outcome.result?.status).toBe("needs_review");
-    expect(outcome.result?.validation.ok).toBe(false);
+    expect(outcome.result?.validation.ok).toBe(true);
+    expect(outcome.result?.status).toBe("proposal");
 
+    harness.settings.update({ dryRun: false });
     const result = await harness.svc.apply(outcome.analysisId);
-    expect(result).toMatchObject({ ok: false, dryRun: false });
-    expect(result.message).toContain("queued target episode");
-    expect(harness.sonarr.applyCalls).toHaveLength(0);
+    expect(result).toMatchObject({ ok: true, dryRun: false });
+    expect(harness.sonarr.applyCalls).toHaveLength(1);
+    expect(harness.sonarr.applyCalls[0]?.proposal.selectedImports).toEqual([
+      expect.objectContaining({ candidateId: "candidate_9", episodeIds: [4_951] }),
+    ]);
   });
 
   it("reports a blocked language preflight instead of simulating an impossible import", async () => {
@@ -1465,7 +1470,7 @@ describe("FixerService season packs", () => {
     expect(harness.sonarr.applyCalls[0]?.queueItem.queueItemIds).toEqual([1, 2, 3, 4]);
   });
 
-  it("still refuses a pack whose selection covers none of the queued episodes", async () => {
+  it("accepts a pack whose selection covers none of the queued episodes but known ones", async () => {
     const harness = makeHarness();
     harness.sonarr.queue = packRows();
     harness.sonarr.candidatesByItem.set(1, [makeCandidate("candidate_9", [999])]);
@@ -1473,10 +1478,7 @@ describe("FixerService season packs", () => {
 
     const outcome = await harness.svc.analyzeAndWait("sonarr", 1);
 
-    expect(outcome.result?.status).toBe("needs_review");
-    expect(outcome.result?.validation.issues.map((issue) => issue.message).join(" ")).toContain(
-      "queued target episode",
-    );
+    expect(outcome.result?.validation.ok).toBe(true);
   });
 
   it("marks a proposal needs_review when the arr preflight refuses it during analysis", async () => {

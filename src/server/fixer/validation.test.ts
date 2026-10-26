@@ -150,7 +150,9 @@ describe("validateProposalForImport", () => {
     expect(result.issues.some((issue) => issue.message.includes("not present"))).toBe(true);
   });
 
-  it("blocks a season pack that imports other episodes but not the queued target", () => {
+  // One Piece packs in German season order hold episodes Sonarr files under
+  // other seasons; a verified mapping to known episodes imports them there.
+  it("allows a pack that imports known episodes of the series but not the queued target", () => {
     const result = validateProposalForImport(
       [candidate({ seriesId: 12, episodeIds: [], episodeLabels: [] })],
       {
@@ -161,9 +163,23 @@ describe("validateProposalForImport", () => {
       [202],
     );
 
+    expect(result.ok).toBe(true);
+  });
+
+  it("still refuses an episode id outside the series context", () => {
+    const result = validateProposalForImport(
+      [candidate({ seriesId: 12, episodeIds: [], episodeLabels: [] })],
+      {
+        ...importProposal,
+        selectedImports: [{ candidateId: "candidate_1", episodeIds: [303] }],
+      },
+      queueItem({ episodeIds: [101] }),
+      [202],
+    );
+
     expect(result.ok).toBe(false);
-    expect(result.issues.some((issue) => issue.message.includes("queued target episode"))).toBe(
-      true,
+    expect(result.issues.map((issue) => issue.message).join(" ")).toContain(
+      "Episode id 303 is not present",
     );
   });
 

@@ -612,10 +612,24 @@ describe("SonarrClient", () => {
     expect(result.message).toContain("Blocked language downgrade");
   });
 
-  it("blocks a captured One Piece pack that does not contain the queued target", async () => {
+  // The August rule refused this file because S06E09 was not the queued
+  // S03E01. It really is absolute 78, which has no file, so it imports there.
+  it("imports a captured One Piece file as the episode it really is, outside the queued target", async () => {
     const fetchMock = vi.fn(async (url: string) => {
       if (String(url).includes("/api/v3/episode?")) {
-        return jsonResponse([realOnePieceAbsoluteEpisode()]);
+        const episode = realOnePieceAbsoluteEpisode();
+        return jsonResponse([{ ...episode, series: { ...episode.series, qualityProfileId: 4 } }]);
+      }
+      if (String(url).endsWith("/api/v3/qualityprofile")) {
+        return jsonResponse([
+          {
+            id: 4,
+            name: "HD-1080p",
+            upgradeAllowed: true,
+            cutoffFormatScore: 35000,
+            items: [{ quality: { id: 3, name: "WEBDL-1080p" }, allowed: true }],
+          },
+        ]);
       }
       return new Response("not found", { status: 404, statusText: "Not Found" });
     });
@@ -631,8 +645,7 @@ describe("SonarrClient", () => {
       proposal,
     );
 
-    expect(result.ok).toBe(false);
-    expect(result.message).toContain("queued target episode");
+    expect(result).toMatchObject({ ok: true });
   });
 
   it("imports a non-German candidate when the existing file also lacks German", async () => {

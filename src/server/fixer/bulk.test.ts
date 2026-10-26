@@ -332,6 +332,38 @@ describe("Fixer recovery", () => {
     },
   );
 
+  // 0.10.0 never reran twelve 0.9.0 removals held at 88%: only reviews were revisited.
+  it("revisits a proposal from an older release that auto-apply would not take", async () => {
+    const h = makeHarness(() => ({
+      ...importProposal("candidate_1", [101], 0.88),
+      action: "remove_queue_item",
+      selectedCandidateIds: [],
+      selectedImports: [],
+      queueRemovalOptions: {
+        removeFromClient: true,
+        blocklist: true,
+        skipRedownload: false,
+        changeCategory: false,
+      },
+    }));
+    h.settings.update({ fixerAutoApply: true, fixerAutoRemoveConfidence: 0.95, dryRun: false });
+    h.sonarr.queue = [makeQueueItem(1)];
+    h.sonarr.candidatesByItem.set(1, [makeCandidate("candidate_1", [101])]);
+    await h.bulk.start({ skipAnalyzed: true });
+    await h.bulk.wait();
+    const saved = h.svc.analysisForItem(makeQueueItem(1));
+    expect(saved?.proposal?.action).toBe("remove_queue_item");
+    // Held at 88% in this release: not rerun.
+    expect((await h.bulk.start({ skipAnalyzed: true })).total).toBe(0);
+    h.db
+      .update(fixerAnalyses)
+      .set({ proposal: { ...saved?.proposal, analyzedByVersion: "0.9.0" } })
+      .run();
+    expect((await h.bulk.start({ skipAnalyzed: true })).total).toBe(1);
+    await h.bulk.wait();
+    expect(h.calls).toHaveLength(2);
+  });
+
   it("honors an auto-apply toggle changed while an analysis is running", async () => {
     let ready: (() => void) | undefined;
     const started = new Promise<void>((resolve) => {

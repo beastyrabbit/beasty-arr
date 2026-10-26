@@ -205,6 +205,82 @@ describe("16 remaining downloads after v0.9.0, captured read-only 24 October", (
       expect(result.validation.safeNonUpgradeRemoval).toBe(true);
   });
 
+  // Imports outside the queued targets rely on this: a file the AI places on
+  // another episode is judged there, so the non-upgrade shortcut keeps it.
+  it("does not turn an import placed on another episode into a non-upgrade removal", async () => {
+    const capture = structuredClone(
+      saved.cases.find((row) => row.label === "The Office (US) S02E04")!,
+    );
+    const queued = capture.episodes[0]!;
+    capture.episodes.push({ ...queued, id: 17_399, episodeNumber: 30, hasFile: false });
+    delete capture.episodes[1]!.episodeFile;
+    const h = harness(capture);
+    const candidateId = capture.candidates[0]!.id;
+    const result = await resolveQueueItem({
+      ...h,
+      queueItem: capture.queueItem,
+      candidates: capture.candidates,
+      runner: async (req) => {
+        await tool(req, "propose_sonarr_resolution", {
+          ...capture.originalProposal,
+          action: "import_candidates",
+          selectedCandidateIds: [candidateId],
+          selectedImports: [{ candidateId, episodeIds: [17_399] }],
+          identity: {
+            verdict: "confirmed",
+            actualWork: "The Office (US) S02E30",
+            evidence: ["Embedded title and dialogue name S02E30."],
+          },
+        });
+        return { log: [] };
+      },
+    });
+    expect(result.proposal.action).toBe("import_candidates");
+    expect(result.validation.safeNonUpgradeRemoval).toBeUndefined();
+  });
+
+  // The grabbed movie's better German file must not turn an import into the
+  // movie Radarr's queue mapped the download to (Countdown) into a removal.
+  it("does not turn an import into the queue-mapped movie into a non-upgrade removal", async () => {
+    const capture = structuredClone(saved.cases.find((row) => row.label.startsWith("Ghosts"))!);
+    const mappedId = 20_001;
+    capture.queueItem.queueMappedId = mappedId;
+    capture.movies.push({ id: mappedId, title: "Countdown: Rousey vs. Carano", year: 2020 });
+    capture.candidates = capture.candidates.map((candidate) => ({
+      ...candidate,
+      movieId: mappedId,
+    }));
+    capture.parse = {
+      ...capture.parse,
+      parsedTitle: "Countdown Rousey vs Carano",
+      matchedId: mappedId,
+      matchedTitle: "Countdown: Rousey vs. Carano",
+    };
+    const h = harness(capture);
+    const candidateId = capture.candidates[0]!.id;
+    const result = await resolveQueueItem({
+      ...h,
+      queueItem: capture.queueItem,
+      candidates: capture.candidates,
+      runner: async (req) => {
+        await tool(req, "propose_radarr_resolution", {
+          ...capture.originalProposal,
+          action: "import_candidates",
+          selectedCandidateIds: [candidateId],
+          selectedImports: [{ candidateId, movieId: mappedId }],
+          identity: {
+            verdict: "confirmed",
+            actualWork: "Countdown: Rousey vs. Carano (2020)",
+            evidence: ["Embedded title and dialogue name the documentary."],
+          },
+        });
+        return { log: [] };
+      },
+    });
+    expect(result.proposal.action).toBe("import_candidates");
+    expect(result.validation.safeNonUpgradeRemoval).toBeUndefined();
+  });
+
   it.each([
     { isInProgress: true },
     { status: "downloading" },

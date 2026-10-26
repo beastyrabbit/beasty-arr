@@ -282,4 +282,49 @@ describe("fixer upgrade-context tools", () => {
     expect(assessment).toMatchObject({ candidateId: "candidate_1", decision: "skip" });
     expect(assessment?.reason).toContain("score 3050");
   });
+
+  // Countdown: the grabbed movie has a file, the queue-mapped movie does not.
+  it("assesses a Radarr candidate against an explicit movie id", async () => {
+    const libraryFile = {
+      id: 900,
+      quality: { quality: { id: 3, name: "WEBDL-1080p" }, revision: { version: 1, real: 0 } },
+      languages: [{ id: 1, name: "English" }],
+      customFormatScore: 3050,
+    };
+    const movies: Record<number, RadarrMovieRecord> = {
+      77: { id: 77, title: "Grabbed", hasFile: true, movieFileId: 900, qualityProfileId: 7 },
+      78: { id: 78, title: "Mapped", hasFile: false, qualityProfileId: 7 },
+    };
+    const client = {
+      getMovie: async (id: number) => movies[id],
+      getMovieFile: async () => libraryFile,
+      getQualityProfiles: async () => [
+        {
+          id: 7,
+          name: "HD-1080p",
+          upgradeAllowed: true,
+          cutoff: 3,
+          cutoffFormatScore: 10_000,
+          items: [{ quality: { id: 3, name: "WEBDL-1080p" }, allowed: true }],
+        },
+      ],
+      getCustomFormats: async () => [],
+    } as unknown as RadarrClient;
+    const tools = createRadarrLookupTools({
+      client,
+      queueItem: { ...realDevilsRejectsQueueItem(), movieId: 77 },
+      getCandidates: () => [
+        { ...realDevilsRejectsCandidate(), movieId: 78, customFormatScore: 805 },
+      ],
+    });
+
+    const grabbed = await executeTool(tools, "radarr_get_upgrade_context");
+    const mapped = await executeTool(tools, "radarr_get_upgrade_context", { movieId: 78 });
+
+    const decision = (details: Record<string, unknown>) =>
+      (details.upgradeAssessment as Array<Record<string, unknown>>)[0]?.decision;
+    expect(decision(grabbed)).not.toBe("import");
+    expect((mapped.movie as Record<string, unknown>).id).toBe(78);
+    expect(decision(mapped)).toBe("import");
+  });
 });

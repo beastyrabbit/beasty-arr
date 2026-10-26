@@ -602,15 +602,14 @@ export class FixerService {
       if (!row) return false;
     }
     // Genuine holds cost nothing again until a new release can reconsider them.
-    // pendingOnly runs with auto-run off and must not spend AI on held proposals.
+    // That covers proposals auto-apply would not take (a 0.9.0 removal at 88%),
+    // not just reviews. pendingOnly runs with auto-run off and must not spend
+    // AI on held proposals.
     if (
       row.status === "completed" &&
       row.proposal &&
-      resultStatus(
-        row.proposal as unknown as ResolutionProposal,
-        (row.validation ?? { ok: false, issues: [] }) as unknown as ValidationResult,
-      ) === "needs_review" &&
-      row.proposal.analyzedByVersion !== APP_VERSION
+      row.proposal.analyzedByVersion !== APP_VERSION &&
+      this.isHeld(row)
     )
       return !pendingOnly && this.latestApply(row.id)?.result !== "ok";
     if (
@@ -621,12 +620,16 @@ export class FixerService {
     )
       return false;
     if (this.latestApply(row.id)?.result === "ok") return false;
+    return !this.isHeld(row);
+  }
+
+  /** A result that waits for the user: a review, or a proposal auto-apply would not take. */
+  private isHeld(row: FixerAnalysisRow): boolean {
+    const proposal = row.proposal as unknown as ResolutionProposal;
+    const validation = row.validation as unknown as ValidationResult | null;
     return (
-      autoApplyBlockReason(
-        row.proposal as unknown as ResolutionProposal,
-        row.validation as unknown as ValidationResult | null,
-        this.settings.get(),
-      ) === null
+      resultStatus(proposal, validation ?? { ok: false, issues: [] }) === "needs_review" ||
+      autoApplyBlockReason(proposal, validation, this.settings.get()) !== null
     );
   }
 

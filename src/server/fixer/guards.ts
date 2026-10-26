@@ -135,8 +135,14 @@ type SelectedFile = {
  * it be older than the queued series (Dandivine.2006 for DAN DA DAN, 2024).
  * That side compares with the series' first year, not the episode's: release
  * names of long-running shows keep the year they started (Doctor.Who.2005).
+ * An older "year" can also be a season's name (American.Horror.Story.1984);
+ * the file's embedded title naming the queued series with that number shows it.
  */
-function seriesYearReason(facts: InspectionFacts, file: SelectedFile): string | undefined {
+function seriesYearReason(
+  queueItem: QueueItem,
+  facts: InspectionFacts,
+  file: SelectedFile,
+): string | undefined {
   const seriesYear = facts.parse?.parsedYear;
   if (!seriesYear) return undefined;
   const aired = file.targets.find((target) => target.year && seriesYear > target.year + 1);
@@ -146,8 +152,15 @@ function seriesYearReason(facts: InspectionFacts, file: SelectedFile): string | 
   const newer = file.targets.find(
     (target) => target.seriesYear && seriesYear < target.seriesYear - 1,
   );
-  if (!newer) return undefined;
+  if (!newer || seasonNamedByYear(queueItem, file, seriesYear)) return undefined;
   return `The release names a series from ${seriesYear}, but the series of ${newer.label} first aired in ${newer.seriesYear}.`;
+}
+
+function seasonNamedByYear(queueItem: QueueItem, file: SelectedFile, year: number): boolean {
+  const embedded = file.probe?.containerTitle;
+  if (!embedded?.includes(String(year))) return false;
+  const seriesForms = titleForms(queueItem.seriesTitle ?? "").filter((form) => form.length > 3);
+  return textNames(embedded, seriesForms);
 }
 
 /** Lowercase letters and digits only, so "DAN DA DAN" and "Dandadan" compare equal. */
@@ -203,7 +216,7 @@ function yearReason(
   file: SelectedFile,
   facts: InspectionFacts,
 ): string | undefined {
-  if (queueItem.service === "sonarr") return seriesYearReason(facts, file);
+  if (queueItem.service === "sonarr") return seriesYearReason(queueItem, facts, file);
   const movieYear = file.targets[0]?.year ?? queueItem.movieYear;
   // The file's own names describe what was imported; the queue title is only
   // the grabbed release name and must not mask a different year inside it.
@@ -289,9 +302,38 @@ function selectedFiles(
   });
 }
 
+/**
+ * Radarr's queue mapped the download, by its name, to a library movie whose
+ * title the release carries, while the grabbed movie's title is unrelated to
+ * it: Countdown: Rousey vs. Carano is its own library movie, not the fight it
+ * was grabbed for. Importing into that mapped movie is then the correction.
+ * Two movies sharing the title (Mary vs Maria) never qualify.
+ */
+function importsIntoMappedMovie(
+  queueItem: QueueItem,
+  proposal: ResolutionProposal,
+  facts: InspectionFacts,
+): boolean {
+  const mapped = queueItem.queueMappedId;
+  if (queueItem.service !== "radarr" || mapped === undefined) return false;
+  if (facts.parse?.matchedId !== mapped) return false;
+  if (!unrelatedTitle(queueItem, queuedTargets(queueItem, facts), facts.parse.parsedTitle)) {
+    return false;
+  }
+  return (
+    proposal.selectedImports.length > 0 &&
+    proposal.selectedImports.every((selected) => selected.movieId === mapped)
+  );
+}
+
 /** A Radarr import into a different movie than the queued one is never automatic. */
-function otherMovieReason(queueItem: QueueItem, proposal: ResolutionProposal): string | undefined {
+function otherMovieReason(
+  queueItem: QueueItem,
+  proposal: ResolutionProposal,
+  facts: InspectionFacts,
+): string | undefined {
   if (queueItem.service !== "radarr" || queueItem.movieId === undefined) return undefined;
+  if (importsIntoMappedMovie(queueItem, proposal, facts)) return undefined;
   const other = proposal.selectedImports.find(
     (selected) => selected.movieId !== undefined && selected.movieId !== queueItem.movieId,
   );
@@ -304,8 +346,13 @@ function otherMovieReason(queueItem: QueueItem, proposal: ResolutionProposal): s
  * Maria); the arr's candidate data was computed against that namesake, so an
  * import waits for a person.
  */
-function namesakeReason(queueItem: QueueItem): string | undefined {
+function namesakeReason(
+  queueItem: QueueItem,
+  proposal: ResolutionProposal,
+  facts: InspectionFacts,
+): string | undefined {
   if (queueItem.queueMappedId === undefined) return undefined;
+  if (importsIntoMappedMovie(queueItem, proposal, facts)) return undefined;
   const arr = queueItem.service === "radarr" ? "Radarr" : "Sonarr";
   return `${arr}'s queue mapped this download to another work of the same title (id ${queueItem.queueMappedId}) than the one it was grabbed for.`;
 }
@@ -321,9 +368,9 @@ function importReviewReasons(
     facts.proberAvailable
       ? undefined
       : "Media inspection is not configured, so the real file could not be checked.",
-    namesakeReason(queueItem),
-    parseReason(queueItem, facts),
-    otherMovieReason(queueItem, proposal),
+    namesakeReason(queueItem, proposal, facts),
+    importsIntoMappedMovie(queueItem, proposal, facts) ? undefined : parseReason(queueItem, facts),
+    otherMovieReason(queueItem, proposal, facts),
   ];
   for (const file of selectedFiles(queueItem, candidates, proposal, facts)) {
     if (wrongEpisodePlacement(queueItem, file.candidate, file.targets, facts)) {

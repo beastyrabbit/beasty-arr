@@ -104,9 +104,15 @@ function isVerifiedNonUpgrade(
   original: ResolutionProposal,
 ): boolean {
   if (!facts.probes.get(candidate.path)?.ok) return false;
-  const mapped = original.selectedImports?.find(
-    (selection) => selection.candidateId === candidate.id,
-  )?.episodeIds;
+  const selection = original.selectedImports?.find((entry) => entry.candidateId === candidate.id);
+  // A file placed on another movie (Countdown) is judged against that movie.
+  if (
+    queueItem.service === "radarr" &&
+    selection?.movieId !== undefined &&
+    !ids.includes(selection.movieId)
+  )
+    return false;
+  const mapped = selection?.episodeIds;
   const mappings = mapped?.length ? mapped : candidate.episodeIds;
   const targets = queueItem.service === "radarr" || mappings.length === 0 ? ids : mappings;
   if (targets.some((id) => !ids.includes(id))) return false;

@@ -297,10 +297,17 @@ export function createRadarrLookupTools({
     promptSnippet:
       "Use radarr_get_upgrade_context to compare the candidate with the current movie file and the quality profile.",
     promptGuidelines: [
-      "Call this before proposing a resolution.",
+      "Call this before proposing a resolution; when the file is another library movie than the grabbed one (such as the movie Radarr's queue mapped it to), pass movieId so upgradeAssessment compares against that movie.",
       "Custom-format scores express the user's quality preferences; German audio the library lacks outweighs them.",
     ],
     parameters: Type.Object({
+      movieId: Type.Optional(
+        Type.Integer({
+          minimum: 1,
+          description:
+            "Radarr movie id to assess the candidates against; defaults to the movie the download was grabbed for.",
+        }),
+      ),
       includeCustomFormatDefinitions: Type.Optional(
         Type.Boolean({ description: "Return every custom format definition." }),
       ),
@@ -308,7 +315,7 @@ export function createRadarrLookupTools({
     executionMode: "parallel" as const,
     async execute(_toolCallId, params) {
       const [movie, qualityProfiles, customFormats] = await Promise.all([
-        safeGetMovie(client, queueItem.movieId),
+        safeGetMovie(client, params.movieId ?? queueItem.movieId),
         client.getQualityProfiles().catch(() => []),
         client.getCustomFormats().catch(() => []),
       ]);
