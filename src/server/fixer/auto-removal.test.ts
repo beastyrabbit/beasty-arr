@@ -239,6 +239,48 @@ describe("16 remaining downloads after v0.9.0, captured read-only 24 October", (
     expect(result.validation.safeNonUpgradeRemoval).toBeUndefined();
   });
 
+  // The grabbed movie's better German file must not turn an import into the
+  // movie Radarr's queue mapped the download to (Countdown) into a removal.
+  it("does not turn an import into the queue-mapped movie into a non-upgrade removal", async () => {
+    const capture = structuredClone(saved.cases.find((row) => row.label.startsWith("Ghosts"))!);
+    const mappedId = 20_001;
+    capture.queueItem.queueMappedId = mappedId;
+    capture.movies.push({ id: mappedId, title: "Countdown: Rousey vs. Carano", year: 2020 });
+    capture.candidates = capture.candidates.map((candidate) => ({
+      ...candidate,
+      movieId: mappedId,
+    }));
+    capture.parse = {
+      ...capture.parse,
+      parsedTitle: "Countdown Rousey vs Carano",
+      matchedId: mappedId,
+      matchedTitle: "Countdown: Rousey vs. Carano",
+    };
+    const h = harness(capture);
+    const candidateId = capture.candidates[0]!.id;
+    const result = await resolveQueueItem({
+      ...h,
+      queueItem: capture.queueItem,
+      candidates: capture.candidates,
+      runner: async (req) => {
+        await tool(req, "propose_radarr_resolution", {
+          ...capture.originalProposal,
+          action: "import_candidates",
+          selectedCandidateIds: [candidateId],
+          selectedImports: [{ candidateId, movieId: mappedId }],
+          identity: {
+            verdict: "confirmed",
+            actualWork: "Countdown: Rousey vs. Carano (2020)",
+            evidence: ["Embedded title and dialogue name the documentary."],
+          },
+        });
+        return { log: [] };
+      },
+    });
+    expect(result.proposal.action).toBe("import_candidates");
+    expect(result.validation.safeNonUpgradeRemoval).toBeUndefined();
+  });
+
   it.each([
     { isInProgress: true },
     { status: "downloading" },
