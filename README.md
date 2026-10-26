@@ -43,8 +43,9 @@ identity, when the release year, runtime, or independent parse contradicts the t
 file could not be inspected, or when it would lower the resolution without adding German audio.
 Removals wait when they would throw away German audio the library lacks, when they would discard
 a German file the arr scores above the library copy or whose German track the arr's labels missed,
-when a "different work" verdict has no backing from the release year, runtime, or independent
-parse, or when they would search for German the library already has. Downloads are checked against
+or when a "different work" verdict that could lose German, a wanted upgrade or a target's only
+copy has no backing from the release year, runtime, independent parse, looked-up episodes with
+distinguishing dialogue, or a cited episode page. Downloads are checked against
 the movie or series they were grabbed for, not the one the arr's queue re-maps them to by title;
 when the two differ, an import waits for review, unless it goes into the Radarr movie the queue
 mapped it to and the grabbed movie's title is unrelated to the release (a documentary grabbed for
