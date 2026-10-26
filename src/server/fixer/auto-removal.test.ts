@@ -205,6 +205,40 @@ describe("16 remaining downloads after v0.9.0, captured read-only 24 October", (
       expect(result.validation.safeNonUpgradeRemoval).toBe(true);
   });
 
+  // Imports outside the queued targets rely on this: a file the AI places on
+  // another episode is judged there, so the non-upgrade shortcut keeps it.
+  it("does not turn an import placed on another episode into a non-upgrade removal", async () => {
+    const capture = structuredClone(
+      saved.cases.find((row) => row.label === "The Office (US) S02E04")!,
+    );
+    const queued = capture.episodes[0]!;
+    capture.episodes.push({ ...queued, id: 17_399, episodeNumber: 30, hasFile: false });
+    delete capture.episodes[1]!.episodeFile;
+    const h = harness(capture);
+    const candidateId = capture.candidates[0]!.id;
+    const result = await resolveQueueItem({
+      ...h,
+      queueItem: capture.queueItem,
+      candidates: capture.candidates,
+      runner: async (req) => {
+        await tool(req, "propose_sonarr_resolution", {
+          ...capture.originalProposal,
+          action: "import_candidates",
+          selectedCandidateIds: [candidateId],
+          selectedImports: [{ candidateId, episodeIds: [17_399] }],
+          identity: {
+            verdict: "confirmed",
+            actualWork: "The Office (US) S02E30",
+            evidence: ["Embedded title and dialogue name S02E30."],
+          },
+        });
+        return { log: [] };
+      },
+    });
+    expect(result.proposal.action).toBe("import_candidates");
+    expect(result.validation.safeNonUpgradeRemoval).toBeUndefined();
+  });
+
   it.each([
     { isInProgress: true },
     { status: "downloading" },

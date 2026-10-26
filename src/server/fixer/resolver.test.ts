@@ -898,8 +898,12 @@ describe("resolveQueueItem", () => {
     // Balances the library-file rule: 0.6.3 held anime episodes whose dialogue
     // never names the episode; a synopsis gives the plot to check against.
     expect(request?.systemPrompt).toContain(
-      "Numbering alone does not prove which episode a file is, but dialogue that fits the episode's synopsis does",
+      "Dialogue that fits the episode's synopsis confirms it",
     );
+    // Haganai NEXT S02 (0.10.0): eight German upgrades held because image-only
+    // subtitles gave no dialogue, although the numbering fit the season alias.
+    expect(request?.systemPrompt).toContain("Numbering is enough when it fits.");
+    expect(request?.systemPrompt).toContain("there is no option to leave it for the user");
     expect(request?.systemPrompt).toContain(
       "Subbed, SUB, or GER SUB means German subtitles rather than German audio",
     );
@@ -2133,6 +2137,66 @@ describe("deterministic guards on the real 2026-10-08 failures", () => {
     },
   );
 
+  // Countdown (0.10.0): the documentary is its own library movie, and Radarr's
+  // queue already mapped the download to it. Importing there is the fix.
+  it("imports a remapped download as the library movie the queue mapped it to (Countdown)", async () => {
+    const client = new FakeArrClient();
+    client.moviesById.set(13883, { id: 13883, title: "Ronda Rousey vs. Gina Carano", year: 2026 });
+    client.moviesById.set(13866, radarrMovie(13866, "Countdown: Rousey vs. Carano", 2026, 44));
+    client.parseResult = {
+      parsedMovieInfo: { movieTitles: ["Countdown Rousey vs Carano"], year: 2026 },
+      movie: { id: 13866, title: "Countdown: Rousey vs. Carano", year: 2026 },
+    };
+    const release = "Countdown.Rousey.vs.Carano.2026.DOC.MULTI.1080p.WEB.x264-Penrose";
+    const { result } = await analyze(
+      {
+        queueItem: {
+          ...radarrItem(13883, release),
+          movieTitle: "Ronda Rousey vs. Gina Carano",
+          queueMappedId: 13866,
+        },
+        candidates: [radarrCandidate(13866, release)],
+        client,
+        prober: fakeProber({
+          "/downloads/candidate_1.mkv": { durationSeconds: minutes(43), audio: [englishAudio()] },
+        }),
+      },
+      importProposal("candidate_1", {
+        selectedImports: [{ candidateId: "candidate_1", episodeIds: [], movieId: 13866 }],
+      }),
+    );
+    expect(result.proposal.reviewReasons ?? []).toEqual([]);
+    expect(result.status).toBe("proposal");
+    expect(result.proposal.action).toBe("import_candidates");
+  });
+
+  it("still holds an import into the queue's namesake (Maria mapped to Maria)", async () => {
+    const client = new FakeArrClient();
+    client.moviesById.set(11075, radarrMovie(11075, "Maria", 2024, 112));
+    client.moviesById.set(11094, radarrMovie(11094, "Maria", 2024, 112));
+    client.parseResult = { movie: { id: 11094, title: "Maria", year: 2024 } };
+    const release = "Maria.2024.German.DL.EAC3.1080p.NF.WEB.H264-ZeroTwo";
+    const { result } = await analyze(
+      {
+        queueItem: { ...radarrItem(11075, release), queueMappedId: 11094 },
+        candidates: [radarrCandidate(11094, release)],
+        client,
+        prober: fakeProber({
+          "/downloads/candidate_1.mkv": {
+            durationSeconds: minutes(112),
+            audio: [germanAudio()],
+            hasGermanAudio: true,
+          },
+        }),
+      },
+      importProposal("candidate_1", {
+        selectedImports: [{ candidateId: "candidate_1", episodeIds: [], movieId: 11094 }],
+      }),
+    );
+    expect(result.status).toBe("needs_review");
+    expect(result.proposal.reviewReasons?.join(" ")).toContain("another work of the same title");
+  });
+
   it("keeps a wanted German episode when neighboring synopses share the inspected plot (Übel Blatt)", async () => {
     const client = new FakeArrClient();
     client.episodes = [
@@ -2630,6 +2694,63 @@ describe("deterministic guards on the live 2026-10-17 findings", () => {
       );
     },
   );
+
+  /** American Horror Story S09E05: Sonarr parses the season name "1984" as the series year. */
+  async function ahs1984(containerTitle: string | undefined) {
+    const client = new FakeArrClient();
+    client.episodes = [
+      {
+        id: 101,
+        hasFile: false,
+        seasonNumber: 9,
+        episodeNumber: 5,
+        title: "Red Dawn",
+        airDate: "2019-10-16",
+        series: { id: 5, title: "American Horror Story", year: 2011 },
+      },
+    ];
+    client.parseResult = {
+      parsedEpisodeInfo: {
+        seriesTitle: "American Horror Story 1984",
+        seriesTitleInfo: { year: 1984 },
+        seasonNumber: 9,
+        episodeNumbers: [5],
+      },
+    };
+    const { result } = await analyze(
+      {
+        queueItem: makeQueueItem({
+          title:
+            "American.Horror.Story.1984.S09E05.Rote.Daemmerung.GERMAN.5.1.DUBBED.DL.AC3.1080p.WEB-DL.h264-TvR",
+          seriesTitle: "American Horror Story",
+        }),
+        candidates: [makeCandidate("candidate_1")],
+        client,
+        prober: fakeProber({
+          "/downloads/candidate_1.mkv": {
+            containerTitle,
+            durationSeconds: minutes(38),
+            audio: [germanAudio()],
+            hasGermanAudio: true,
+          },
+        }),
+      },
+      importProposal("candidate_1"),
+    );
+    return result;
+  }
+
+  it("keeps an import whose embedded title shows the release year is a season name (AHS 1984)", async () => {
+    const result = await ahs1984("American Horror Story: 1984 - S09E05 - Rote Dämmerung");
+    expect(result.proposal.reviewReasons ?? []).toEqual([]);
+    expect(result.status).toBe("proposal");
+  });
+
+  it("still holds that import without an embedded title naming the series and year", async () => {
+    const result = await ahs1984(undefined);
+    expect(result.status).toBe("needs_review");
+    expect(result.proposal.reviewReasons?.[0]).toContain("The release names a series from 1984");
+  });
 
   it("does not count a parsed title that contains the queued title as another work (Montana Story)", async () => {
     const client = new FakeArrClient();

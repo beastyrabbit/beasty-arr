@@ -64,8 +64,8 @@ export function createProposalTool(
     promptGuidelines: [
       `Always finish by calling ${toolName} exactly once.`,
       `Before calling ${toolName}, inspect the real files with inspect_media_files and read the upgrade context; ${serviceName}'s labels are claims, not facts.`,
-      `identity is mandatory: say what the download actually is and how you know. verdict confirmed only when your own observations (embedded title, subtitle dialogue, runtime against the looked-up runtime, NFO ids, ${serviceName}'s independent parse) show it is the queued ${target}. Matching ids from ${serviceName}'s grab history are never evidence.`,
-      "An import with identity verdict other than confirmed is never applied automatically; it waits for the user.",
+      `identity is mandatory: say what the download actually is and how you know. verdict confirmed only when your own observations (embedded title, subtitle dialogue, runtime against the looked-up runtime, NFO ids, ${serviceName}'s independent parse${service === "sonarr" ? ", numbering that fits the series' own season scheme with nothing contradicting it" : ""}) show it is the ${target} you map it to. Matching ids from ${serviceName}'s grab history are never evidence.`,
+      `Import only with identity verdict confirmed for the ${target} each file is mapped to; that may be another ${target} than the queued one when the file really is that ${target} and it wants the file.`,
       "Never select candidates that are samples, extras, or Blu-ray disc structure chunks.",
       "Judge languages from the inspected audio streams (including untagged tracks titled German/Deutsch), not from the arr's language labels. An explicit release-name marker such as German, Deutsch, GER or DEU is useful corroborating evidence, except that Subbed, SUB, or GER SUB means German subtitles rather than German audio. DL and ML in German scene names mean German plus the original audio; DUAL and MULTi name two or more languages that need not include German. When a stream tag and title disagree, weigh the filename marker, other streams, and release context like a person doing a manual import, then explain the uncertainty in rationale.",
       "Set queueRemovalOptions from the removal options table in the system prompt.",
@@ -73,12 +73,11 @@ export function createProposalTool(
       `A candidate that would not be imported even if it were the queued ${target} (no German the library lacks, not an upgrade) may be removed as a non-upgrade with blocklist=true and skipRedownload=true while its identity stays uncertain.`,
       "German audio the target lacks takes priority over profile qualities. When inspection places a confirmed German file outside the profile but the release-name quality is allowed and the target is missing or its current file has no German, upgradeAssessment marks it import at the release quality; propose that import. Disallowed quality remains refused when the library already has German or the release quality is disallowed too.",
       "Never discard German audio the library lacks on weak identity evidence. A backed wrong-work or wrong-episode verdict permits removal.",
-      "Use needs_review only when direct observations leave the identity or right action materially unresolved. A stale arr label or one conflicting stream metadata field alone is not enough; make the best supported decision from the whole release.",
+      "Always decide: there is no action that leaves the download for the user. When a question stays open, follow the decision rules in the system prompt.",
     ],
     parameters: Type.Object({
       action: Type.Union([
         Type.Literal("import_candidates"),
-        Type.Literal("needs_review"),
         Type.Literal("ignore_queue_item"),
         Type.Literal("remove_queue_item"),
       ]),
@@ -123,7 +122,7 @@ export function createProposalTool(
         },
         { description: "What the download actually is, established independently of the arr." },
       ),
-      // Lists below are optional: a removal or review has nothing to put in them.
+      // Lists below are optional: a removal has nothing to put in them.
       selectedCandidateIds: Type.Optional(
         Type.Array(candidateId, {
           description:
