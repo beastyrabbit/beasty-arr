@@ -18,7 +18,8 @@ can call AI while dry-run is enabled. Commands already accepted by an Arr can fi
 dry-run is turned on. Ambiguous command responses hold targets until acceptance is reconciled.
 
 Fixer auto-run and Run all retry failed analyses after a cooldown starting at 15 minutes,
-doubling up to six hours. Provider usage limits pause new Fixer analyses for one hour.
+doubling up to six hours. They also pick up downloads whose last analysis was cancelled (Stop
+all, a shutdown or a replaced analysis) on their next pass, without a cooldown. Provider usage limits pause new Fixer analyses for one hour.
 Auto-apply reanalyzes eligible saved proposals against current queue and library evidence before
 applying them, even with auto-run off. Failed applications appear in the queue with their error
 and a reanalysis/retry action. Manual review remains required below the configured confidence
