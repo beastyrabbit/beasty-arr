@@ -85,7 +85,7 @@ export function createProposalTool(
         minimum: 0,
         maximum: 1,
         description:
-          "Probability that the action is right. Below 0.9 whenever any identity, language, or quality fact rests on labels you could not verify.",
+          "Probability that the action is right. Below 0.9 whenever a fact that decides the action rests on labels you could not verify. Unverified identity does not lower it for a non-upgrade removal, a sample far shorter than the expected runtime, or a file inspected as invalid media.",
       }),
       identity: Type.Object(
         {

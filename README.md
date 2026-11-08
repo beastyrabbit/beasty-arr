@@ -26,7 +26,8 @@ and a reanalysis/retry action. Manual review remains required below the configur
 thresholds. Verified non-upgrades use the import confidence threshold after the removal guards
 pass. Completed downloads with no candidates and an explicit terminal import rejection are
 removed, blocklisted and searched again. Extraction, in-progress and transient filesystem states
-stay held.
+stay held. An empty download held before the arr reported such a rejection is checked again, without
+AI, once the rejection appears.
 Analyze all, Run all and scheduled auto-run reconsider held analyses from older app versions once
 per release: reviews and proposals that auto-apply would not take. Refresh only reloads the
 queue. Auto-apply alone does not reanalyze held work when auto-run is off.
