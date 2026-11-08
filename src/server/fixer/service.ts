@@ -606,7 +606,7 @@ export class FixerService {
         .get();
       if (!row) return false;
     }
-    if (!pendingOnly && this.emptyListingNowTerminal(item, row)) return true;
+    if (this.emptyListingNowTerminal(item, row, pendingOnly)) return true;
     // Genuine holds cost nothing again until a new release can reconsider them.
     // That covers proposals auto-apply would not take (a 0.9.0 removal at 88%),
     // not just reviews. pendingOnly runs with auto-run off and must not spend
@@ -635,10 +635,16 @@ export class FixerService {
    * The new analysis needs no AI while the listing stays empty; candidates
    * that appear meanwhile are new evidence and get a normal analysis. A failed
    * candidate fetch ("Could not load …") is not an empty listing and stays held.
+   * pendingOnly runs (auto-run off) never reconsider held work.
    */
-  private emptyListingNowTerminal(item: FixerQueueItem, row: FixerAnalysisRow): boolean {
+  private emptyListingNowTerminal(
+    item: FixerQueueItem,
+    row: FixerAnalysisRow,
+    pendingOnly: boolean,
+  ): boolean {
     const proposal = row.proposal as unknown as ResolutionProposal | null;
     return (
+      !pendingOnly &&
       row.status === "completed" &&
       proposal?.action === "needs_review" &&
       (row.candidates?.length ?? 0) === 0 &&
