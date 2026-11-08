@@ -30,7 +30,7 @@ import {
   realMentalistQueueItem,
   realReviewCapture,
 } from "./real-world-fixtures.js";
-import { type ResolveQueueItemInput, resolveQueueItem } from "./resolver.js";
+import { type ResolveQueueItemInput, resolveQueueItem, revalidateResolution } from "./resolver.js";
 import { englishAudio, fakeProber, germanAudio } from "./test-prober.js";
 
 class FakeArrClient {
@@ -1201,6 +1201,16 @@ describe("resolveQueueItem", () => {
     );
     // The options are spelled out in the table only.
     expect(system.match(/skipRedownload=false, changeCategory=false/g)).toBeNull();
+    // PAW Patrol two-minute clips and zero-filled Love, Death & Robots files sat
+    // at 0.88–0.89 under the 0.95 removal bar for unverified identity.
+    expect(system).toContain(
+      "The same holds for removing a sample or clip whose inspected duration is far below the expected runtime, and a file the inspection reports as invalid media (not one that merely could not be read)",
+    );
+    const tools = (request?.tools ?? []) as Array<{ name: string; parameters?: unknown }>;
+    const proposalTool = tools.find((tool) => tool.name.startsWith("propose_"));
+    expect(JSON.stringify(proposalTool?.parameters)).toContain(
+      "Unverified identity does not lower it for a non-upgrade removal, a sample far shorter than the expected runtime, or a file inspected as invalid media.",
+    );
     expect(system).toContain(
       "In German scene names DL and ML mean German plus the original audio; DUAL and MULTi name two or more languages that need not include German (Turkish releases often tag the second track und); the inspected streams decide.",
     );
@@ -1627,6 +1637,51 @@ describe("deterministic guards on the real 2026-10-03 failures", () => {
     );
     expect(prober.calls).toContain("/downloads/candidate_31.mkv");
     expect(result.proposal.reviewReasons?.[0]).toContain("candidate_31.mkv has German audio");
+  });
+
+  it("re-inspects selected files beyond the upfront probe limit before applying (One Piece S02)", async () => {
+    // One Piece S02/S03 packs (82 and 52 files) passed analysis, where the AI
+    // inspected every file, and then failed every apply because revalidation
+    // only probed the first 30: "could not be inspected (it was not inspected)".
+    const candidates = Array.from({ length: 31 }, (_, index) =>
+      makeCandidate(`candidate_${index + 1}`),
+    );
+    const saved = {
+      queueItemId: 11,
+      candidates,
+      proposal: importProposal("candidate_31", { confidence: 0.97 }),
+      validation: { ok: true, issues: [] },
+      status: "proposal" as const,
+      log: [],
+    };
+    const cases: Array<[NonNullable<Parameters<typeof fakeProber>[0]>[string], boolean]> = [
+      [{ audio: [germanAudio()], hasGermanAudio: true }, false],
+      [{ ok: false, reason: "ffprobe timed out" }, true],
+    ];
+    for (const [probe, held] of cases) {
+      const client = new FakeArrClient();
+      client.episodes = [
+        { id: 101, hasFile: true, episodeFile: { path: "/lib/E01.mkv", languages: [] } },
+      ];
+      const prober = fakeProber({
+        "/downloads/candidate_31.mkv": probe,
+        "/lib/E01.mkv": { audio: [englishAudio()] },
+      });
+      const rechecked = await revalidateResolution(
+        { queueItem: makeQueueItem(), candidates, client, prober },
+        saved,
+      );
+      expect(prober.calls).toContain("/downloads/candidate_31.mkv");
+      if (held) {
+        expect(rechecked.status).toBe("needs_review");
+        expect(rechecked.proposal.reviewReasons?.join(" ")).toContain(
+          "candidate_31.mkv could not be inspected (ffprobe timed out)",
+        );
+      } else {
+        expect(rechecked.status).toBe("proposal");
+        expect(rechecked.proposal.action).toBe("import_candidates");
+      }
+    }
   });
 
   it("holds a Radarr import into a different movie than the queued one", async () => {

@@ -31,6 +31,7 @@ import {
   listFixerHistory,
   recordFixerHistory,
 } from "./history.js";
+import { emptyCandidateRemoval } from "./non-upgrade.js";
 import {
   type FixerClientPort,
   fallbackProposal,
@@ -57,6 +58,8 @@ export const ignoreRemovalOptions: QueueRemovalOptions = {
 };
 
 const MAX_PERSISTED_EVENTS = 500;
+/** The resolver's hold for an empty candidate listing (resolver.ts, no candidates). */
+const EMPTY_LISTING_HOLD = /^(?:Sonarr|Radarr) returned no manual import candidates\b/;
 /** Cap for one coalesced text/thinking block in the persisted events. */
 const MAX_MERGED_DELTA_CHARS = 20_000;
 const MERGED_DELTA_TRUNCATED = " …[truncated]";
@@ -603,6 +606,7 @@ export class FixerService {
         .get();
       if (!row) return false;
     }
+    if (!pendingOnly && this.emptyListingNowTerminal(item, row)) return true;
     // Genuine holds cost nothing again until a new release can reconsider them.
     // That covers proposals auto-apply would not take (a 0.9.0 removal at 88%),
     // not just reviews. pendingOnly runs with auto-run off and must not spend
@@ -623,6 +627,24 @@ export class FixerService {
       return false;
     if (this.latestApply(row.id)?.result === "ok") return false;
     return !this.isHeld(row);
+  }
+
+  /**
+   * An empty listing held before the arr reported a terminal rejection (Re:ZERO
+   * S01: "No files found are eligible for import" arrived after the analysis).
+   * The new analysis needs no AI while the listing stays empty; candidates
+   * that appear meanwhile are new evidence and get a normal analysis. A failed
+   * candidate fetch ("Could not load …") is not an empty listing and stays held.
+   */
+  private emptyListingNowTerminal(item: FixerQueueItem, row: FixerAnalysisRow): boolean {
+    const proposal = row.proposal as unknown as ResolutionProposal | null;
+    return (
+      row.status === "completed" &&
+      proposal?.action === "needs_review" &&
+      (row.candidates?.length ?? 0) === 0 &&
+      EMPTY_LISTING_HOLD.test(proposal.reason ?? "") &&
+      emptyCandidateRemoval(item) !== undefined
+    );
   }
 
   /** A result that waits for the user: a review, or a proposal auto-apply would not take. */

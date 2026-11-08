@@ -1520,6 +1520,37 @@ describe("FixerService season packs", () => {
     expect((await svc.waitForAnalysis(second.analysisId)).status).toBe("cancelled");
   });
 
+  it("reconsiders an empty-listing hold once the arr reports a terminal rejection (Re:ZERO S01)", async () => {
+    const { svc, sonarr } = makeHarness();
+    const held = makeQueueItem(1, {
+      status: "completed",
+      statusMessages: [
+        "One or more episodes expected in this release were not imported or missing from the release",
+      ],
+    });
+    sonarr.queue = [held];
+    const outcome = await svc.analyzeAndWait("sonarr", 1);
+    expect(outcome.result?.status).toBe("needs_review");
+    const item = { ...held, issueType: "warning" };
+    expect(svc.shouldProcess(item)).toBe(false);
+
+    const terminal = {
+      ...item,
+      statusMessages: [
+        "No files found are eligible for import in /data/usenet/complete/tv/Re.ZERO",
+      ],
+    };
+    expect(svc.shouldProcess(terminal)).toBe(true);
+    expect(svc.shouldProcess(terminal, true)).toBe(false);
+
+    // A failed candidate fetch is not an empty listing and stays held.
+    sonarr.queue = [{ ...held, statusMessages: terminal.statusMessages }];
+    sonarr.failCandidates = true;
+    const failed = await svc.analyzeAndWait("sonarr", 1);
+    expect(failed.result?.proposal.reason).toContain("Could not load");
+    expect(svc.shouldProcess(terminal)).toBe(false);
+  });
+
   it("picks a cancelled analysis up again on the next automatic or bulk run", async () => {
     const { svc, sonarr, runnerCtl } = makeHarness();
     sonarr.queue = [makeQueueItem(1)];

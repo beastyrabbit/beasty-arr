@@ -169,7 +169,7 @@ function buildCoreSystemPrompt(service: MediaService): string {
     "Report honestly:",
     `- identity.verdict is confirmed only when your own observations show the file is the queued ${target} (or the ${target} you map it to). Matching ids from ${arr}'s grab history are not evidence. Use contradicted when it is something else and say what in actualWork.`,
     "- rationale is your written reasoning as a human operator would note it, including what you could not verify.",
-    "- confidence is below 0.9 whenever a deciding fact rests on labels you could not verify. Identity or cut uncertainty must not lower confidence for a non-upgrade removal: if the file could not improve the library even if its identity were correct, those facts do not decide the action.",
+    "- confidence is below 0.9 whenever a deciding fact rests on labels you could not verify. Identity or cut uncertainty must not lower confidence for a non-upgrade removal: if the file could not improve the library even if its identity were correct, those facts do not decide the action. The same holds for removing a sample or clip whose inspected duration is far below the expected runtime, and a file the inspection reports as invalid media (not one that merely could not be read): such a file is unusable whatever it is.",
   ].join("\n");
 }
 
@@ -661,12 +661,22 @@ export async function revalidateResolution(
       : selection.episodeIds,
   );
   const selectedTargets = await loadTargets(facts, input.client, selectedIds);
+  // The upfront probe covers only the first files of a large pack; the import
+  // guard needs every selected file, as the AI inspected them during analysis.
+  const selectedCandidateIds = new Set(
+    result.proposal.selectedImports.map((selection) => selection.candidateId),
+  );
   await probePaths(
     facts,
     input.prober,
-    selectedTargets.flatMap((target) =>
-      target.currentFile?.path ? [target.currentFile.path] : [],
-    ),
+    [
+      ...result.candidates
+        .filter((candidate) => selectedCandidateIds.has(candidate.id))
+        .map((candidate) => candidate.path),
+      ...selectedTargets.flatMap((target) =>
+        target.currentFile?.path ? [target.currentFile.path] : [],
+      ),
+    ],
     { signal: input.signal },
   );
   const profiles = await input.client.getQualityProfiles().catch(() => []);
