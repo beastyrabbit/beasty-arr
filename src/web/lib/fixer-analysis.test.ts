@@ -38,6 +38,21 @@ function event(second: number, message: string): ResolverEvent {
   };
 }
 
+function blockEvent(
+  second: number,
+  message: string,
+  kind: "text" | "thinking" = "text",
+  itemId = 1,
+): ResolverEvent {
+  return {
+    type: "pi",
+    message,
+    itemId,
+    timestamp: new Date(Date.UTC(2026, 10, 20, 12, 0, second)).toISOString(),
+    details: { kind },
+  };
+}
+
 describe("analysisEvents", () => {
   it("drops refetched saved events the live stream already shows", () => {
     const saved = [event(1, "load"), event(2, "inspect"), event(3, "pi")];
@@ -50,6 +65,39 @@ describe("analysisEvents", () => {
     ]);
   });
 
+  it("preserves distinct persisted events that share the first live event's millisecond", () => {
+    const saved = [event(2, "load"), event(2, "inspect"), event(3, "pi")];
+    const live = [event(2, "inspect"), event(3, "pi"), event(4, "proposal")];
+    expect(analysisEvents(saved, live).map((e) => e.message)).toEqual([
+      "load",
+      "inspect",
+      "pi",
+      "proposal",
+    ]);
+  });
+
+  it("trims overlapping coalesced text deltas after refetch instead of duplicating them", () => {
+    const saved = [event(1, "start"), blockEvent(2, "Hello world")];
+    const live = [blockEvent(3, " world"), blockEvent(4, "!")];
+    expect(analysisEvents(saved, live).map((e) => e.message)).toEqual(["start", "Hello world!"]);
+
+    const exactTail = [blockEvent(3, " world")];
+    expect(analysisEvents(saved, exactTail).map((e) => e.message)).toEqual([
+      "start",
+      "Hello world",
+    ]);
+  });
+
+  it("keeps an earlier text block intact when a later text block follows another step", () => {
+    const saved = [blockEvent(1, "Hello"), event(2, "tool")];
+    const live = [blockEvent(3, "Hello again")];
+    expect(analysisEvents(saved, live).map((e) => e.message)).toEqual([
+      "Hello",
+      "tool",
+      "Hello again",
+    ]);
+  });
+
   it("shows the saved events alone before anything streamed", () => {
     const saved = [event(1, "load")];
     expect(analysisEvents(saved, [])).toBe(saved);
@@ -57,13 +105,10 @@ describe("analysisEvents", () => {
 });
 
 describe("withUniqueKeys", () => {
-  it("keeps keys unique when texts repeat", () => {
-    expect(withUniqueKeys(["a", "b", "a", "a"])).toEqual([
-      { key: "a", value: "a" },
-      { key: "b", value: "b" },
-      { key: "a#2", value: "a" },
-      { key: "a#3", value: "a" },
-    ]);
+  it("keeps keys unique without colliding against literal #N suffixes", () => {
+    const keyed = withUniqueKeys(["a", "a", "a#2", "b"]);
+    expect(keyed.map((entry) => entry.value)).toEqual(["a", "a", "a#2", "b"]);
+    expect(new Set(keyed.map((entry) => entry.key)).size).toBe(4);
   });
 });
 
