@@ -42,9 +42,13 @@ describe("toResolverEvent", () => {
       itemId: 1,
       details: { kind: "thinking" },
     });
-    expect(toResolverEvent({ kind: "text", delta: "answer", ts })).toMatchObject({
+    expect(
+      toResolverEvent({ kind: "text", delta: "answer", ts, seq: 2, lastSeq: 5 }),
+    ).toMatchObject({
       type: "pi",
       message: "answer",
+      seq: 2,
+      lastSeq: 5,
       details: { kind: "text" },
     });
   });

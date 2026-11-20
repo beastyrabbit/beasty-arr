@@ -1371,12 +1371,12 @@ describe("FixerService persisted analysis trace", () => {
 
     const piEvents = persistedEvents(harness).filter((e) => e.kind !== "step");
     expect(piEvents).toEqual([
-      { kind: "thinking", delta: "check episodes", ts: 1, itemId: 1 },
-      { kind: "text", delta: "Looking up.", ts: 3, itemId: 1 },
-      expect.objectContaining({ kind: "tool-call", phase: "start", args: { a: 1 } }),
-      expect.objectContaining({ kind: "tool-call", phase: "end", result: "found" }),
+      { kind: "thinking", delta: "check episodes", ts: 1, itemId: 1, seq: 6, lastSeq: 7 },
+      { kind: "text", delta: "Looking up.", ts: 3, itemId: 1, seq: 8, lastSeq: 9 },
+      expect.objectContaining({ kind: "tool-call", phase: "start", args: { a: 1 }, seq: 10 }),
+      expect.objectContaining({ kind: "tool-call", phase: "end", result: "found", seq: 11 }),
       // The fake runner's trailing "analysis text" (no itemId) is a separate block.
-      { kind: "text", delta: "Done", ts: 7, itemId: 1 },
+      { kind: "text", delta: "Done", ts: 7, itemId: 1, seq: 12, lastSeq: 12 },
       expect.objectContaining({ kind: "text", delta: "analysis text" }),
     ]);
     const streamedDeltas = harness.busEvents.filter(
@@ -1406,6 +1406,7 @@ describe("FixerService persisted analysis trace", () => {
     const thinking = persistedEvents(harness).filter((e): e is DeltaEvent => e.kind === "thinking");
     expect(thinking).toHaveLength(1);
     expect(thinking[0]?.delta).toBe(`${"y".repeat(20_000)} …[truncated]`);
+    expect(thinking[0]?.lastSeq).toBe((thinking[0]?.seq ?? 0) + 29);
   });
 
   it("keeps ~40 tool calls and shrinks the largest results to fit the size budget", async () => {

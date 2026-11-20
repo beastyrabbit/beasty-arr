@@ -30,33 +30,35 @@ function proposal(over: Partial<ResolutionProposal>): ResolutionProposal {
   };
 }
 
-function event(second: number, message: string): ResolverEvent {
+function event(second: number, message: string, seq?: number): ResolverEvent {
   return {
     type: "info",
     message,
     timestamp: new Date(Date.UTC(2026, 10, 20, 12, 0, second)).toISOString(),
+    ...(seq === undefined ? {} : { seq }),
   };
 }
 
 function blockEvent(
   second: number,
   message: string,
-  kind: "text" | "thinking" = "text",
-  itemId = 1,
+  opts: { kind?: "text" | "thinking"; itemId?: number; seq?: number; lastSeq?: number } = {},
 ): ResolverEvent {
   return {
     type: "pi",
     message,
-    itemId,
+    itemId: opts.itemId ?? 1,
     timestamp: new Date(Date.UTC(2026, 10, 20, 12, 0, second)).toISOString(),
-    details: { kind },
+    ...(opts.seq === undefined ? {} : { seq: opts.seq }),
+    ...(opts.lastSeq === undefined ? {} : { lastSeq: opts.lastSeq }),
+    details: { kind: opts.kind ?? "text" },
   };
 }
 
 describe("analysisEvents", () => {
   it("drops refetched saved events the live stream already shows", () => {
-    const saved = [event(1, "load"), event(2, "inspect"), event(3, "pi")];
-    const live = [event(2, "inspect"), event(3, "pi"), event(4, "proposal")];
+    const saved = [event(1, "load", 1), event(2, "inspect", 2), event(3, "pi", 3)];
+    const live = [event(2, "inspect", 2), event(3, "pi", 3), event(4, "proposal", 4)];
     expect(analysisEvents(saved, live).map((e) => e.message)).toEqual([
       "load",
       "inspect",
@@ -66,8 +68,8 @@ describe("analysisEvents", () => {
   });
 
   it("preserves distinct persisted events that share the first live event's millisecond", () => {
-    const saved = [event(2, "load"), event(2, "inspect"), event(3, "pi")];
-    const live = [event(2, "inspect"), event(3, "pi"), event(4, "proposal")];
+    const saved = [event(2, "load", 1), event(2, "inspect", 2), event(3, "pi", 3)];
+    const live = [event(2, "inspect", 2), event(3, "pi", 3), event(4, "proposal", 4)];
     expect(analysisEvents(saved, live).map((e) => e.message)).toEqual([
       "load",
       "inspect",
@@ -76,30 +78,39 @@ describe("analysisEvents", () => {
     ]);
   });
 
-  it("trims overlapping coalesced text deltas after refetch instead of duplicating them", () => {
-    const saved = [event(1, "start"), blockEvent(2, "Hello world")];
-    const live = [blockEvent(3, " world"), blockEvent(4, "!")];
-    expect(analysisEvents(saved, live).map((e) => e.message)).toEqual(["start", "Hello world!"]);
-
-    const exactTail = [blockEvent(3, " world")];
-    expect(analysisEvents(saved, exactTail).map((e) => e.message)).toEqual([
-      "start",
-      "Hello world",
+  it("reconciles coalesced blocks by lastSeq without duplicating truncated blocks or dropping coincidental text", () => {
+    // Truncated 20k persisted block followed by a tool call: streamed tail + same tool must not duplicate.
+    const savedTruncated = [
+      blockEvent(1, "long text …[truncated]", { seq: 1, lastSeq: 500 }),
+      event(2, "→ sonarr_find_episodes", 501),
+    ];
+    const liveTruncated = [
+      blockEvent(1, "tail delta", { seq: 500 }),
+      event(2, "→ sonarr_find_episodes", 501),
+      event(3, "← sonarr_find_episodes", 502),
+    ];
+    expect(analysisEvents(savedTruncated, liveTruncated).map((e) => e.message)).toEqual([
+      "long text …[truncated]",
+      "→ sonarr_find_episodes",
+      "← sonarr_find_episodes",
     ]);
-  });
 
-  it("keeps an earlier text block intact when a later text block follows another step", () => {
-    const saved = [blockEvent(1, "Hello"), event(2, "tool")];
-    const live = [blockEvent(3, "Hello again")];
-    expect(analysisEvents(saved, live).map((e) => e.message)).toEqual([
-      "Hello",
-      "tool",
-      "Hello again",
+    // Coincidental text ("Hello" + genuinely new "o") must not be discarded as overlap.
+    const savedHello = [blockEvent(1, "Hello", { seq: 1, lastSeq: 1 })];
+    const liveO = [blockEvent(2, "o", { seq: 2 })];
+    expect(analysisEvents(savedHello, liveO).map((e) => e.message)).toEqual(["Hello", "o"]);
+
+    // Overlapping coalesced delta (" world" already merged into saved block) is dropped; only "!" appends.
+    const savedWorld = [blockEvent(1, "Hello world", { seq: 1, lastSeq: 2 })];
+    const liveWorld = [blockEvent(2, " world", { seq: 2 }), blockEvent(3, "!", { seq: 3 })];
+    expect(analysisEvents(savedWorld, liveWorld).map((e) => e.message)).toEqual([
+      "Hello world",
+      "!",
     ]);
   });
 
   it("shows the saved events alone before anything streamed", () => {
-    const saved = [event(1, "load")];
+    const saved = [event(1, "load", 1)];
     expect(analysisEvents(saved, [])).toBe(saved);
   });
 });

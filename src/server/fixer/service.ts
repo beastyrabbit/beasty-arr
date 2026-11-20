@@ -91,6 +91,7 @@ function appendPersistedEvent(events: FixerAnalysisEvent[], event: FixerAnalysis
       block = { ...event, delta: "" };
       pushPersistedEvent(events, block);
     }
+    if (event.seq !== undefined) block.lastSeq = event.seq;
     if (block.delta.endsWith(MERGED_DELTA_TRUNCATED)) return;
     const room = MAX_MERGED_DELTA_CHARS - block.delta.length;
     block.delta +=
@@ -1007,6 +1008,7 @@ export class FixerService {
   ): Promise<FixerRunOutcome> {
     const { service } = queueItem;
     const events: FixerAnalysisEvent[] = [];
+    let eventSeq = 0;
     let persistTimer: ReturnType<typeof setTimeout> | undefined;
     const persist = () => {
       persistTimer = undefined;
@@ -1018,7 +1020,9 @@ export class FixerService {
         .run();
     };
     const record = (event: FixerAnalysisEvent) => {
-      appendPersistedEvent(events, event);
+      eventSeq += 1;
+      const sequenced: FixerAnalysisEvent = { ...event, seq: eventSeq };
+      appendPersistedEvent(events, sequenced);
       persistTimer ??= setTimeout(persist, EVENT_PERSIST_DELAY_MS);
       // SSE payload uses the GUI-facing ResolverEvent shape (api-types contract)
       // and stays per-delta for the live view; the persisted rows keep the
@@ -1027,7 +1031,7 @@ export class FixerService {
         analysisId,
         service,
         queueItemId: queueItem.id,
-        event: toResolverEvent(event),
+        event: toResolverEvent(sequenced),
       });
     };
     const step = (

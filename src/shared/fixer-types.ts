@@ -267,6 +267,10 @@ export interface ResolverEvent {
   message: string;
   timestamp: string;
   itemId?: number;
+  /** Monotonic per-analysis event sequence number assigned by FixerService. */
+  seq?: number;
+  /** Last event sequence number merged into a persisted text/thinking block. */
+  lastSeq?: number;
   /**
    * Pi tool calls: `{toolName, phase, args?, result?, isError?}` (result on
    * phase "end"); assistant output blocks: `{kind: "text" | "thinking"}`;

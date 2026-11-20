@@ -14,6 +14,7 @@ export type FixerAnalysisEvent =
       source: "fixer" | "pi" | "sonarr" | "radarr";
       message: string;
       ts: number;
+      seq?: number;
       itemId?: number;
       details?: unknown;
     }
@@ -22,6 +23,7 @@ export type FixerAnalysisEvent =
       phase: "start" | "end";
       toolName: string;
       ts: number;
+      seq?: number;
       itemId?: number;
       isError?: boolean;
       args?: unknown;
@@ -32,6 +34,9 @@ export type FixerAnalysisEvent =
       kind: "text" | "thinking";
       delta: string;
       ts: number;
+      seq?: number;
+      /** Last delta sequence number coalesced into this persisted block. */
+      lastSeq?: number;
       itemId?: number;
     };
 

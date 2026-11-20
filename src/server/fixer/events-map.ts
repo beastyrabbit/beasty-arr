@@ -7,6 +7,14 @@ import type { FixerAnalysisEvent } from "./ai-port.js";
  */
 export function toResolverEvent(ev: FixerAnalysisEvent): ResolverEvent {
   const timestamp = new Date(ev.ts).toISOString();
+  const seqFields = {
+    ...(ev.seq === undefined ? {} : { seq: ev.seq }),
+    ...(ev.kind === "text" || ev.kind === "thinking"
+      ? ev.lastSeq === undefined
+        ? {}
+        : { lastSeq: ev.lastSeq }
+      : {}),
+  };
   if (ev.kind === "step") {
     const type: ResolverEvent["type"] =
       ev.source === "pi" || ev.source === "sonarr" || ev.source === "radarr"
@@ -16,7 +24,14 @@ export function toResolverEvent(ev: FixerAnalysisEvent): ResolverEvent {
           : ev.level === "error"
             ? "error"
             : "info";
-    return { type, message: ev.message, timestamp, itemId: ev.itemId, details: ev.details };
+    return {
+      type,
+      message: ev.message,
+      timestamp,
+      itemId: ev.itemId,
+      ...seqFields,
+      details: ev.details,
+    };
   }
   if (ev.kind === "tool-call") {
     return {
@@ -24,6 +39,7 @@ export function toResolverEvent(ev: FixerAnalysisEvent): ResolverEvent {
       message: `${ev.phase === "start" ? "→" : "←"} ${ev.toolName}${ev.isError ? " (error)" : ""}`,
       timestamp,
       itemId: ev.itemId,
+      ...seqFields,
       details: {
         toolName: ev.toolName,
         phase: ev.phase,
@@ -38,6 +54,7 @@ export function toResolverEvent(ev: FixerAnalysisEvent): ResolverEvent {
     message: ev.delta,
     timestamp,
     itemId: ev.itemId,
+    ...seqFields,
     details: { kind: ev.kind },
   };
 }
