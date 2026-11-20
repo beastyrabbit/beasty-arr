@@ -468,6 +468,7 @@ describe("24 October saved review regressions", () => {
   );
 
   it("does not infer a wrong Bleach arc just from an unmatched base-title parse", async () => {
+    // The series record names no season-bound arc, so only the parse is left.
     const result = await replay(
       "bleach-part4",
       removeProposal(
@@ -479,8 +480,61 @@ describe("24 October saved review regressions", () => {
         },
         { identity: { verdict: "contradicted", actualWork: "A different arc", evidence: [] } },
       ),
+      undefined,
+      (capture) => {
+        capture.series.alternateTitles = capture.series.alternateTitles?.filter(
+          (alternate) => alternate.title === "Bleach",
+        );
+      },
     );
     expect(result.status).toBe("needs_review");
+  });
+
+  it("knows the later Bleach arc from Sonarr's series record without an AI lookup", async () => {
+    // The season-bound alternates come from /series/{id}, read upfront; the AI
+    // proposing straight from the prompt must not bypass the arc guard.
+    const capture = realReviewCapture("bleach-part4");
+    const proposal = removeProposal(
+      { removeFromClient: true, blocklist: true, skipRedownload: false, changeCategory: false },
+      { identity: { verdict: "contradicted", actualWork: "A different arc", evidence: [] } },
+    );
+    const result = await replay("bleach-part4", proposal);
+    expect(result.status).toBe("proposal");
+    expect(result.proposal.action).toBe("remove_queue_item");
+
+    // Placing the later arc onto the queued early episode is held, both right
+    // after the analysis and when a saved proposal is rechecked before applying.
+    const placed = importProposal(capture.candidates[0]!.id, {
+      selectedImports: [{ candidateId: capture.candidates[0]!.id, episodeIds: [353] }],
+    });
+    const imported = await replay("bleach-part4", placed);
+    expect(imported.status).toBe("needs_review");
+    expect(imported.proposal.reviewReasons?.join(" ")).toContain(
+      "names a different episode or arc",
+    );
+    const client = new FakeArrClient();
+    client.series = capture.series;
+    client.episodes = capture.episodes;
+    const rechecked = await revalidateResolution(
+      {
+        queueItem: capture.queueItem,
+        candidates: capture.candidates,
+        client,
+        prober: fakeProber(capture.probes),
+      },
+      {
+        queueItemId: capture.queueItem.id,
+        candidates: capture.candidates,
+        proposal: placed,
+        validation: { ok: true, issues: [] },
+        status: "proposal",
+        log: [],
+      },
+    );
+    expect(rechecked.status).toBe("needs_review");
+    expect(rechecked.proposal.reviewReasons?.join(" ")).toContain(
+      "names a different episode or arc",
+    );
   });
 
   it("ignores a season-bound base title that a later season's alternate contains", async () => {
@@ -1363,6 +1417,36 @@ describe("deterministic guards on the real 2026-10-03 failures", () => {
     );
   });
 
+  it.each([
+    ["Blade.Runner.2049.German.DL.1080p.BluRay.x264-DETAiLS", "Blade Runner 2049", 2017, 164],
+    ["2001.A.Space.Odyssey.German.DL.2160p.UHD.BluRay-GROUP", "2001: A Space Odyssey", 1968, 149],
+    ["Wonder.Woman.1984.German.DL.1080p.WEB.H264-GROUP", "Wonder Woman 1984", 2020, 151],
+    ["Some.Movie.German.DL.1920x1080.WEB.H264-GROUP", "Some Movie", 2015, 100],
+  ])(
+    "does not hold %s for a year from its own title or frame size",
+    async (release, title, year, runtime) => {
+      const { result } = await radarrCase({
+        release,
+        movie: { id: 77, title, year, runtime },
+        probe: { durationSeconds: runtime * 60, audio: [germanAudio()], hasGermanAudio: true },
+      });
+      expect(result.proposal.reviewReasons ?? []).toEqual([]);
+      expect(result.status).toBe("proposal");
+    },
+  );
+
+  it("still holds a release naming its own title's number with a different release year", async () => {
+    const { result } = await radarrCase({
+      release: "Blade.Runner.1982.German.DL.1080p.BluRay.x264-GROUP",
+      movie: { id: 77, title: "Blade Runner 2049", year: 2017, runtime: 164 },
+      probe: { durationSeconds: 164 * 60, audio: [germanAudio()], hasGermanAudio: true },
+    });
+    expect(result.status).toBe("needs_review");
+    expect(result.proposal.reviewReasons).toContain(
+      "Release year 1982 does not match Blade Runner 2049 (2017).",
+    );
+  });
+
   it("holds How to Train Your Dragon (2025) by runtime even without a year in the name", async () => {
     const { result } = await radarrCase({
       release: "Drachenzaehmen.leicht.gemacht.German.EAC3.DL.1080p.WEBRip.x265-FD",
@@ -1682,6 +1766,126 @@ describe("deterministic guards on the real 2026-10-03 failures", () => {
         expect(rechecked.proposal.action).toBe("import_candidates");
       }
     }
+  });
+
+  it("rechecks a saved removal against the library and files it would discard", async () => {
+    const options = {
+      removeFromClient: true,
+      blocklist: true,
+      skipRedownload: true,
+      changeCategory: false,
+    };
+    const candidates = [
+      makeCandidate("candidate_1", { rejections: ["Not an upgrade for existing episode file(s)"] }),
+    ];
+    const probes: NonNullable<Parameters<typeof fakeProber>[0]> = {
+      "/downloads/candidate_1.mkv": { audio: [germanAudio()], hasGermanAudio: true },
+      "/lib/E01.mkv": { audio: [germanAudio()], hasGermanAudio: true },
+    };
+    const client = new FakeArrClient();
+    client.episodes = [
+      { id: 101, hasFile: true, episodeFile: { path: "/lib/E01.mkv", languages: [] } },
+    ];
+    const proposal = removeProposal(options, {
+      identity: { verdict: "uncertain", actualWork: "a duplicate", evidence: [] },
+    });
+    const { result } = await analyze(
+      { queueItem: makeQueueItem(), candidates, client, prober: fakeProber(probes) },
+      proposal,
+    );
+    expect(result.proposal.action).toBe("remove_queue_item");
+    const saved = JSON.parse(JSON.stringify(result)) as typeof result;
+    const recheck = () =>
+      revalidateResolution(
+        { queueItem: makeQueueItem(), candidates, client, prober: fakeProber(probes) },
+        saved,
+      );
+
+    expect((await recheck()).proposal.action).toBe("remove_queue_item");
+    // The library copy lost its German track: the download is now its only German source.
+    probes["/lib/E01.mkv"] = { audio: [englishAudio()] };
+    const held = await recheck();
+    expect(held.status).toBe("needs_review");
+    expect(held.validation.ok).toBe(false);
+    expect(held.proposal.reviewReasons?.join(" ")).toContain(
+      "candidate_1.mkv has German audio that the library copy of episode 101 lacks",
+    );
+  });
+
+  it("rechecks every file of a saved removal, including ones beyond the upfront probe limit", async () => {
+    const candidates = Array.from({ length: 31 }, (_, index) =>
+      makeCandidate(`candidate_${index + 1}`, {
+        rejections: ["Not an upgrade for existing episode file(s)"],
+      }),
+    );
+    const client = new FakeArrClient();
+    client.episodes = [
+      { id: 101, hasFile: true, episodeFile: { path: "/lib/E01.mkv", languages: [] } },
+    ];
+    const prober = fakeProber({
+      "/downloads/candidate_31.mkv": { ok: false, reason: "ffprobe timed out" },
+      "/lib/E01.mkv": { audio: [englishAudio()] },
+    });
+    const rechecked = await revalidateResolution(
+      { queueItem: makeQueueItem(), candidates, client, prober },
+      {
+        queueItemId: 11,
+        candidates,
+        proposal: removeProposal(
+          { removeFromClient: true, blocklist: true, skipRedownload: true, changeCategory: false },
+          { identity: { verdict: "uncertain", actualWork: "a duplicate", evidence: [] } },
+        ),
+        validation: { ok: true, issues: [] },
+        status: "proposal",
+        log: [],
+      },
+    );
+    expect(prober.calls).toContain("/downloads/candidate_31.mkv");
+    expect(rechecked.status).toBe("needs_review");
+    expect(rechecked.proposal.reviewReasons?.join(" ")).toContain(
+      "candidate_31.mkv could not be inspected (ffprobe timed out)",
+    );
+  });
+
+  it("lets a saved removal follow a library that gained German and drops its new search", async () => {
+    const client = new FakeArrClient();
+    client.episodes = [{ id: 101, hasFile: false, runtime: 45 }];
+    const candidates = [makeCandidate("candidate_1", { languages: [], languageLabels: [] })];
+    const probes: NonNullable<Parameters<typeof fakeProber>[0]> = {
+      "/downloads/candidate_1.mkv": { audio: [englishAudio()], durationSeconds: minutes(10) },
+    };
+    const { result } = await analyze(
+      { queueItem: makeQueueItem(), candidates, client, prober: fakeProber(probes) },
+      removeProposal(
+        { removeFromClient: true, blocklist: true, skipRedownload: false, changeCategory: false },
+        {
+          identity: {
+            verdict: "contradicted",
+            actualWork: "a 10-minute clip",
+            evidence: ["Runs 10 minutes."],
+          },
+        },
+      ),
+    );
+    expect(result.proposal.action).toBe("remove_queue_item");
+    expect(result.proposal.queueRemovalOptions?.skipRedownload).toBe(false);
+    // Another download filled the episode with a German file meanwhile.
+    client.episodes = [
+      {
+        id: 101,
+        hasFile: true,
+        runtime: 45,
+        episodeFile: { id: 3, path: "/lib/E01.mkv", languages: [] },
+      },
+    ];
+    probes["/lib/E01.mkv"] = { audio: [germanAudio()], hasGermanAudio: true };
+    const rechecked = await revalidateResolution(
+      { queueItem: makeQueueItem(), candidates, client, prober: fakeProber(probes) },
+      JSON.parse(JSON.stringify(result)) as typeof result,
+    );
+    expect(rechecked.status).toBe("proposal");
+    expect(rechecked.proposal.action).toBe("remove_queue_item");
+    expect(rechecked.proposal.queueRemovalOptions?.skipRedownload).toBe(true);
   });
 
   it("holds a Radarr import into a different movie than the queued one", async () => {
@@ -2042,6 +2246,41 @@ describe("deterministic guards on the real 2026-10-08 failures", () => {
     expect(result.proposal.reviewReasons).toEqual([
       "The AI judged the download to be a different work, but neither its release year, its runtime nor the arr's own parse of the name contradicts Maria (2024).",
     ]);
+  });
+
+  it.each([
+    ["a frame size", "Maria.German.DL.1920x1080.NF.WEB.H264-ZeroTwo"],
+    ["a 1920p label", "Maria.German.DL.1920p.NF.WEB.H264-ZeroTwo"],
+    ["an audio bitrate", "Maria.German.DL.EAC3.2048kbps.1080p.NF.WEB.H264-ZeroTwo"],
+  ])("does not read %s as a contradicting release year", async (_label, release) => {
+    const client = new FakeArrClient();
+    client.moviesById.set(11094, radarrMovie(11094, "Maria", 2024, 123));
+    client.parseResult = { movie: { id: 11094, title: "Maria", year: 2024 } };
+    const { result } = await analyze(
+      {
+        queueItem: radarrItem(11094, release),
+        candidates: [radarrCandidate(11094, release)],
+        client,
+        prober: fakeProber({
+          "/downloads/candidate_1.mkv": {
+            durationSeconds: minutes(112),
+            audio: [germanAudio()],
+            hasGermanAudio: true,
+          },
+          "/lib/Maria.mkv": {
+            durationSeconds: minutes(123),
+            audio: [germanAudio()],
+            hasGermanAudio: true,
+          },
+        }),
+      },
+      removeProposal(blocklistAndSearch, contradicted("Mary (2024)")),
+    );
+    expect(result.status).toBe("needs_review");
+    expect(result.proposal.reviewReasons?.join(" ")).not.toContain("Release year");
+    expect(result.proposal.reviewReasons?.join(" ")).toContain(
+      "neither its release year, its runtime nor the arr's own parse",
+    );
   });
 
   it("holds an import between namesakes even when nothing else contradicts it", async () => {

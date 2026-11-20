@@ -19,12 +19,14 @@ dry-run is turned on. Ambiguous command responses hold targets until acceptance 
 
 Fixer auto-run and Run all retry failed analyses after a cooldown starting at 15 minutes,
 doubling up to six hours. They also pick up downloads whose last analysis was cancelled (Stop
-all, a shutdown or a replaced analysis) on their next pass, without a cooldown. Provider usage limits pause new Fixer analyses for one hour.
+all, a shutdown or a replaced analysis) on their next pass, without a cooldown. Provider usage limits pause new Fixer analyses for one hour, or until a later analysis gets its answer from the AI. A rate limit from Sonarr or Radarr itself does not pause the AI.
 Auto-apply reanalyzes eligible saved proposals against current queue and library evidence before
 applying them, even with auto-run off. Failed applications appear in the queue with their error
 and a reanalysis/retry action. Manual review remains required below the configured confidence
 thresholds. Verified non-upgrades use the import confidence threshold after the removal guards
-pass. Completed downloads with no candidates and an explicit terminal import rejection are
+pass. A saved removal is checked again against the live library right before it is applied, and
+waits for review when the current library no longer supports it, for example after a queued
+target's library copy lost its German audio. Completed downloads with no candidates and an explicit terminal import rejection are
 removed, blocklisted and searched again. Extraction, in-progress and transient filesystem states
 stay held. An empty download held before the arr reported such a rejection is checked again, without
 AI, once the rejection appears.

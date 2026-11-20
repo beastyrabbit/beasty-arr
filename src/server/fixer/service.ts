@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, isNull } from "drizzle-orm";
+import { and, desc, eq, gt, isNull, sql } from "drizzle-orm";
 import type { FastifyBaseLogger } from "fastify";
 import { nanoid } from "nanoid";
 import { autoApplyBlockReason, isProviderUsageLimit } from "../../shared/fixer-policy.js";
@@ -58,6 +58,14 @@ export const ignoreRemovalOptions: QueueRemovalOptions = {
 };
 
 const MAX_PERSISTED_EVENTS = 500;
+/**
+ * How long streamed events collect before they are written to the analysis
+ * row. The live view streams every event over SSE; the row only needs to
+ * survive a restart, and finish() writes the final list at once.
+ */
+const EVENT_PERSIST_DELAY_MS = 2_000;
+/** How long the AI provider's usage limit pauses analyses. */
+const PROVIDER_PAUSE_MS = 60 * 60_000;
 /** The resolver's hold for an empty candidate listing (resolver.ts, no candidates). */
 const EMPTY_LISTING_HOLD = /^(?:Sonarr|Radarr) returned no manual import candidates\b/;
 /** Cap for one coalesced text/thinking block in the persisted events. */
@@ -83,6 +91,7 @@ function appendPersistedEvent(events: FixerAnalysisEvent[], event: FixerAnalysis
       block = { ...event, delta: "" };
       pushPersistedEvent(events, block);
     }
+    if (event.seq !== undefined) block.lastSeq = event.seq;
     if (block.delta.endsWith(MERGED_DELTA_TRUNCATED)) return;
     const room = MAX_MERGED_DELTA_CHARS - block.delta.length;
     block.delta +=
@@ -536,6 +545,12 @@ export class FixerService {
       .get();
   }
 
+  /**
+   * The AI provider's usage limit pauses every analysis for an hour after the
+   * latest failure it caused. An analysis that got its answer from the AI
+   * (it had candidates and completed) after that failure shows the provider
+   * answers again and ends the pause early.
+   */
   providerRetryAt(): number | null {
     const rows = this.db
       .select({ error: fixerAnalyses.error, completedAt: fixerAnalyses.completedAt })
@@ -543,14 +558,25 @@ export class FixerService {
       .where(
         and(
           eq(fixerAnalyses.status, "failed"),
-          gt(fixerAnalyses.completedAt, this.now() - 60 * 60_000),
+          gt(fixerAnalyses.completedAt, this.now() - PROVIDER_PAUSE_MS),
         ),
       )
-      .orderBy(desc(fixerAnalyses.createdAt))
+      .orderBy(desc(fixerAnalyses.completedAt))
       .all();
-    const failure = rows.find((row) => isProviderUsageLimit(row.error ?? ""));
-    const retryAt = failure?.completedAt ? failure.completedAt + 60 * 60_000 : 0;
-    return retryAt > this.now() ? retryAt : null;
+    const failedAt = rows.find((row) => isProviderUsageLimit(row.error ?? ""))?.completedAt;
+    if (!failedAt || failedAt + PROVIDER_PAUSE_MS <= this.now()) return null;
+    const answered = this.db
+      .select({ id: fixerAnalyses.id })
+      .from(fixerAnalyses)
+      .where(
+        and(
+          eq(fixerAnalyses.status, "completed"),
+          gt(fixerAnalyses.completedAt, failedAt),
+          sql`json_array_length(${fixerAnalyses.candidates}) > 0`,
+        ),
+      )
+      .get();
+    return answered ? null : failedAt + PROVIDER_PAUSE_MS;
   }
 
   retryAt(item: FixerQueueItem): number | null {
@@ -982,6 +1008,7 @@ export class FixerService {
   ): Promise<FixerRunOutcome> {
     const { service } = queueItem;
     const events: FixerAnalysisEvent[] = [];
+    let eventSeq = 0;
     let persistTimer: ReturnType<typeof setTimeout> | undefined;
     const persist = () => {
       persistTimer = undefined;
@@ -993,8 +1020,10 @@ export class FixerService {
         .run();
     };
     const record = (event: FixerAnalysisEvent) => {
-      appendPersistedEvent(events, event);
-      persistTimer ??= setTimeout(persist, 250);
+      eventSeq += 1;
+      const sequenced: FixerAnalysisEvent = { ...event, seq: eventSeq };
+      appendPersistedEvent(events, sequenced);
+      persistTimer ??= setTimeout(persist, EVENT_PERSIST_DELAY_MS);
       // SSE payload uses the GUI-facing ResolverEvent shape (api-types contract)
       // and stays per-delta for the live view; the persisted rows keep the
       // richer internal FixerAnalysisEvent with deltas coalesced.
@@ -1002,7 +1031,7 @@ export class FixerService {
         analysisId,
         service,
         queueItemId: queueItem.id,
-        event: toResolverEvent(event),
+        event: toResolverEvent(sequenced),
       });
     };
     const step = (
@@ -1085,6 +1114,7 @@ export class FixerService {
         runner: this.runner,
         prober: this.prober,
         searxngUrl: this.searxngUrl,
+        log: this.log,
         signal: controller.signal,
         onEvent: record,
       });

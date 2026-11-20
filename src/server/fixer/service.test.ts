@@ -29,7 +29,7 @@ import {
   manualRemovalOptions,
   queueIssueType,
 } from "./service.js";
-import { fakeProber } from "./test-prober.js";
+import { englishAudio, fakeProber, germanAudio } from "./test-prober.js";
 
 const noopLog = {
   info: () => {},
@@ -251,7 +251,7 @@ async function runningPackImport() {
   return { harness, held, applying };
 }
 
-function makeHarness() {
+function makeHarness(prober = fakeProber()) {
   const dir = mkdtempSync(path.join(tmpdir(), "beasty-fixer-test-"));
   const { db, sqlite } = createDb(dir, {
     migrationsFolder: path.resolve(process.cwd(), "drizzle"),
@@ -268,7 +268,7 @@ function makeHarness() {
   const radarr = new FakeArrClient();
   const runnerCtl = makeRunner();
   const svc = new FixerService(db, settings, { sonarr, radarr }, runnerCtl.runner, bus, noopLog, {
-    prober: fakeProber(),
+    prober,
   });
   return { db, settings, bus, busEvents, sonarr, radarr, runnerCtl, svc };
 }
@@ -1084,6 +1084,52 @@ describe("FixerService apply", () => {
     });
   });
 
+  it.each([
+    ["the library is unchanged", false],
+    ["the library copy lost its German audio", true],
+  ])("rechecks a saved removal against the live library when %s", async (_label, lostGerman) => {
+    const probes: NonNullable<Parameters<typeof fakeProber>[0]> = {
+      "/downloads/candidate_1.mkv": { audio: [germanAudio()], hasGermanAudio: true },
+      "/lib/E01.mkv": { audio: [germanAudio()], hasGermanAudio: true },
+    };
+    const harness = makeHarness(fakeProber(probes));
+    harness.sonarr.queue = [makeQueueItem(1)];
+    harness.sonarr.episodes = [
+      { id: 101, hasFile: true, episodeFile: { path: "/lib/E01.mkv", languages: [] } },
+    ];
+    harness.sonarr.candidatesByItem.set(1, [
+      makeCandidate("candidate_1", [101], {
+        rejections: ["Not an upgrade for existing episode file(s)"],
+      }),
+    ]);
+    const options: QueueRemovalOptions = {
+      removeFromClient: true,
+      blocklist: true,
+      skipRedownload: true,
+      changeCategory: false,
+    };
+    harness.runnerCtl.setScript(() =>
+      importProposal("candidate_1", [101], {
+        action: "remove_queue_item",
+        confidence: 0.97,
+        selectedCandidateIds: [],
+        selectedImports: [],
+        queueRemovalOptions: options,
+        identity: { verdict: "uncertain", actualWork: "a duplicate", evidence: [] },
+      }),
+    );
+    const outcome = await harness.svc.analyzeAndWait("sonarr", 1);
+    expect(outcome.result?.proposal.action).toBe("remove_queue_item");
+    harness.settings.update({ dryRun: false });
+    if (lostGerman) probes["/lib/E01.mkv"] = { audio: [englishAudio()] };
+
+    const result = await harness.svc.apply(outcome.analysisId);
+
+    expect(result.ok).toBe(!lostGerman);
+    expect(harness.sonarr.removeCalls).toEqual(lostGerman ? [] : [{ queueItemId: 1, options }]);
+    if (lostGerman) expect(result.message).toContain("has German audio that the library copy");
+  });
+
   it("refuses a removal proposal without explicit removal options", async () => {
     const { svc, sonarr, analysisId } = await analyzedHarness({
       action: "remove_queue_item",
@@ -1325,12 +1371,12 @@ describe("FixerService persisted analysis trace", () => {
 
     const piEvents = persistedEvents(harness).filter((e) => e.kind !== "step");
     expect(piEvents).toEqual([
-      { kind: "thinking", delta: "check episodes", ts: 1, itemId: 1 },
-      { kind: "text", delta: "Looking up.", ts: 3, itemId: 1 },
-      expect.objectContaining({ kind: "tool-call", phase: "start", args: { a: 1 } }),
-      expect.objectContaining({ kind: "tool-call", phase: "end", result: "found" }),
+      { kind: "thinking", delta: "check episodes", ts: 1, itemId: 1, seq: 6, lastSeq: 7 },
+      { kind: "text", delta: "Looking up.", ts: 3, itemId: 1, seq: 8, lastSeq: 9 },
+      expect.objectContaining({ kind: "tool-call", phase: "start", args: { a: 1 }, seq: 10 }),
+      expect.objectContaining({ kind: "tool-call", phase: "end", result: "found", seq: 11 }),
       // The fake runner's trailing "analysis text" (no itemId) is a separate block.
-      { kind: "text", delta: "Done", ts: 7, itemId: 1 },
+      { kind: "text", delta: "Done", ts: 7, itemId: 1, seq: 12, lastSeq: 12 },
       expect.objectContaining({ kind: "text", delta: "analysis text" }),
     ]);
     const streamedDeltas = harness.busEvents.filter(
@@ -1360,6 +1406,7 @@ describe("FixerService persisted analysis trace", () => {
     const thinking = persistedEvents(harness).filter((e): e is DeltaEvent => e.kind === "thinking");
     expect(thinking).toHaveLength(1);
     expect(thinking[0]?.delta).toBe(`${"y".repeat(20_000)} …[truncated]`);
+    expect(thinking[0]?.lastSeq).toBe((thinking[0]?.seq ?? 0) + 29);
   });
 
   it("keeps ~40 tool calls and shrinks the largest results to fit the size budget", async () => {

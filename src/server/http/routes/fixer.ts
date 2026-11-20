@@ -94,14 +94,40 @@ export function registerFixerRoutes(app: FastifyInstance, ctx: AppContext): void
     snapshot: Awaited<ReturnType<AppContext["services"]["fixer"]["getQueue"]>>,
   ): FixerQueueResponse => {
     const settings = ctx.settings.get();
-    const providerRetryAt = ctx.services.fixer.providerRetryAt();
+    const fixer = ctx.services.fixer;
+    const providerRetryAt = fixer.providerRetryAt();
+    // A season pack lists one row per episode; its download shares one
+    // analysis, apply record and cooldown, so read them once per download.
+    const perDownload = new Map<
+      string,
+      {
+        analysis: FixerAnalysisRow | undefined;
+        applied: ReturnType<typeof fixer.latestApply>;
+        itemRetryAt: number | null;
+      }
+    >();
+    const downloadState = (item: (typeof snapshot.items)[number]) => {
+      const key = item.downloadId
+        ? `${item.service}:dl:${item.downloadId}`
+        : `${item.service}:id:${item.id}`;
+      let state = perDownload.get(key);
+      if (!state) {
+        const analysis = fixer.analysisForItem(item);
+        state = {
+          analysis,
+          applied: analysis ? fixer.latestApply(analysis.id) : undefined,
+          itemRetryAt: fixer.retryAt(item),
+        };
+        perDownload.set(key, state);
+      }
+      return state;
+    };
     const items: FixerQueueItemDto[] = snapshot.items.map((item) => {
-      const analysis = ctx.services.fixer.analysisForItem(item);
+      const { analysis, applied, itemRetryAt } = downloadState(item);
       const proposal = analysis?.proposal as unknown as ResolutionProposal | null | undefined;
-      const applied = analysis ? ctx.services.fixer.latestApply(analysis.id) : undefined;
       const applyError =
         applied?.result === "error" ? String(applied.detail?.message ?? "Apply failed.") : null;
-      const retryAt = Math.max(providerRetryAt ?? 0, ctx.services.fixer.retryAt(item) ?? 0) || null;
+      const retryAt = Math.max(providerRetryAt ?? 0, itemRetryAt ?? 0) || null;
       const waitingReason =
         applied?.result === "ok"
           ? "Last application succeeded."
@@ -259,6 +285,7 @@ export function registerFixerRoutes(app: FastifyInstance, ctx: AppContext): void
               }),
             )
             .optional(),
+          issueTypes: z.array(z.string().min(1)).max(50).optional(),
           skipAnalyzed: z.boolean().optional(),
         })
         .optional(),

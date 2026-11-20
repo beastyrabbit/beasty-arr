@@ -32,6 +32,37 @@ type WebOptions = {
   lookupFn?: DnsLookupFn;
 };
 
+/** The part of the server logger the web tools use. */
+export type WebToolLog = { warn: (details: object, message: string) => void };
+
+type LookupCallback = (
+  error: Error | null,
+  address: string | Array<{ address: string; family: number }>,
+  family?: number,
+) => void;
+
+/**
+ * A socket lookup that answers only with the addresses already validated as
+ * public, so the connection cannot resolve the name a second time. With
+ * `all`, Node's Happy Eyeballs gets every validated address and can fall
+ * back to IPv4 when IPv6 egress is unreachable.
+ */
+export function pinnedLookup(addresses: Array<{ address: string }>) {
+  return (_hostname: string, options: { all?: boolean }, callback: LookupCallback) => {
+    const first = addresses[0];
+    if (!first) {
+      callback(new Error("No validated DNS address."), "", 4);
+      return;
+    }
+    if (options.all)
+      callback(
+        null,
+        addresses.map(({ address }) => ({ address, family: isIP(address) })),
+      );
+    else callback(null, first.address, isIP(first.address));
+  };
+}
+
 async function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
   signal.throwIfAborted();
   let onAbort!: () => void;
@@ -94,18 +125,7 @@ async function publicGet(
         method: "GET",
         signal,
         headers: { accept: "text/html,text/plain", "user-agent": "beasty-arr-fixer/1.0" },
-        lookup: (_hostname, _options, callback) => {
-          const first = addresses[0];
-          if (!first) {
-            callback(new Error("No validated DNS address."), "", 4);
-            return;
-          }
-          // Node requests all addresses on recent versions; returning only this
-          // validated address also prevents a second DNS lookup at connection time.
-          if (_options.all)
-            callback(null, [{ address: first.address, family: isIP(first.address) }]);
-          else callback(null, first.address, isIP(first.address));
-        },
+        lookup: pinnedLookup(addresses),
       },
       (response) => {
         const headers = new Headers();
@@ -160,8 +180,13 @@ function truncate(text: string, max = MAX_TEXT): string {
   return text.length > max ? `${text.slice(0, max)}\n[truncated]` : text;
 }
 
+/** The reason a web tool failed, for the server log; never shown to the model. */
+function failureReason(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 export function createWebTools(
-  input: WebOptions & { searxngUrl?: string; facts: InspectionFacts },
+  input: WebOptions & { searxngUrl?: string; facts: InspectionFacts; log?: WebToolLog },
 ) {
   const fetchTool = defineTool({
     name: "web_fetch",
@@ -202,7 +227,11 @@ export function createWebTools(
             details,
           };
         }
-      } catch {
+      } catch (error) {
+        input.log?.warn(
+          { url: params.url, reason: failureReason(error) },
+          "fixer web_fetch failed",
+        );
         return {
           content: [
             {
@@ -265,7 +294,8 @@ export function createWebTools(
           content: [{ type: "text" as const, text: `${UNTRUSTED}\n${JSON.stringify(details)}` }],
           details,
         };
-      } catch {
+      } catch (error) {
+        input.log?.warn({ reason: failureReason(error) }, "fixer web_search failed");
         return {
           content: [
             { type: "text" as const, text: "web_search failed: search service unavailable." },

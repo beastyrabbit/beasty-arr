@@ -14,6 +14,7 @@ import type {
   FixerApplyRequest,
   FixerQueueItemDto,
 } from "../../shared/api-types.js";
+import { autoApplyThreshold } from "../../shared/fixer-policy.js";
 import type {
   IdentityVerdict,
   ProposalAction,
@@ -28,6 +29,7 @@ import { Button } from "../components/ui/button.js";
 import { Switch } from "../components/ui/switch.js";
 import { Tip } from "../components/ui/tooltip.js";
 import { useSseEvent } from "../lib/events.js";
+import { analysisEvents, proposalVerdict, withUniqueKeys } from "../lib/fixer-analysis.js";
 import { uniqueQueueItems, waitsForReview } from "../lib/fixer-queue.js";
 import { fmtBytes, fmtTime, relTime } from "../lib/format.js";
 import {
@@ -327,102 +329,106 @@ export function FixerPage() {
               <Skeleton className="w-3/4" />
               <Skeleton className="w-5/6" />
             </div>
-          ) : (queue.isError && !queue.data) ||
-            (items.length === 0 &&
-              queue.data?.unavailableServices?.length) ? null : items.length === 0 ? (
+          ) : null}
+          {!queue.isPending &&
+          items.length === 0 &&
+          !(queue.isError && !queue.data) &&
+          !queue.data?.unavailableServices?.length ? (
             <EmptyState
               message="Nothing stuck. The import queues are clean."
               hint="Stuck items from Sonarr/Radarr appear here."
             />
-          ) : (
-            groups.map(([issueType, groupItems]) => (
-              <div key={issueType}>
-                <div className="flex h-8 items-center gap-2 border-b border-line bg-raised/50 px-3">
-                  <input
-                    type="checkbox"
-                    aria-label={`Select all ${issueType} items`}
-                    className="accent-[#f0a63a]"
-                    checked={groupItems.every((item) => selected.has(keyOf(item)))}
-                    onChange={(event) => {
-                      setSelected((current) => {
-                        const next = new Set(current);
-                        for (const item of groupItems) {
-                          const key = keyOf(item);
-                          if (event.target.checked) next.add(key);
-                          else next.delete(key);
-                        }
-                        return next;
-                      });
-                    }}
-                  />
-                  <span className="microlabel">{issueType}</span>
-                  <span className="font-mono text-[11px] text-muted">{groupItems.length}</span>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="ml-auto"
-                    disabled={
-                      bulkStatus.data?.running ||
-                      groupItems.every(
-                        (item) => waitsForReview(item) || item.analysisState === "analyzing",
-                      )
-                    }
-                    onClick={() =>
-                      analyzeItems(
-                        groupItems.filter(
-                          (item) => !waitsForReview(item) && item.analysisState !== "analyzing",
-                        ),
-                      )
-                    }
-                  >
-                    Analyze all
-                  </Button>
-                </div>
-                {groupItems.map((item) => {
-                  const k = keyOf(item);
-                  return (
-                    <div
-                      key={k}
-                      className={cn(
-                        "flex h-8 items-center gap-2 border-b border-line px-3 last:border-b-0",
-                        activeKey === k ? "bg-raised" : "hover:bg-raised/50",
-                      )}
+          ) : null}
+          {!queue.isPending && items.length > 0
+            ? groups.map(([issueType, groupItems]) => (
+                <div key={issueType}>
+                  <div className="flex h-8 items-center gap-2 border-b border-line bg-raised/50 px-3">
+                    <input
+                      type="checkbox"
+                      aria-label={`Select all ${issueType} items`}
+                      className="accent-[#f0a63a]"
+                      checked={groupItems.every((item) => selected.has(keyOf(item)))}
+                      onChange={(event) => {
+                        setSelected((current) => {
+                          const next = new Set(current);
+                          for (const item of groupItems) {
+                            const key = keyOf(item);
+                            if (event.target.checked) next.add(key);
+                            else next.delete(key);
+                          }
+                          return next;
+                        });
+                      }}
+                    />
+                    <span className="microlabel">{issueType}</span>
+                    <span className="font-mono text-[11px] text-muted">{groupItems.length}</span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="ml-auto"
+                      disabled={
+                        bulkStatus.data?.running ||
+                        !groupItems.some(
+                          (item) => item.canAnalyze && item.analysisState !== "analyzing",
+                        )
+                      }
+                      // The server skips settled work and revisits reviews from
+                      // older app versions once per release, like Run all.
+                      onClick={() =>
+                        bulk.mutate({
+                          action: "start",
+                          body: { issueTypes: [issueType], skipAnalyzed: true },
+                        })
+                      }
                     >
-                      <input
-                        type="checkbox"
-                        aria-label={`Select ${item.title} for bulk analysis`}
-                        className="accent-[#f0a63a]"
-                        checked={selected.has(k)}
-                        onChange={(e) => {
-                          setSelected((prev) => {
-                            const next = new Set(prev);
-                            if (e.target.checked) next.add(k);
-                            else next.delete(k);
-                            return next;
-                          });
-                        }}
-                      />
-                      <span className="font-mono text-[10px] text-faint" title={item.service}>
-                        {item.service === "sonarr" ? "S" : "R"}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setActiveKey(k)}
-                        aria-label={`Review ${item.title}`}
-                        className="min-w-0 flex-1 cursor-pointer truncate text-left text-[12px] text-ink focus-visible:outline-2"
+                      Analyze all
+                    </Button>
+                  </div>
+                  {groupItems.map((item) => {
+                    const k = keyOf(item);
+                    return (
+                      <div
+                        key={k}
+                        className={cn(
+                          "flex h-8 items-center gap-2 border-b border-line px-3 last:border-b-0",
+                          activeKey === k ? "bg-raised" : "hover:bg-raised/50",
+                        )}
                       >
-                        {item.title}
-                      </button>
-                      <span className="font-mono text-[10px] text-faint">
-                        {item.addedAt ? relTime(Date.parse(item.addedAt)) : "—"}
-                      </span>
-                      <AnalysisStateBadge item={item} />
-                    </div>
-                  );
-                })}
-              </div>
-            ))
-          )}
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${item.title} for bulk analysis`}
+                          className="accent-[#f0a63a]"
+                          checked={selected.has(k)}
+                          onChange={(e) => {
+                            setSelected((prev) => {
+                              const next = new Set(prev);
+                              if (e.target.checked) next.add(k);
+                              else next.delete(k);
+                              return next;
+                            });
+                          }}
+                        />
+                        <span className="font-mono text-[10px] text-faint" title={item.service}>
+                          {item.service === "sonarr" ? "S" : "R"}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setActiveKey(k)}
+                          aria-label={`Review ${item.title}`}
+                          className="min-w-0 flex-1 cursor-pointer truncate text-left text-[12px] text-ink focus-visible:outline-2"
+                        >
+                          {item.title}
+                        </button>
+                        <span className="font-mono text-[10px] text-faint">
+                          {item.addedAt ? relTime(Date.parse(item.addedAt)) : "—"}
+                        </span>
+                        <AnalysisStateBadge item={item} />
+                      </div>
+                    );
+                  })}
+                </div>
+              ))
+            : null}
         </Panel>
 
         {/* right: review panel */}
@@ -689,7 +695,7 @@ function ReviewPanel({
       </Panel>
     );
   const running = item.analysisState === "analyzing" || a?.status === "running";
-  const events = [...(a?.events ?? []), ...streamed];
+  const events = analysisEvents(a?.events ?? [], streamed);
 
   if (running || (!a && item.analysisId && analysis.isPending)) {
     return (
@@ -791,31 +797,6 @@ function ProposalRecovery({ item }: { item: FixerQueueItemDto }) {
   );
 }
 
-function proposalVerdict(
-  proposal: ResolutionProposal,
-  validationOk: boolean,
-  threshold: number,
-  dryRun: boolean,
-): { label: string; color: string } {
-  if (proposal.action === "remove_queue_item") {
-    return { label: "Would remove from queue", color: STATE_META.missing.color };
-  }
-  if (!validationOk) return { label: "Blocked by validation", color: STATE_META.missing.color };
-  if (proposal.action === "import_candidates" && proposal.confidence >= threshold) {
-    return {
-      label: dryRun ? "Would auto-import (dry-run)" : "Would auto-import",
-      color: STATE_META.german.color,
-    };
-  }
-  if (proposal.reviewReasons?.length) {
-    return { label: "Held by the fixer's checks — review", color: STATE_META.missing.color };
-  }
-  if (proposal.action === "needs_review") {
-    return { label: "The AI asks for your review", color: STATE_META.non_german.color };
-  }
-  return { label: "Below auto threshold — review", color: STATE_META.non_german.color };
-}
-
 const IDENTITY_COLOR: Record<IdentityVerdict, string> = {
   confirmed: "text-german",
   contradicted: "text-missing",
@@ -831,8 +812,8 @@ function ProposalReceipt({ proposal }: Readonly<{ proposal: ResolutionProposal }
         <div className="rounded-[6px] border border-missing/40 bg-missing/8 p-2">
           <div className="microlabel mb-1 text-missing">Held for review by the fixer's checks</div>
           <ul className="list-disc space-y-0.5 pl-4 text-[12px] text-missing">
-            {proposal.reviewReasons.map((r) => (
-              <li key={r}>{r}</li>
+            {withUniqueKeys(proposal.reviewReasons).map(({ key, value }) => (
+              <li key={key}>{value}</li>
             ))}
           </ul>
         </div>
@@ -845,8 +826,8 @@ function ProposalReceipt({ proposal }: Readonly<{ proposal: ResolutionProposal }
           </div>
           <p className="text-[12px] text-ink">{identity.actualWork}</p>
           <ul className="mt-0.5 list-disc space-y-0.5 pl-4 text-[12px] text-muted">
-            {identity.evidence.map((e) => (
-              <li key={e}>{e}</li>
+            {withUniqueKeys(identity.evidence).map(({ key, value }) => (
+              <li key={key}>{value}</li>
             ))}
           </ul>
         </div>
@@ -875,17 +856,17 @@ function ProposalCard({
   const remove = useFixerRemove();
   const ignore = useFixerIgnore();
   const proposal = analysis.proposal;
-  const threshold =
-    proposal?.action === "remove_queue_item"
-      ? (config.data?.settings.fixerAutoRemoveConfidence ?? 0.95)
-      : (config.data?.settings.fixerAutoImportConfidence ?? 0.8);
+  const gates = {
+    fixerAutoImportConfidence: config.data?.settings.fixerAutoImportConfidence ?? 0.8,
+    fixerAutoRemoveConfidence: config.data?.settings.fixerAutoRemoveConfidence ?? 0.95,
+  };
+  const threshold = proposal ? autoApplyThreshold(proposal, analysis.validation, gates) : 1;
   const [includes, setIncludes] = useState<Set<string> | null>(null);
   const [confirm, setConfirm] = useState<"apply" | "ignore" | "remove" | "blocklist" | null>(null);
   const [showDebug, setShowDebug] = useState(false);
 
   if (!proposal) return null;
   const removalOptions = proposal.queueRemovalOptions;
-  const validationOk = analysis.validation?.ok ?? true;
   const selectedIds =
     includes ?? new Set(proposal.selectedCandidateIds.filter((id) => id.length > 0));
   const candidates = analysis.candidates ?? [];
@@ -895,7 +876,8 @@ function ProposalCard({
   );
   const applyDialog = proposalApplyDialog(proposal.action, removalOptions, selectedIds, item.title);
 
-  const verdict = proposalVerdict(proposal, validationOk, threshold, dryRun);
+  const verdict = proposalVerdict(proposal, analysis.validation, gates, dryRun);
+  const verdictColor = STATE_META[verdict.tone].color;
 
   const toggleInclude = (id: string, checked: boolean) => {
     setIncludes(() => {
@@ -918,9 +900,9 @@ function ProposalCard({
         <div
           className="flex items-center gap-2 rounded-[6px] border px-3 py-2 text-[13px] font-medium"
           style={{
-            color: verdict.color,
-            borderColor: `color-mix(in srgb, ${verdict.color} 50%, transparent)`,
-            background: `color-mix(in srgb, ${verdict.color} 8%, transparent)`,
+            color: verdictColor,
+            borderColor: `color-mix(in srgb, ${verdictColor} 50%, transparent)`,
+            background: `color-mix(in srgb, ${verdictColor} 8%, transparent)`,
           }}
         >
           {verdict.label}
@@ -971,8 +953,8 @@ function ProposalCard({
           <div>
             <div className="microlabel mb-1">Evidence</div>
             <ul className="list-disc space-y-0.5 pl-4 text-[12px] text-muted">
-              {proposal.evidence.map((e) => (
-                <li key={e}>{e}</li>
+              {withUniqueKeys(proposal.evidence).map(({ key, value }) => (
+                <li key={key}>{value}</li>
               ))}
             </ul>
           </div>
@@ -981,8 +963,8 @@ function ProposalCard({
           <div className="rounded-[6px] border border-nongerman/40 bg-nongerman/8 p-2">
             <div className="microlabel mb-1 text-nongerman">Warnings</div>
             <ul className="list-disc space-y-0.5 pl-4 text-[12px] text-nongerman">
-              {proposal.warnings.map((w) => (
-                <li key={w}>{w}</li>
+              {withUniqueKeys(proposal.warnings).map(({ key, value }) => (
+                <li key={key}>{value}</li>
               ))}
             </ul>
           </div>
@@ -991,10 +973,10 @@ function ProposalCard({
           <div className="rounded-[6px] border border-missing/40 bg-missing/8 p-2">
             <div className="microlabel mb-1 text-missing">Validation</div>
             <ul className="list-disc space-y-0.5 pl-4 text-[12px] text-missing">
-              {analysis.validation.issues.map((issue) => (
-                <li key={`${issue.severity}:${issue.message}`}>
-                  [{issue.severity}] {issue.message}
-                </li>
+              {withUniqueKeys(
+                analysis.validation.issues.map((issue) => `[${issue.severity}] ${issue.message}`),
+              ).map(({ key, value }) => (
+                <li key={key}>{value}</li>
               ))}
             </ul>
           </div>
@@ -1071,7 +1053,7 @@ function ProposalCard({
         <div className="flex flex-wrap items-center gap-2 border-t border-line pt-3">
           <ProposalApplyButton
             action={proposal.action}
-            validationOk={validationOk}
+            validationOk={analysis.validation?.ok ?? true}
             selectedCount={selectedIds.size}
             removalOptions={removalOptions}
             busy={apply.isPending}

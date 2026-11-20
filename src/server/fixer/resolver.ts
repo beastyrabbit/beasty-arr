@@ -12,7 +12,7 @@ import type { SonarrClient } from "../arr/sonarr-client.js";
 import { compactCandidate } from "../arr/sonarr-format.js";
 import type { MediaProber } from "../media/types.js";
 import type { FixerAnalysisEvent, FixerPiRunner } from "./ai-port.js";
-import { applyGuards } from "./guards.js";
+import { applyGuards, removalBasis, sameRemovalBasis } from "./guards.js";
 import {
   collectInspection,
   emptyFacts,
@@ -27,7 +27,7 @@ import { createInspectMediaTool } from "./pi-media-tools.js";
 import { createProposalTool } from "./pi-proposal-tool.js";
 import { createRadarrLookupTools } from "./pi-radarr-tools.js";
 import { createSonarrLookupTools } from "./pi-sonarr-tools.js";
-import { createWebTools } from "./pi-web-tools.js";
+import { createWebTools, type WebToolLog } from "./pi-web-tools.js";
 import { validateProposalForImport } from "./validation.js";
 
 /**
@@ -101,6 +101,14 @@ const RADARR_TOOL_NAMES = [
 
 /** Files inspected before a removal is checked; more than this waits for review. */
 const MAX_REMOVAL_PROBES = 100;
+
+/** The feature files a removal would discard, bounded for inspection. */
+function removalProbePaths(candidates: ManualImportCandidate[]): string[] {
+  return candidates
+    .filter((candidate) => !candidate.isLikelySample && !isDiscStreamPath(candidate.path))
+    .slice(0, MAX_REMOVAL_PROBES)
+    .map((candidate) => candidate.path);
+}
 
 // ============ fixer decision contract ============
 
@@ -297,6 +305,8 @@ export interface ResolveQueueItemInput {
   searxngUrl?: string;
   /** Test seam for the web tools; production uses DNS and pinned HTTP(S). */
   webOptions?: Pick<Parameters<typeof createWebTools>[0], "fetchImpl" | "lookupFn">;
+  /** Where the web tools report failed fetches and searches. */
+  log?: WebToolLog;
   signal?: AbortSignal;
   onEvent?: (event: FixerAnalysisEvent) => void;
 }
@@ -482,15 +492,9 @@ async function finishAnalysis(
     // The removal guard must see the files it would discard, not only the ones
     // inspected upfront. Bounded and cancellable; a file left uninspected counts
     // as possibly German, which holds the removal for review.
-    await probePaths(
-      state.facts,
-      input.prober,
-      state.candidates
-        .filter((candidate) => !candidate.isLikelySample && !isDiscStreamPath(candidate.path))
-        .slice(0, MAX_REMOVAL_PROBES)
-        .map((candidate) => candidate.path),
-      { signal: input.signal },
-    );
+    await probePaths(state.facts, input.prober, removalProbePaths(state.candidates), {
+      signal: input.signal,
+    });
   }
   // Files probed during or after the AI run (refreshed candidates) as well.
   state.candidates = withVerifiedGerman(state.candidates, state.facts);
@@ -521,6 +525,8 @@ async function finishAnalysis(
     ...state.knownEpisodeIds,
   ]);
   if (nonUpgrade && validation.ok) validation.safeNonUpgradeRemoval = true;
+  if (guarded.action === "remove_queue_item" && validation.ok)
+    validation.removalBasis = removalBasis(queueItem, state.candidates, state.facts);
   return {
     queueItemId: queueItem.id,
     candidates: state.candidates,
@@ -596,7 +602,12 @@ export async function resolveQueueItem(input: ResolveQueueItemInput): Promise<An
   const tools = [
     ...createLookupTools(input, state, step),
     createSessionInspectTool(input, state),
-    ...createWebTools({ ...input.webOptions, searxngUrl: input.searxngUrl, facts: state.facts }),
+    ...createWebTools({
+      ...input.webOptions,
+      searxngUrl: input.searxngUrl,
+      facts: state.facts,
+      log: input.log,
+    }),
     proposalTool,
   ];
 
@@ -662,10 +673,12 @@ export async function revalidateResolution(
   );
   const selectedTargets = await loadTargets(facts, input.client, selectedIds);
   // The upfront probe covers only the first files of a large pack; the import
-  // guard needs every selected file, as the AI inspected them during analysis.
+  // guard needs every selected file, as the AI inspected them during analysis,
+  // and the removal guard every file it would discard.
   const selectedCandidateIds = new Set(
     result.proposal.selectedImports.map((selection) => selection.candidateId),
   );
+  const removal = result.proposal.action === "remove_queue_item";
   await probePaths(
     facts,
     input.prober,
@@ -676,6 +689,7 @@ export async function revalidateResolution(
       ...selectedTargets.flatMap((target) =>
         target.currentFile?.path ? [target.currentFile.path] : [],
       ),
+      ...(removal ? removalProbePaths(result.candidates) : []),
     ],
     { signal: input.signal },
   );
@@ -710,24 +724,35 @@ export async function revalidateResolution(
       status: "needs_review",
     };
   }
-  if (result.proposal.action === "import_candidates") {
-    const guarded = applyGuards({
-      queueItem: input.queueItem,
-      candidates,
-      facts,
-      proposal: result.proposal,
-    });
-    if (guarded.action === "needs_review")
-      return {
-        ...result,
-        candidates,
-        proposal: guarded,
-        status: "needs_review",
-        validation: {
-          ok: false,
-          issues: (guarded.reviewReasons ?? []).map((message) => ({ severity: "error", message })),
-        },
-      };
-  }
-  return { ...result, candidates };
+  if (result.proposal.action !== "import_candidates" && !removal) return { ...result, candidates };
+  const guarded = applyGuards({
+    queueItem: input.queueItem,
+    candidates,
+    facts,
+    proposal: result.proposal,
+  });
+  if (guarded.action !== "needs_review") return { ...result, candidates, proposal: guarded };
+  // The fresh facts lack what only the AI session saw (fetched pages, catalog
+  // lookups), which can back a wrong-work removal. Such a removal stands while
+  // the library and files its guards passed against are unchanged; any change
+  // (a target lost German audio, a new library file, no media inspection) holds it.
+  const basis = removal ? removalBasis(input.queueItem, candidates, facts) : undefined;
+  if (basis && sameRemovalBasis(result.validation.removalBasis, basis))
+    return { ...result, candidates };
+  const proposal: ResolutionProposal = basis
+    ? {
+        ...guarded,
+        reason: `Held for review: against the current library the removal no longer passes the fixer's checks. ${guarded.reviewReasons?.[0] ?? ""} Reanalyze.`,
+      }
+    : guarded;
+  return {
+    ...result,
+    candidates,
+    proposal,
+    status: "needs_review",
+    validation: {
+      ok: false,
+      issues: (guarded.reviewReasons ?? []).map((message) => ({ severity: "error", message })),
+    },
+  };
 }

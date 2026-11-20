@@ -81,7 +81,7 @@ export interface TargetFacts {
 export type RadarrInspectionClient = Pick<RadarrClient, "getMovie"> &
   Partial<Pick<RadarrClient, "parseRelease" | "getMovieFile">>;
 export type SonarrInspectionClient = Pick<SonarrClient, "getEpisodes"> &
-  Partial<Pick<SonarrClient, "parseRelease">>;
+  Partial<Pick<SonarrClient, "parseRelease" | "getSeriesById">>;
 
 const MAX_UPFRONT_PROBES = 30;
 const PROBE_CONCURRENCY = 4;
@@ -423,6 +423,42 @@ async function independentParse(
   }
 }
 
+/** Sonarr's full series record (alternate titles, original language); undefined when unreadable. */
+async function fetchSeries(
+  queueItem: QueueItem,
+  client: RadarrInspectionClient | SonarrInspectionClient,
+): Promise<SonarrSeriesRecord | undefined> {
+  const { seriesId } = queueItem;
+  const sonarr = client as SonarrInspectionClient;
+  if (queueItem.service !== "sonarr" || seriesId === undefined || !sonarr.getSeriesById) return;
+  const series = await sonarr.getSeriesById(seriesId).catch(() => undefined);
+  return series?.id === seriesId ? series : undefined;
+}
+
+/**
+ * The queued series as the guards need it (season-bound arc alternates, the
+ * original language), known upfront instead of only after the AI looks the
+ * series up. Falls back to the series embedded in the episode records, which
+ * may lack alternate titles.
+ */
+function queuedSeries(
+  queueItem: QueueItem,
+  facts: InspectionFacts,
+  fetched: SonarrSeriesRecord | undefined,
+): SonarrSeriesRecord | undefined {
+  const embedded = [...(facts.libraryEpisodes?.values() ?? [])].find(
+    (episode) => episode.series && (episode.series.id ?? episode.seriesId) === queueItem.seriesId,
+  )?.series;
+  if (!fetched && !embedded) return undefined;
+  return {
+    ...embedded,
+    ...fetched,
+    alternateTitles: fetched?.alternateTitles?.length
+      ? fetched.alternateTitles
+      : embedded?.alternateTitles,
+  };
+}
+
 /**
  * Collects the upfront facts: the queued targets with their current files and
  * expected runtimes, the arr's independent parse of the release name, and a
@@ -440,11 +476,13 @@ export async function collectInspection(input: {
     queueItem.service === "radarr"
       ? [queueItem.movieId ?? 0]
       : [...new Set([...queueItem.episodeIds, ...candidates.flatMap((c) => c.episodeIds)])];
-  const [targets, parse] = await Promise.all([
+  const [targets, parse, series] = await Promise.all([
     loadTargets(facts, client, targetIds),
     independentParse(queueItem.service, client, queueItem.title),
+    fetchSeries(queueItem, client),
   ]);
   facts.parse = parse;
+  if (queueItem.service === "sonarr") facts.series = queuedSeries(queueItem, facts, series);
   await probePaths(facts, prober, [
     ...inspectableCandidates(candidates).map((candidate) => candidate.path),
     ...targets.flatMap((target) => (target.currentFile?.path ? [target.currentFile.path] : [])),

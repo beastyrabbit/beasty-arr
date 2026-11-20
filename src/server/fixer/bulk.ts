@@ -7,12 +7,13 @@ import type {
 } from "../../shared/fixer-types.js";
 import type { SettingsService } from "../config/settings.js";
 import { reportError } from "../telemetry/report.js";
-import type {
-  FixerActionOpts,
-  FixerApplyOutcome,
-  FixerQueueItem,
-  FixerQueueSnapshot,
-  FixerRunOutcome,
+import {
+  type FixerActionOpts,
+  type FixerApplyOutcome,
+  type FixerQueueItem,
+  type FixerQueueSnapshot,
+  type FixerRunOutcome,
+  mergeDownloadRows,
 } from "./service.js";
 
 // ============ auto-apply gates (ported from sonarr_fixer renderer utils/candidates.ts + App.tsx) ============
@@ -203,16 +204,26 @@ export class FixerBulk {
       const targetSet = input.targets
         ? new Set(input.targets.map((target) => `${target.service}:${target.queueItemId}`))
         : null;
-      items = uniqueQueueItemsByDownload(
+      // A season pack is one download listed as one row per episode: decide
+      // and serialise it with every episode of the pack, not its first row's.
+      const rowsOf = (item: FixerQueueItem) =>
         snapshot.items.filter(
-          (item) =>
+          (row) =>
+            row.service === item.service &&
+            (item.downloadId ? row.downloadId === item.downloadId : row.id === item.id),
+        );
+      items = uniqueQueueItemsByDownload(snapshot.items)
+        .map((item) => mergeDownloadRows(item, snapshot.items))
+        .filter((item) => {
+          const rows = rowsOf(item);
+          return (
             item.canAnalyze &&
+            (!issueTypeSet || rows.some((row) => issueTypeSet.has(row.issueType))) &&
+            (!targetSet || rows.some((row) => targetSet.has(`${row.service}:${row.id}`))) &&
             (!(input.skipAnalyzed || input.pendingOnly) ||
-              this.service.shouldProcess(item, input.pendingOnly)) &&
-            (!issueTypeSet || issueTypeSet.has(item.issueType)) &&
-            (!targetSet || targetSet.has(`${item.service}:${item.id}`)),
-        ),
-      );
+              this.service.shouldProcess(item, input.pendingOnly))
+          );
+        });
     } catch (error) {
       this.status = { ...this.status, running: false, finishedAt: this.now() };
       reportError(error, { job: "fixer.bulk.start" });
@@ -390,9 +401,10 @@ export class FixerBulk {
  * one's apply.
  */
 function claimTargets(item: FixerQueueItem, targetTails: Map<string, Promise<void>>) {
-  const targets = (item.service === "radarr" ? [item.movieId] : item.episodeIds).map(
-    (id) => `${item.service}:${id}`,
-  );
+  // An unmatched movie (no movieId) shares no target with anything.
+  const targets = (item.service === "radarr" ? [item.movieId] : item.episodeIds)
+    .filter((id): id is number => Number.isSafeInteger(id) && Number(id) > 0)
+    .map((id) => `${item.service}:${id}`);
   const previous = Promise.all(targets.flatMap((target) => targetTails.get(target) ?? []));
   let resolve!: () => void;
   const tail = new Promise<void>((done) => {
