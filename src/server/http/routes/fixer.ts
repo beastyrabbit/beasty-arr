@@ -107,7 +107,9 @@ export function registerFixerRoutes(app: FastifyInstance, ctx: AppContext): void
       }
     >();
     const downloadState = (item: (typeof snapshot.items)[number]) => {
-      const key = `${item.service}:${item.downloadId ? `dl:${item.downloadId}` : `id:${item.id}`}`;
+      const key = item.downloadId
+        ? `${item.service}:dl:${item.downloadId}`
+        : `${item.service}:id:${item.id}`;
       let state = perDownload.get(key);
       if (!state) {
         const analysis = fixer.analysisForItem(item);

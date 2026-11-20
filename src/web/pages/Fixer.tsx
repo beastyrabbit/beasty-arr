@@ -329,103 +329,106 @@ export function FixerPage() {
               <Skeleton className="w-3/4" />
               <Skeleton className="w-5/6" />
             </div>
-          ) : (queue.isError && !queue.data) ||
-            (items.length === 0 &&
-              queue.data?.unavailableServices?.length) ? null : items.length === 0 ? (
+          ) : null}
+          {!queue.isPending &&
+          items.length === 0 &&
+          !(queue.isError && !queue.data) &&
+          !queue.data?.unavailableServices?.length ? (
             <EmptyState
               message="Nothing stuck. The import queues are clean."
               hint="Stuck items from Sonarr/Radarr appear here."
             />
-          ) : (
-            groups.map(([issueType, groupItems]) => (
-              <div key={issueType}>
-                <div className="flex h-8 items-center gap-2 border-b border-line bg-raised/50 px-3">
-                  <input
-                    type="checkbox"
-                    aria-label={`Select all ${issueType} items`}
-                    className="accent-[#f0a63a]"
-                    checked={groupItems.every((item) => selected.has(keyOf(item)))}
-                    onChange={(event) => {
-                      setSelected((current) => {
-                        const next = new Set(current);
-                        for (const item of groupItems) {
-                          const key = keyOf(item);
-                          if (event.target.checked) next.add(key);
-                          else next.delete(key);
-                        }
-                        return next;
-                      });
-                    }}
-                  />
-                  <span className="microlabel">{issueType}</span>
-                  <span className="font-mono text-[11px] text-muted">{groupItems.length}</span>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="ml-auto"
-                    disabled={
-                      bulkStatus.data?.running ||
-                      !groupItems.some(
-                        (item) => item.canAnalyze && item.analysisState !== "analyzing",
-                      )
-                    }
-                    // The server skips settled work and revisits reviews from
-                    // older app versions once per release, like Run all.
-                    onClick={() =>
-                      bulk.mutate({
-                        action: "start",
-                        body: { issueTypes: [issueType], skipAnalyzed: true },
-                      })
-                    }
-                  >
-                    Analyze all
-                  </Button>
-                </div>
-                {groupItems.map((item) => {
-                  const k = keyOf(item);
-                  return (
-                    <div
-                      key={k}
-                      className={cn(
-                        "flex h-8 items-center gap-2 border-b border-line px-3 last:border-b-0",
-                        activeKey === k ? "bg-raised" : "hover:bg-raised/50",
-                      )}
+          ) : null}
+          {!queue.isPending && items.length > 0
+            ? groups.map(([issueType, groupItems]) => (
+                <div key={issueType}>
+                  <div className="flex h-8 items-center gap-2 border-b border-line bg-raised/50 px-3">
+                    <input
+                      type="checkbox"
+                      aria-label={`Select all ${issueType} items`}
+                      className="accent-[#f0a63a]"
+                      checked={groupItems.every((item) => selected.has(keyOf(item)))}
+                      onChange={(event) => {
+                        setSelected((current) => {
+                          const next = new Set(current);
+                          for (const item of groupItems) {
+                            const key = keyOf(item);
+                            if (event.target.checked) next.add(key);
+                            else next.delete(key);
+                          }
+                          return next;
+                        });
+                      }}
+                    />
+                    <span className="microlabel">{issueType}</span>
+                    <span className="font-mono text-[11px] text-muted">{groupItems.length}</span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="ml-auto"
+                      disabled={
+                        bulkStatus.data?.running ||
+                        !groupItems.some(
+                          (item) => item.canAnalyze && item.analysisState !== "analyzing",
+                        )
+                      }
+                      // The server skips settled work and revisits reviews from
+                      // older app versions once per release, like Run all.
+                      onClick={() =>
+                        bulk.mutate({
+                          action: "start",
+                          body: { issueTypes: [issueType], skipAnalyzed: true },
+                        })
+                      }
                     >
-                      <input
-                        type="checkbox"
-                        aria-label={`Select ${item.title} for bulk analysis`}
-                        className="accent-[#f0a63a]"
-                        checked={selected.has(k)}
-                        onChange={(e) => {
-                          setSelected((prev) => {
-                            const next = new Set(prev);
-                            if (e.target.checked) next.add(k);
-                            else next.delete(k);
-                            return next;
-                          });
-                        }}
-                      />
-                      <span className="font-mono text-[10px] text-faint" title={item.service}>
-                        {item.service === "sonarr" ? "S" : "R"}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setActiveKey(k)}
-                        aria-label={`Review ${item.title}`}
-                        className="min-w-0 flex-1 cursor-pointer truncate text-left text-[12px] text-ink focus-visible:outline-2"
+                      Analyze all
+                    </Button>
+                  </div>
+                  {groupItems.map((item) => {
+                    const k = keyOf(item);
+                    return (
+                      <div
+                        key={k}
+                        className={cn(
+                          "flex h-8 items-center gap-2 border-b border-line px-3 last:border-b-0",
+                          activeKey === k ? "bg-raised" : "hover:bg-raised/50",
+                        )}
                       >
-                        {item.title}
-                      </button>
-                      <span className="font-mono text-[10px] text-faint">
-                        {item.addedAt ? relTime(Date.parse(item.addedAt)) : "—"}
-                      </span>
-                      <AnalysisStateBadge item={item} />
-                    </div>
-                  );
-                })}
-              </div>
-            ))
-          )}
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${item.title} for bulk analysis`}
+                          className="accent-[#f0a63a]"
+                          checked={selected.has(k)}
+                          onChange={(e) => {
+                            setSelected((prev) => {
+                              const next = new Set(prev);
+                              if (e.target.checked) next.add(k);
+                              else next.delete(k);
+                              return next;
+                            });
+                          }}
+                        />
+                        <span className="font-mono text-[10px] text-faint" title={item.service}>
+                          {item.service === "sonarr" ? "S" : "R"}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setActiveKey(k)}
+                          aria-label={`Review ${item.title}`}
+                          className="min-w-0 flex-1 cursor-pointer truncate text-left text-[12px] text-ink focus-visible:outline-2"
+                        >
+                          {item.title}
+                        </button>
+                        <span className="font-mono text-[10px] text-faint">
+                          {item.addedAt ? relTime(Date.parse(item.addedAt)) : "—"}
+                        </span>
+                        <AnalysisStateBadge item={item} />
+                      </div>
+                    );
+                  })}
+                </div>
+              ))
+            : null}
         </Panel>
 
         {/* right: review panel */}

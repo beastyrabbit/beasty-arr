@@ -19,10 +19,13 @@ import type { InspectionFacts, TargetFacts } from "./inspection.js";
  */
 
 /**
- * A four-digit year in a release name, not a frame size (1920x1080, 1920p),
- * bitrate (2048kbps, 2048k) or a dimension's second half (1080x1920).
+ * A four-digit year in a release name, filtered in `releaseYears` so frame
+ * sizes (1920x1080, 1080x1920, 1920p) and bitrates (2048kbps, 2048kbit, 2048k)
+ * are never treated as release years.
  */
-const RELEASE_YEAR = /(?<!\d|\dx)(?:19|20)\d{2}(?!\d|x\d|[pi]\b|\s?k(?:bps|bit|b\/s)?\b)/gi;
+const RELEASE_YEAR = /(?<!\d)(?:19|20)\d{2}(?!\d)/g;
+const PRECEDED_BY_DIM = /\dx$/i;
+const FOLLOWED_BY_UNIT = /^(?:x\d|[pi]\b|\s?k(?:bps|bit|b\/s)?\b)/i;
 const EPISODE_CODE = /s\d{1,2}e\d{1,3}/i;
 const NAME_SEPARATORS = /[ ._-]+/;
 const LEADING_SEPARATOR = /^[ ._-]/;
@@ -47,7 +50,18 @@ function explicitEpisodeTitle(name: string): string | undefined {
 }
 
 function releaseYears(names: Array<string | undefined>): number[] {
-  return [...new Set(names.flatMap((name) => (name?.match(RELEASE_YEAR) ?? []).map(Number)))];
+  const found: number[] = [];
+  for (const name of names) {
+    if (!name) continue;
+    for (const match of name.matchAll(RELEASE_YEAR)) {
+      const start = match.index ?? 0;
+      const before = name.slice(0, start);
+      const after = name.slice(start + match[0].length);
+      if (PRECEDED_BY_DIM.test(before) || FOLLOWED_BY_UNIT.test(after)) continue;
+      found.push(Number(match[0]));
+    }
+  }
+  return [...new Set(found)];
 }
 
 function probeOf(facts: InspectionFacts, path: string | undefined): MediaProbeOk | undefined {
@@ -907,6 +921,12 @@ function withoutNeedlessSearch(
   };
 }
 
+function probeStatus(probe: MediaProbeResult | undefined): "ok" | "invalid" | "unread" {
+  if (probe?.ok) return "ok";
+  if (probe?.invalid) return "invalid";
+  return "unread";
+}
+
 /**
  * What the removal guards read from the library and the files: each queued
  * target's library file with its German audio, resolution, quality and score,
@@ -941,7 +961,7 @@ export function removalBasis(
       const probe = facts.probes.get(candidate.path);
       return {
         id: candidate.id,
-        probe: probe?.ok ? "ok" : probe?.invalid ? "invalid" : "unread",
+        probe: probeStatus(probe),
         german: mayHaveGerman(facts, candidate),
         resolution: resolutionClass(probeOf(facts, candidate.path)?.video),
       };
