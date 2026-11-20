@@ -193,6 +193,33 @@ export interface ValidationResult {
   issues: ValidationIssue[];
   /** Set only by deterministic library comparison after the removal guards pass. */
   safeNonUpgradeRemoval?: boolean;
+  /**
+   * The library and file state the removal guards passed against. A saved
+   * removal whose fresh recheck lacks the session's own evidence (fetched web
+   * pages, catalog lookups) may proceed only while this state is unchanged.
+   */
+  removalBasis?: RemovalBasis;
+}
+
+/** Fingerprint of everything a removal's German- and upgrade-loss guards read. */
+export interface RemovalBasis {
+  proberAvailable: boolean;
+  targets: Array<{
+    id: number;
+    missing?: boolean;
+    fileId?: number;
+    path?: string;
+    quality?: string;
+    score?: number;
+    resolution?: number;
+    german?: boolean;
+  }>;
+  candidates: Array<{
+    id: string;
+    probe: "ok" | "invalid" | "unread";
+    german: boolean;
+    resolution?: number;
+  }>;
 }
 
 export interface AnalysisResult {

@@ -294,6 +294,102 @@ describe("Fixer recovery", () => {
     expect(analyzed).toEqual([1, 3, 2]);
     expect(bulk.getStatus()).toMatchObject({ autoImported: 1, autoRemoved: 1, failed: 0 });
   });
+  /** A bulk runner over `queue` whose analyses each wait for `release(id)`. */
+  function serialisedBulk(h: ReturnType<typeof makeHarness>, queue: QueueItem[]) {
+    const gates = new Map<number, () => void>();
+    const started = new Map<number, Promise<void>>();
+    const starts = new Map<number, () => void>();
+    for (const item of queue)
+      started.set(item.id, new Promise((resolve) => starts.set(item.id, resolve)));
+    const bulk = new FixerBulk(
+      {
+        refreshQueue: async () => ({
+          fetchedAt: 0,
+          items: queue.map((item) => ({ ...item, issueType: "Import blocked" })),
+          errors: {},
+        }),
+        shouldProcess: () => true,
+        providerRetryAt: () => null,
+        cancel: () => false,
+        analyzeAndWait: async (_service, id) => {
+          await new Promise<void>((resolve) => {
+            gates.set(id, resolve);
+            starts.get(id)?.();
+          });
+          return { analysisId: String(id), status: "completed" };
+        },
+        apply: async () => ({ ok: true, dryRun: false, message: "" }),
+        removeQueueItem: async () => ({ ok: true, dryRun: false, message: "" }),
+      },
+      h.settings,
+      noopLog,
+    );
+    return {
+      bulk,
+      started,
+      release: (id: number) => gates.get(id)?.(),
+      isStarted: (id: number) => gates.has(id),
+    };
+  }
+
+  it("serialises a season pack against another download of any of its episodes", async () => {
+    const h = makeHarness(() => needsReviewProposal());
+    h.settings.update({ fixerParallelism: 3 });
+    // Rows 1 and 2 are one pack (episodes 101 and 102); download 3 is 102 alone.
+    const queue = [
+      makeQueueItem(1, { downloadId: "pack" }),
+      makeQueueItem(2, { downloadId: "pack", episodeIds: [102] }),
+      makeQueueItem(3, { episodeIds: [102] }),
+    ];
+    const run = serialisedBulk(h, queue);
+    expect((await run.bulk.start()).total).toBe(2);
+    await run.started.get(1);
+    // Let any free worker pick download 3 up; it must wait for the pack.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(run.isStarted(3)).toBe(false);
+    run.release(1);
+    await run.started.get(3);
+    run.release(3);
+    await run.bulk.wait();
+  });
+
+  it("does not serialise unmatched Radarr downloads on a shared undefined movie", async () => {
+    const h = makeHarness(() => needsReviewProposal());
+    h.settings.update({ fixerParallelism: 2 });
+    const queue = [1, 2].map((id) =>
+      makeQueueItem(id, { service: "radarr", movieId: undefined, episodeIds: [] }),
+    );
+    const run = serialisedBulk(h, queue);
+    expect((await run.bulk.start()).total).toBe(2);
+    // Both run at once: neither waits for the other.
+    await Promise.all([run.started.get(1), run.started.get(2)]);
+    run.release(1);
+    run.release(2);
+    await run.bulk.wait();
+  });
+
+  it("selects a pack through any of its rows and judges it with every episode", async () => {
+    const h = makeHarness(() => needsReviewProposal());
+    h.sonarr.queue = [
+      makeQueueItem(1, { downloadId: "pack" }),
+      makeQueueItem(2, { downloadId: "pack", episodeIds: [102] }),
+    ];
+    h.sonarr.candidatesByItem.set(1, [makeCandidate("candidate_1", [101, 102])]);
+    const seen: QueueItem[] = [];
+    const shouldProcess = h.svc.shouldProcess.bind(h.svc);
+    h.svc.shouldProcess = (item, pendingOnly) => {
+      seen.push(item);
+      return shouldProcess(item, pendingOnly);
+    };
+    await h.bulk.start({
+      targets: [{ service: "sonarr", queueItemId: 2 }],
+      skipAnalyzed: true,
+    });
+    await h.bulk.wait();
+    expect(h.calls.map((call) => call.queueItemId)).toEqual([1]);
+    expect(seen[0]?.episodeIds).toEqual([101, 102]);
+  });
+
   it.each([
     [undefined, false],
     ["older-release", false],
@@ -467,6 +563,55 @@ describe("Fixer recovery", () => {
     await h.bulk.start({ skipAnalyzed: true });
     await h.bulk.wait();
     expect(h.calls).toHaveLength(3);
+  });
+
+  it("does not pause the AI for a rate limit of Sonarr or Radarr", async () => {
+    const h = makeHarness(() => {
+      throw new Error("Sonarr 429 Too Many Requests: /api/v3/episode");
+    });
+    h.settings.update({ fixerParallelism: 1 });
+    h.sonarr.queue = [makeQueueItem(1), makeQueueItem(2)];
+    for (const item of h.sonarr.queue)
+      h.sonarr.candidatesByItem.set(item.id, [
+        makeCandidate(`candidate_${item.id}`, [100 + item.id]),
+      ]);
+    await h.bulk.start({ skipAnalyzed: true });
+    await h.bulk.wait();
+    expect(h.calls).toHaveLength(2);
+    expect(h.svc.providerRetryAt()).toBeNull();
+  });
+
+  it("ends the usage-limit pause once a later analysis got its answer from the AI", async () => {
+    const now = Date.now();
+    const h = makeHarness(
+      () => needsReviewProposal(),
+      () => now,
+    );
+    const row = (id: string, at: number, over: Partial<typeof fixerAnalyses.$inferInsert>) =>
+      h.db
+        .insert(fixerAnalyses)
+        .values({
+          id,
+          createdAt: at - 1_000,
+          completedAt: at,
+          service: "sonarr",
+          queueItemId: 1,
+          itemLabel: "Show",
+          status: "completed",
+          ...over,
+        })
+        .run();
+    row("limited", now - 20 * 60_000, {
+      status: "failed",
+      error: "Codex error: The usage limit has been reached",
+    });
+    expect(h.svc.providerRetryAt()).toBe(now - 20 * 60_000 + 60 * 60_000);
+    // Finished without asking the AI (no candidates): no proof the provider answers.
+    row("no-candidates", now - 10 * 60_000, { candidates: [] });
+    row("earlier-answer", now - 30 * 60_000, { candidates: [{ id: "candidate_1" }] });
+    expect(h.svc.providerRetryAt()).toBe(now - 20 * 60_000 + 60 * 60_000);
+    row("answered", now - 5 * 60_000, { candidates: [{ id: "candidate_1" }] });
+    expect(h.svc.providerRetryAt()).toBeNull();
   });
 
   it("rechecks pending proposals, holds low confidence, and never reapplies a success", async () => {

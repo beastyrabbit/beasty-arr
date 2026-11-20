@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { emptyFacts } from "./inspection.js";
-import { createWebTools } from "./pi-web-tools.js";
+import { createWebTools, pinnedLookup } from "./pi-web-tools.js";
 
 type Callable = {
   name: string;
@@ -188,5 +188,44 @@ describe("Fixer public web tools", () => {
     });
     expect(h.lookupFn).not.toHaveBeenCalled();
     expect(result.content[0]?.text).toContain("Untrusted web evidence");
+  });
+
+  it("pins the socket to every validated address so it can fall back from IPv6 to IPv4", () => {
+    const lookup = pinnedLookup([{ address: "2606:2800:220:1::1" }, { address: "93.184.216.34" }]);
+    const all = vi.fn();
+    lookup("example.com", { all: true }, all);
+    expect(all).toHaveBeenCalledWith(null, [
+      { address: "2606:2800:220:1::1", family: 6 },
+      { address: "93.184.216.34", family: 4 },
+    ]);
+    const single = vi.fn();
+    lookup("example.com", {}, single);
+    expect(single).toHaveBeenCalledWith(null, "2606:2800:220:1::1", 6);
+    const none = vi.fn();
+    pinnedLookup([])("example.com", { all: true }, none);
+    expect(none.mock.calls[0]?.[0]).toBeInstanceOf(Error);
+  });
+
+  it("logs why a fetch or search failed without showing the reason to the model", async () => {
+    const warn = vi.fn();
+    const fetchImpl = vi.fn<typeof fetch>().mockRejectedValue(new Error("connect ENETUNREACH"));
+    const tools = createWebTools({
+      fetchImpl,
+      lookupFn: async () => [{ address: "93.184.216.34" }],
+      searxngUrl: "http://searxng.tools.svc.cluster.local:8080",
+      facts: emptyFacts("sonarr", undefined),
+      log: { warn },
+    }) as unknown as Callable[];
+    const page = await tools[0]!.execute("fetch", { url: "https://example.com/" });
+    expect(page.content[0]?.text).not.toContain("ENETUNREACH");
+    expect(warn).toHaveBeenCalledWith(
+      { url: "https://example.com/", reason: "connect ENETUNREACH" },
+      "fixer web_fetch failed",
+    );
+    await tools[1]!.execute("search", { query: "Benjamin" });
+    expect(warn).toHaveBeenLastCalledWith(
+      { reason: "connect ENETUNREACH" },
+      "fixer web_search failed",
+    );
   });
 });

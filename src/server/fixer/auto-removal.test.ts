@@ -205,6 +205,35 @@ describe("16 remaining downloads after v0.9.0, captured read-only 24 October", (
       expect(result.validation.safeNonUpgradeRemoval).toBe(true);
   });
 
+  it.each([
+    ["a removal at low confidence", "remove_queue_item", 0.6],
+    ["a review", "needs_review", 0],
+  ] as const)(
+    "treats a verified non-upgrade the AI proposed as %s alike",
+    async (_label, action, confidence) => {
+      const capture = structuredClone(
+        saved.cases.find((row) => row.label === "The World at War S01E01")!,
+      );
+      const h = harness(capture);
+      const result = await resolveQueueItem({
+        ...h,
+        queueItem: capture.queueItem,
+        candidates: capture.candidates,
+        runner: async (req) => {
+          await tool(req, "propose_sonarr_resolution", {
+            ...capture.originalProposal,
+            action,
+            confidence,
+          });
+          return { log: [] };
+        },
+      });
+      expect(result.validation.safeNonUpgradeRemoval).toBe(true);
+      expect(result.proposal.confidence).toBe(1);
+      expect(autoApplyBlockReason(result.proposal, result.validation, settings)).toBeNull();
+    },
+  );
+
   // Imports outside the queued targets rely on this: a file the AI places on
   // another episode is judged there, so the non-upgrade shortcut keeps it.
   it("does not turn an import placed on another episode into a non-upgrade removal", async () => {
@@ -357,6 +386,92 @@ describe("16 remaining downloads after v0.9.0, captured read-only 24 October", (
         },
       });
       expect(result.proposal.action).toBe(expected);
+    },
+  );
+
+  // The web page that backs this removal exists only in the AI session; the
+  // apply-time recheck must keep the removal while the library is as the
+  // guards saw it, and hold it once the library changed.
+  it.each([
+    ["an unchanged library", "unchanged", "remove_queue_item"],
+    ["a library file that lost its German audio", "lost German", "needs_review"],
+    ["a replaced library file", "replaced", "needs_review"],
+    ["media inspection switched off", "no prober", "needs_review"],
+    ["a removal saved without the library fingerprint", "legacy", "needs_review"],
+  ] as const)(
+    "rechecks Benjamin's saved web-backed removal against %s",
+    async (_label, change, expected) => {
+      const capture = structuredClone(saved.cases.find((row) => row.label.startsWith("Benjamin"))!);
+      const h = harness(capture);
+      // An English original turns off the catalog-title rule: only the page backs it.
+      h.client.getSeriesById = async (id: number) => ({
+        ...structuredClone(benjaminSeries),
+        id,
+        originalLanguage: { id: 1, name: "English" },
+      });
+      const result = await resolveQueueItem({
+        ...h,
+        webOptions: webPage(webText),
+        queueItem: capture.queueItem,
+        candidates: capture.candidates,
+        runner: async (req) => {
+          await lookUpBenjamin(req);
+          await tool(req, "web_fetch", { url: webUrl });
+          await tool(req, "propose_sonarr_resolution", {
+            ...capture.originalProposal,
+            confidence: 0.99,
+            identity: {
+              verdict: "contradicted",
+              actualWork: "Ein ganz besonderes Geschenk",
+              evidence: [`${webUrl} identifies Ein ganz besonderes Geschenk: "${quote}"`],
+            },
+          });
+          return { log: [] };
+        },
+      });
+      expect(result.proposal.action).toBe("remove_queue_item");
+      expect(result.validation.removalBasis).toBeDefined();
+      // Saved as JSON, as the analysis row stores it.
+      const savedResult = JSON.parse(JSON.stringify(result)) as typeof result;
+
+      const episode = capture.episodes[0]!;
+      const library = episode.episodeFile!.path!;
+      let prober = h.prober;
+      if (change === "lost German") {
+        const probe = h.prober.probe;
+        prober = {
+          ...h.prober,
+          probe: async (path, options) => {
+            const probed = await probe(path, options);
+            return path === library && probed.ok
+              ? {
+                  ...probed,
+                  hasGermanAudio: false,
+                  audio: [englishAudio()],
+                  audioLanguages: ["eng"],
+                }
+              : probed;
+          },
+        };
+      }
+      if (change === "replaced")
+        h.setEpisodes([{ ...episode, episodeFile: { ...episode.episodeFile, id: 987_654 } }]);
+      if (change === "no prober") prober = { ...h.prober, available: false };
+      if (change === "legacy") delete savedResult.validation.removalBasis;
+
+      const rechecked = await revalidateResolution(
+        { client: h.client, prober, queueItem: capture.queueItem, candidates: result.candidates },
+        savedResult,
+      );
+      expect(rechecked.proposal.action).toBe(expected);
+      expect(rechecked.validation.ok).toBe(expected === "remove_queue_item");
+      if (expected === "needs_review")
+        expect(rechecked.proposal.reason).toContain("no longer passes the fixer's checks");
+      // Without the session's page nothing backs "a different work" any more.
+      if (change === "lost German")
+        expect(rechecked.proposal.reviewReasons?.join(" ")).toContain(
+          "The AI judged the download to be a different work",
+        );
     },
   );
 

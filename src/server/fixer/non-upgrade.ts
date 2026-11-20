@@ -48,7 +48,10 @@ export function safeNonUpgradeRemoval(
     proposal: {
       ...original,
       action: "remove_queue_item",
-      confidence: original.action === "remove_queue_item" ? original.confidence : 1,
+      // The deterministic comparison decides, not the AI's doubt about identity
+      // or cut: a removal the AI proposed at 70% is as safe as one it left for
+      // review, and must not wait where that one is applied.
+      confidence: 1,
       selectedCandidateIds: [],
       selectedImports: [],
       // Identity is irrelevant here; it must not bypass the German/upgrade-loss guards.
@@ -114,6 +117,10 @@ function isVerifiedNonUpgrade(
     return false;
   const mapped = selection?.episodeIds;
   const mappings = mapped?.length ? mapped : candidate.episodeIds;
+  // A pack file Sonarr could not map is judged against every queued episode:
+  // it counts as a non-upgrade only if it would improve none of them, which is
+  // stricter than any single mapping. The removal guards then treat it as a
+  // file for every queued episode as well (targetsOfCandidate).
   const targets = queueItem.service === "radarr" || mappings.length === 0 ? ids : mappings;
   if (targets.some((id) => !ids.includes(id))) return false;
   // An untagged track could be German, so "blocked" against a German library

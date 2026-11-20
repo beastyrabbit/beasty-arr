@@ -689,6 +689,8 @@ export type FixerIgnoreResponse = MaybeDryRun<OkResponse>;
 
 export type FixerBulkStartRequest = {
   targets?: Array<{ service: ArrSource; queueItemId: number }>;
+  /** Only downloads of these issue types (a queue group's "Analyze all"). */
+  issueTypes?: string[];
   skipAnalyzed?: boolean;
 };
 export type FixerBulkStatusResponse = {

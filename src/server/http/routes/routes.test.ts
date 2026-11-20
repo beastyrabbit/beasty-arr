@@ -1003,6 +1003,50 @@ describe("fixer", () => {
     start.mockRestore();
   });
 
+  it("passes a queue group's issue type to the bulk runner (Analyze all)", async () => {
+    const start = vi
+      .spyOn(b.ctx.services.fixerBulk, "start")
+      .mockResolvedValue({ ok: true, total: 1 });
+    const body = { issueTypes: ["import blocked"], skipAnalyzed: true };
+
+    const res = await post(b.app, "/api/fixer/bulk/start", body);
+
+    expect(res.statusCode).toBe(200);
+    expect(start).toHaveBeenCalledWith(body);
+    expect((await post(b.app, "/api/fixer/bulk/start", { issueTypes: [""] })).statusCode).toBe(400);
+    start.mockRestore();
+  });
+
+  it("reads a season pack's analysis, apply record and cooldown once per download", async () => {
+    const rows = [1, 2, 3].map((id) => ({
+      id,
+      downloadId: "pack-download",
+      service: "sonarr" as const,
+      title: "Pack",
+      statusMessages: [],
+      episodeIds: [100 + id],
+      absoluteEpisodeNumbers: [],
+      episodeLabels: [],
+      canAnalyze: true,
+      issueType: "quality",
+    }));
+    vi.spyOn(b.ctx.services.fixer, "getQueue").mockResolvedValue({
+      fetchedAt: Date.now(),
+      items: rows,
+      errors: {},
+    });
+    const analysisForItem = vi.spyOn(b.ctx.services.fixer, "analysisForItem");
+    const retryAt = vi.spyOn(b.ctx.services.fixer, "retryAt");
+
+    const response = (await get(b.app, "/api/fixer/queue")).json();
+
+    expect(response.items).toHaveLength(3);
+    expect(analysisForItem).toHaveBeenCalledTimes(1);
+    expect(retryAt).toHaveBeenCalledTimes(1);
+    analysisForItem.mockRestore();
+    retryAt.mockRestore();
+  });
+
   it("maps the queue with latest-analysis fields", async () => {
     vi.spyOn(b.ctx.services.fixer, "getQueue").mockResolvedValue({
       fetchedAt: 123,

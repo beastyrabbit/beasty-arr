@@ -29,7 +29,7 @@ import {
   manualRemovalOptions,
   queueIssueType,
 } from "./service.js";
-import { fakeProber } from "./test-prober.js";
+import { englishAudio, fakeProber, germanAudio } from "./test-prober.js";
 
 const noopLog = {
   info: () => {},
@@ -251,7 +251,7 @@ async function runningPackImport() {
   return { harness, held, applying };
 }
 
-function makeHarness() {
+function makeHarness(prober = fakeProber()) {
   const dir = mkdtempSync(path.join(tmpdir(), "beasty-fixer-test-"));
   const { db, sqlite } = createDb(dir, {
     migrationsFolder: path.resolve(process.cwd(), "drizzle"),
@@ -268,7 +268,7 @@ function makeHarness() {
   const radarr = new FakeArrClient();
   const runnerCtl = makeRunner();
   const svc = new FixerService(db, settings, { sonarr, radarr }, runnerCtl.runner, bus, noopLog, {
-    prober: fakeProber(),
+    prober,
   });
   return { db, settings, bus, busEvents, sonarr, radarr, runnerCtl, svc };
 }
@@ -1082,6 +1082,52 @@ describe("FixerService apply", () => {
     expect(entry?.detail).toMatchObject({
       wouldHave: { action: "blocklist", queueItemId: 1, options },
     });
+  });
+
+  it.each([
+    ["the library is unchanged", false],
+    ["the library copy lost its German audio", true],
+  ])("rechecks a saved removal against the live library when %s", async (_label, lostGerman) => {
+    const probes: NonNullable<Parameters<typeof fakeProber>[0]> = {
+      "/downloads/candidate_1.mkv": { audio: [germanAudio()], hasGermanAudio: true },
+      "/lib/E01.mkv": { audio: [germanAudio()], hasGermanAudio: true },
+    };
+    const harness = makeHarness(fakeProber(probes));
+    harness.sonarr.queue = [makeQueueItem(1)];
+    harness.sonarr.episodes = [
+      { id: 101, hasFile: true, episodeFile: { path: "/lib/E01.mkv", languages: [] } },
+    ];
+    harness.sonarr.candidatesByItem.set(1, [
+      makeCandidate("candidate_1", [101], {
+        rejections: ["Not an upgrade for existing episode file(s)"],
+      }),
+    ]);
+    const options: QueueRemovalOptions = {
+      removeFromClient: true,
+      blocklist: true,
+      skipRedownload: true,
+      changeCategory: false,
+    };
+    harness.runnerCtl.setScript(() =>
+      importProposal("candidate_1", [101], {
+        action: "remove_queue_item",
+        confidence: 0.97,
+        selectedCandidateIds: [],
+        selectedImports: [],
+        queueRemovalOptions: options,
+        identity: { verdict: "uncertain", actualWork: "a duplicate", evidence: [] },
+      }),
+    );
+    const outcome = await harness.svc.analyzeAndWait("sonarr", 1);
+    expect(outcome.result?.proposal.action).toBe("remove_queue_item");
+    harness.settings.update({ dryRun: false });
+    if (lostGerman) probes["/lib/E01.mkv"] = { audio: [englishAudio()] };
+
+    const result = await harness.svc.apply(outcome.analysisId);
+
+    expect(result.ok).toBe(!lostGerman);
+    expect(harness.sonarr.removeCalls).toEqual(lostGerman ? [] : [{ queueItemId: 1, options }]);
+    if (lostGerman) expect(result.message).toContain("has German audio that the library copy");
   });
 
   it("refuses a removal proposal without explicit removal options", async () => {

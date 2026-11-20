@@ -2,6 +2,7 @@ import { hasGermanAudio } from "../../shared/domain.js";
 import type {
   ManualImportCandidate,
   QueueItem,
+  RemovalBasis,
   ResolutionProposal,
 } from "../../shared/fixer-types.js";
 import { animeTitleConflict } from "../arr/anime-title-match.js";
@@ -17,7 +18,11 @@ import type { InspectionFacts, TargetFacts } from "./inspection.js";
  * this.
  */
 
-const RELEASE_YEAR = /(?<!\d)(?:19|20)\d{2}(?!\d)/g;
+/**
+ * A four-digit year in a release name, not a frame size (1920x1080, 1920p),
+ * bitrate (2048kbps, 2048k) or a dimension's second half (1080x1920).
+ */
+const RELEASE_YEAR = /(?<!\d|\dx)(?:19|20)\d{2}(?!\d|x\d|[pi]\b|\s?k(?:bps|bit|b\/s)?\b)/gi;
 const EPISODE_CODE = /s\d{1,2}e\d{1,3}/i;
 const NAME_SEPARATORS = /[ ._-]+/;
 const LEADING_SEPARATOR = /^[ ._-]/;
@@ -218,10 +223,17 @@ function yearReason(
 ): string | undefined {
   if (queueItem.service === "sonarr") return seriesYearReason(queueItem, facts, file);
   const movieYear = file.targets[0]?.year ?? queueItem.movieYear;
+  // A number in the movie's own title is not its release year: Blade Runner
+  // 2049 (2017), 2001: A Space Odyssey (1968), Wonder Woman 1984 (2020).
+  const titleYears = new Set(
+    releaseYears([queueItem.movieTitle, ...(file.targets[0]?.titles ?? [])]),
+  );
+  const yearsOf = (names: Array<string | undefined>) =>
+    releaseYears(names).filter((year) => !titleYears.has(year));
   // The file's own names describe what was imported; the queue title is only
   // the grabbed release name and must not mask a different year inside it.
-  const fileYears = releaseYears([file.candidate.folderName, file.candidate.relativePath]);
-  const years = fileYears.length > 0 ? fileYears : releaseYears([queueItem.title]);
+  const fileYears = yearsOf([file.candidate.folderName, file.candidate.relativePath]);
+  const years = fileYears.length > 0 ? fileYears : yearsOf([queueItem.title]);
   if (!movieYear || years.length === 0 || years.some((year) => Math.abs(year - movieYear) <= 1)) {
     return undefined;
   }
@@ -893,6 +905,53 @@ function withoutNeedlessSearch(
       "The removal asked for a new search although the library file already has German audio; the fixer turned the search off.",
     ],
   };
+}
+
+/**
+ * What the removal guards read from the library and the files: each queued
+ * target's library file with its German audio, resolution, quality and score,
+ * and each feature file's inspected German audio and resolution. Built in a
+ * fixed key order, so two bases compare equal by their JSON.
+ */
+export function removalBasis(
+  queueItem: QueueItem,
+  candidates: ManualImportCandidate[],
+  facts: InspectionFacts,
+): RemovalBasis {
+  const ids = [
+    ...new Set(queueItem.service === "radarr" ? [queueItem.movieId ?? 0] : queueItem.episodeIds),
+  ].sort((a, b) => a - b);
+  return {
+    proberAvailable: facts.proberAvailable,
+    targets: ids.map((id) => {
+      const target = facts.targets.get(id);
+      if (!target) return { id, missing: true };
+      const file = target.currentFile;
+      return {
+        id,
+        fileId: file?.id,
+        path: file?.path,
+        quality: file?.quality,
+        score: file?.customFormatScore,
+        resolution: file ? resolutionClass(currentFrameSize(facts, target)) : undefined,
+        german: currentHasGerman(facts, target),
+      };
+    }),
+    candidates: candidates.filter(isFeatureFile).map((candidate) => {
+      const probe = facts.probes.get(candidate.path);
+      return {
+        id: candidate.id,
+        probe: probe?.ok ? "ok" : probe?.invalid ? "invalid" : "unread",
+        german: mayHaveGerman(facts, candidate),
+        resolution: resolutionClass(probeOf(facts, candidate.path)?.video),
+      };
+    }),
+  };
+}
+
+/** Whether two removal bases describe the same library and files. */
+export function sameRemovalBasis(saved: RemovalBasis | undefined, fresh: RemovalBasis): boolean {
+  return saved !== undefined && JSON.stringify(saved) === JSON.stringify(fresh);
 }
 
 /**
